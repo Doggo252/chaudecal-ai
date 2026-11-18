@@ -317,7 +317,7 @@ export type RunWireEvent =
   | { type: 'stream'; message: Message }
   | { type: 'busy'; conversationId: string; busy: boolean }
   | { type: 'route'; conversationId: string; decision: RouteDecision }
-  | { type: 'approval'; conversationId: string; messageId: string; request: ApprovalRequest }
+  | { type: 'approval'; conversationId: string; messageId: string; request: ApprovalRequest; settled?: boolean }
   | { type: 'denials'; conversationId: string; messageId: string; denials: PermissionDenial[] }
 
 export interface DiscoveredHub {
@@ -335,7 +335,10 @@ export type RunEvent =
   | { type: 'model'; model: string }
   | { type: 'usage'; usage: MessageUsage }
   | { type: 'limits'; fiveHour?: Partial<LimitWindow>; weekly?: Partial<LimitWindow> }
-  | { type: 'approval'; request: ApprovalRequest }
+  /** With `settled`, the request no longer needs an answer and its card should go away. */
+  | { type: 'approval'; request: ApprovalRequest; settled?: boolean }
+  /** The user allowed these rules for the rest of the conversation. */
+  | { type: 'grant'; rules: string[] }
   | { type: 'denials'; denials: PermissionDenial[] }
   | { type: 'error'; code: ErrorCode; message: string }
   | { type: 'done' }
@@ -346,6 +349,10 @@ export interface ApprovalRequest {
   kind: 'command' | 'file' | 'other'
   summary: string
   reason?: string
+  /** Name of the tool, shown when the request is neither a command nor a file change. */
+  tool?: string
+  /** Which assistant is asking. Filled in by the chat engine. */
+  provider?: ProviderId
 }
 
 export type ApprovalDecision = 'accept' | 'acceptForSession' | 'decline'

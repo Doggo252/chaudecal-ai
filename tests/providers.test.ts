@@ -1,16 +1,19 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RunEvent } from '@shared/types'
 import { ClaudeProvider } from '../src/main/providers/claude'
-import { createClaudeParser, describeTool, ruleFor } from '../src/main/providers/claudeParser'
+import { createClaudeParser, describeTool, readPermissionAsk, ruleFor, sessionRule } from '../src/main/providers/claudeParser'
 import { CodexProvider, codexErrorCode, codexItemToTool } from '../src/main/providers/codex'
-import { canRunFakes, tempDir, testSettings } from './helpers'
+import { canRunFakes, tempDir, testSettings, until } from './helpers'
 
 const cleanup: (() => void)[] = []
 afterEach(() => {
   for (const fn of cleanup.splice(0)) fn()
   delete process.env.FAKE_CLAUDE_LOGGED_OUT
   delete process.env.FAKE_CLAUDE_UTILIZATION
+  delete process.env.FAKE_CLAUDE_NO_LIVE
+  delete process.env.FAKE_LOG
 })
 
 function collect() {
@@ -48,6 +51,49 @@ describe('Claude stream parser', () => {
     const tools = c.events.filter((e) => e.type === 'tool').map((e) => (e as Extract<RunEvent, { type: 'tool' }>).tool)
     expect(tools[0]).toMatchObject({ id: 't1', name: 'Bash', summary: 'ls -la', status: 'running' })
     expect(tools[1]).toMatchObject({ status: 'done', output: 'a.txt' })
+  })
+
+  it('reads a permission question and describes it for the card', () => {
+    const ask = (tool: string, input: object, extra: object = {}) =>
+      readPermissionAsk({ type: 'control_request', request_id: 'r1', request: { subtype: 'can_use_tool', tool_name: tool, input, tool_use_id: 't1', ...extra } })
+    expect(ask('Bash', { command: 'npm test' }, { description: 'Run the tests' })).toMatchObject({
+      id: 'r1',
+      toolName: 'Bash',
+      toolUseId: 't1',
+      input: { command: 'npm test' },
+      request: { id: 'r1', kind: 'command', summary: 'npm test', reason: 'Run the tests', tool: 'Bash' }
+    })
+    expect(ask('Write', { file_path: '/etc/hosts' }, { decision_reason: 'Path is outside the working folder', description: 'ignored' })?.request).toMatchObject({
+      kind: 'file',
+      summary: '/etc/hosts',
+      reason: 'Path is outside the working folder'
+    })
+    expect(ask('mcp__notes__search', { query: 'cats' }, { display_name: 'Search notes' })?.request).toMatchObject({ kind: 'other', summary: 'cats', tool: 'Search notes' })
+    expect(ask('Skill', {})?.request).toMatchObject({ kind: 'other', summary: 'Skill', reason: undefined })
+    // Other kinds of request are not permission questions.
+    expect(readPermissionAsk({ type: 'control_request', request_id: 'r2', request: { subtype: 'hook_callback' } })).toBeUndefined()
+    expect(readPermissionAsk({ type: 'control_request', request: { subtype: 'can_use_tool', tool_name: 'Bash' } })).toBeUndefined()
+  })
+
+  it('remembers a narrow rule for the rest of a chat, or none', () => {
+    expect(sessionRule('Bash', { command: 'npm test' })).toBe('Bash(npm test)')
+    // Too involved to match exactly: remembering "all of Bash" would be far more than was allowed.
+    expect(sessionRule('Bash', { command: 'rm -rf build && npm run build' })).toBeUndefined()
+    expect(sessionRule('Edit', { file_path: '/tmp/a.txt' })).toBe('Edit')
+  })
+
+  it('keeps a declined action out of the list offered after the turn', () => {
+    const c = collect()
+    const p = createClaudeParser(c.emit)
+    p.line(JSON.stringify({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }, { type: 'tool_use', id: 't2', name: 'Bash', input: { command: 'ls' } }] } }))
+    p.refuse('t1')
+    p.line(JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content: 'The user declined.' }] } }))
+    expect(p.ended()).toBe(false)
+    p.line(JSON.stringify({ type: 'result', is_error: false, permission_denials: [{ tool_name: 'Bash', tool_use_id: 't1', tool_input: { command: 'npm test' } }, { tool_name: 'Bash', tool_use_id: 't2', tool_input: { command: 'ls' } }] }))
+    expect(p.ended()).toBe(true)
+    expect(c.events).toContainEqual({ type: 'denials', denials: [{ toolName: 'Bash', summary: 'ls', rule: 'Bash(ls)' }] })
+    const t1 = c.events.filter((e): e is Extract<RunEvent, { type: 'tool' }> => e.type === 'tool' && e.tool.id === 't1').map((e) => e.tool.status)
+    expect(t1).toEqual(['running', 'denied', 'denied', 'denied'])
   })
 
   it('reports limits, usage and denied actions from the final result', () => {
@@ -131,18 +177,137 @@ describe.skipIf(!canRunFakes)('Claude provider against a stand-in CLI', () => {
     expect((second.events.find((e) => e.type === 'session') as { sessionId: string }).sessionId).toBe(session.sessionId)
   })
 
-  it('surfaces a denied action, then runs it once allowed', async () => {
+  /** Starts a run that will ask for permission, and waits for the question. */
+  async function asking(prompt: string, mode: 'plan' | 'edit' = 'edit') {
+    const dir = tempDir()
+    const log = join(dir, 'fake.log')
+    process.env.FAKE_LOG = log
     const settings = testSettings()
-    const claude = new ClaudeProvider(() => settings, join(tempDir(), 'tmp'))
+    const claude = new ClaudeProvider(() => settings, join(dir, 'tmp'))
+    const c = collect()
+    const handle = claude.run({ prompt, system: '', model: '', mode, cwd: dir }, c.emit)
+    const asks = () => c.events.filter((e): e is Extract<RunEvent, { type: 'approval' }> => e.type === 'approval')
+    const tools = () => c.events.filter((e): e is Extract<RunEvent, { type: 'tool' }> => e.type === 'tool').map((e) => e.tool)
+    const answers = () =>
+      readFileSync(log, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l))
+        .filter((l) => l.permission)
+        .map((l) => l.permission)
+    return { c, handle, asks, tools, answers, claude, dir }
+  }
+
+  it('asks during the turn and carries on when allowed', async () => {
+    const { c, handle, asks, tools, answers } = await asking('run the tests [deny]')
+    await until(() => asks().length === 1, 5000, 'the question')
+    expect(asks()[0].request).toMatchObject({ kind: 'command', summary: 'npm test', reason: 'Run the test suite', tool: 'Bash' })
+    // Nothing has run yet: the turn is waiting for the answer.
+    expect(tools().at(-1)).toMatchObject({ name: 'Bash', status: 'running' })
+    handle.respondApproval!(asks()[0].request.id, 'accept')
+    await handle.done
+    expect(c.text()).toContain('I ran the tests')
+    expect(tools().at(-1)).toMatchObject({ status: 'done', output: 'All tests passed' })
+    expect(c.events.some((e) => e.type === 'denials' || e.type === 'grant' || e.type === 'error')).toBe(false)
+    expect(answers()).toEqual([expect.objectContaining({ toolName: 'Bash', behavior: 'allow', updatedInput: { command: 'npm test' } })])
+    expect(c.events.at(-1)).toEqual({ type: 'done' })
+  })
+
+  it('tells Claude when the user declines, and does not offer the action again afterwards', async () => {
+    const { c, handle, asks, tools, answers } = await asking('run the tests [deny]')
+    await until(() => asks().length === 1, 5000, 'the question')
+    handle.respondApproval!(asks()[0].request.id, 'decline')
+    await handle.done
+    expect(c.text()).toBe('I need permission to run the tests.')
+    expect(tools().at(-1)).toMatchObject({ name: 'Bash', status: 'denied' })
+    // The stand-in lists the call as blocked, as the real CLI does, but the user already answered.
+    expect(c.events.some((e) => e.type === 'denials')).toBe(false)
+    expect(answers()[0]).toMatchObject({ behavior: 'deny' })
+    expect(answers()[0].message).toMatch(/declined/)
+  })
+
+  it('asks once when the user allows something for the rest of the chat', async () => {
+    const { c, handle, asks, answers } = await asking('run the tests [deny] [twice]')
+    await until(() => asks().length === 1, 5000, 'the question')
+    handle.respondApproval!(asks()[0].request.id, 'acceptForSession')
+    await handle.done
+    expect(c.text()).toContain('I ran them a second time')
+    // The second, identical request was answered without another card.
+    expect(asks()).toHaveLength(1)
+    expect(answers().map((a) => a.behavior)).toEqual(['allow', 'allow'])
+    expect(c.events).toContainEqual({ type: 'grant', rules: ['Bash(npm test)'] })
+  })
+
+  it('asks again each time when the user allows only once', async () => {
+    const { handle, asks, c } = await asking('run the tests [deny] [twice]')
+    await until(() => asks().length === 1, 5000, 'the first question')
+    handle.respondApproval!(asks()[0].request.id, 'accept')
+    await until(() => asks().length === 2, 5000, 'the second question')
+    handle.respondApproval!(asks()[1].request.id, 'accept')
+    await handle.done
+    expect(c.text()).toContain('I ran them a second time')
+  })
+
+  it('withdraws a question that Claude Code settled by itself', async () => {
+    const { c, handle, asks } = await asking('run the tests [deny] [cancel]')
+    await handle.done
+    expect(asks().map((a) => !!a.settled)).toEqual([false, true])
+    expect(asks()[1].request.id).toBe(asks()[0].request.id)
+    expect(c.text()).toContain('I ran the tests')
+  })
+
+  it('answers a request to leave plan mode itself, so the plan arrives as a reply', async () => {
+    const { c, handle, asks, answers } = await asking('plan the change [plan]', 'plan')
+    await handle.done
+    expect(asks()).toHaveLength(0)
+    expect(c.text()).toContain('Here is the plan as text')
+    expect(c.events.some((e) => e.type === 'denials')).toBe(false)
+    expect(answers()[0]).toMatchObject({ toolName: 'ExitPlanMode', behavior: 'deny' })
+  })
+
+  it('stops while a question is waiting', async () => {
+    const { c, handle, asks } = await asking('run the tests [deny]')
+    await until(() => asks().length === 1, 5000, 'the question')
+    handle.stop()
+    await handle.done
+    expect(c.events).toContainEqual({ type: 'error', code: 'aborted', message: 'Stopped.' })
+  })
+
+  it('falls back to asking after the turn when the CLI is too old to ask during it', async () => {
+    process.env.FAKE_CLAUDE_NO_LIVE = '1'
+    const dir = tempDir()
+    const log = join(dir, 'fake.log')
+    process.env.FAKE_LOG = log
+    const settings = testSettings()
+    const claude = new ClaudeProvider(() => settings, join(dir, 'tmp'))
     const denied = collect()
-    await claude.run({ prompt: 'run the tests [deny]', system: '', model: '', mode: 'edit', cwd: tempDir() }, denied.emit).done
+    await claude.run({ prompt: 'run the tests [deny]', system: '', model: '', mode: 'edit', cwd: dir }, denied.emit).done
     const d = denied.events.find((e) => e.type === 'denials') as Extract<RunEvent, { type: 'denials' }>
     expect(d.denials).toEqual([{ toolName: 'Bash', summary: 'npm test', rule: 'Bash(npm test)' }])
+    expect(denied.events.some((e) => e.type === 'approval' || e.type === 'error')).toBe(false)
 
     const allowed = collect()
-    await claude.run({ prompt: 'run the tests [deny]', system: '', model: '', mode: 'edit', cwd: tempDir(), allow: d.denials.map((x) => x.rule) }, allowed.emit).done
+    await claude.run({ prompt: 'run the tests [deny]', system: '', model: '', mode: 'edit', cwd: dir, allow: d.denials.map((x) => x.rule) }, allowed.emit).done
     expect(allowed.events.some((e) => e.type === 'denials')).toBe(false)
     expect(allowed.text()).toContain('Claude here.')
+
+    // Tried once with the option, then without, and it was not tried again for the next turn.
+    const starts = readFileSync(log, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l))
+      .filter((l) => Array.isArray(l.args) && l.args.includes('-p'))
+      .map((l) => l.args.includes('--permission-prompt-tool'))
+    expect(starts).toEqual([true, false, false])
+  })
+
+  it('does not ask during one-off runs, which nobody is watching', async () => {
+    const settings = testSettings()
+    const claude = new ClaudeProvider(() => settings, join(tempDir(), 'tmp'))
+    const c = collect()
+    await claude.run({ prompt: 'run the tests [deny]', system: '', model: '', mode: 'edit', cwd: tempDir(), ephemeral: true }, c.emit).done
+    expect(c.events.some((e) => e.type === 'approval')).toBe(false)
+    expect(c.events.some((e) => e.type === 'denials')).toBe(true)
   })
 
   it('reports a missing CLI and an expired sign-in as errors', async () => {

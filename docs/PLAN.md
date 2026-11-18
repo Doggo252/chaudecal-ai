@@ -84,11 +84,19 @@ Each is trimmed to the context budget (400,000 tokens by default) and then to wh
 
 A conversation can be marked to run on the hub. When a message is sent in one from another device, that device first makes sure the hub has everything (the conversation, earlier messages, attached images), then asks the hub to answer. The hub's own conversation engine does exactly what it does for a message typed at the hub: it picks the provider, resumes or catches up that provider's session, and runs it in a folder on the hub.
 
-Progress is sent to connected devices over the same event stream that announces sync changes, throttled so a long reply does not flood the connection. The finished messages arrive through ordinary sync. A device shows a run as finished only once the saved reply is there, so the live copy never disappears first. Stop and approval answers go back to the hub as small requests.
+Progress is sent to connected devices over the same event stream that announces sync changes, throttled so a long reply does not flood the connection. The finished messages arrive through ordinary sync. A device shows a run as finished only once the saved reply is there, so the live copy never disappears first. Stop and approval answers go back to the hub as small requests. When a question has been answered, on any device or by the assistant withdrawing it, the hub says so on the same stream and every window removes its card.
 
 The provider sessions live on the hub, so they survive the other device sleeping, and a run started from the Mac can be continued at the PC or the other way round.
 
 This is off by default, because it allows a paired device to run commands on the hub.
+
+### Permission questions
+
+Both command line tools can stop in the middle of a turn and ask whether an action is allowed. ChatGPT's tool sends an approval request over its app server connection. Claude Code is started with its permission prompt set to the standard streams: it then writes a `can_use_tool` request on its output and waits for an allow or deny answer on its input, which the app keeps open until the turn ends. This is the same exchange Anthropic's own Agent SDK uses.
+
+The app turns either kind into one approval card. Two requests are answered without a card because they only make sense in Claude Code's own window: leaving plan mode (Claude is told to give the plan as its reply) and multiple choice questions (Claude is told to ask in its reply). Compare answers are one-off runs with nobody watching for questions, so they never ask.
+
+If the installed Claude Code does not know the option, the first attempt fails before producing anything. The app then runs the turn the earlier way, remembers that for the session, and lists blocked actions after the turn.
 
 ### Sync
 
@@ -111,6 +119,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 - The window runs sandboxed with no Node access. It talks to the main process through a fixed list of calls.
 - Rendered Markdown is sanitized.
 - Chat mode gives the assistants no access to files or the shell. File access is opt-in per conversation, inside one folder.
+- Outside Auto mode an assistant has to ask before it runs a command, and the question shows the exact command. Something allowed "for this chat" is stored as the narrowest rule that covers it (one exact command, not the whole shell), stays on the machine doing the work, and is dropped when the conversation's folder changes.
 - API key variables are removed from the command line tools' environment so a stray key cannot cause surprise charges.
 - The website tabs use separate storage from the rest of the app.
 
@@ -124,7 +133,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Local AI, direct and through the hub | Built, tested against a stand-in server |
 | Model picker for each assistant | Built |
 | Chat, Plan, Edit and Auto modes with a working folder | Built |
-| Approvals (live for ChatGPT, after the turn for Claude) | Built, tested |
+| Approvals during the turn, for Claude and ChatGPT, on this device and across devices | Built, tested against stand-ins. Real Claude Code accepts the option and the message format. A real question from Claude has not been answered yet (see below). |
 | Running context files and the switch dialog | Built, tested |
 | Usage tracker and limit banner | Built, tested |
 | Smart routing | Built, tested |
@@ -143,7 +152,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Mac installer | Built and launched |
 | Windows installer | Built by GitHub Actions. Not yet run on a real PC. |
 
-Not verified yet: real answers from Claude on the development Mac (its command line sign-in had expired, so image input to real Claude is also unchecked), real Ollama and LM Studio, sync between two physical machines, and anything on Windows beyond the automated build.
+Not verified yet: real answers from Claude on the development Mac (its command line sign-in had expired, so image input to real Claude and a real permission question from Claude are also unchecked), real Ollama and LM Studio, sync between two physical machines, and anything on Windows beyond the automated build.
 
 ### How attachments work
 
@@ -153,10 +162,10 @@ An image is stored as its own record, so it syncs like a message does. Sync batc
 
 ### Next
 
-1. **Live approvals for Claude.** Ask during the turn, not after it, using the permission prompt hook in Claude Code.
-2. **Browse folders on the hub** from another device, where today the path is typed.
-3. **A notification when a long run on the hub finishes.**
-4. **PDF attachments.**
+1. **Browse folders on the hub** from another device, where today the path is typed.
+2. **A notification when a long run on the hub finishes or stops to ask a question.**
+3. **PDF attachments.**
+4. **Answer Claude's own questions in the app.** When Claude wants to ask a multiple choice question, it is told to ask in its reply. A proper form would be nicer.
 5. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
 6. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
 

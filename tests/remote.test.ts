@@ -54,7 +54,7 @@ async function setup(patch: (hub: Settings) => void = () => {}) {
     {
       stream: (message) => server.broadcastRun({ type: 'stream', message }),
       route: (conversationId, decision) => server.broadcastRun({ type: 'route', conversationId, decision }),
-      approval: (conversationId, messageId, request) => server.broadcastRun({ type: 'approval', conversationId, messageId, request }),
+      approval: (conversationId, messageId, request, settled) => server.broadcastRun({ type: 'approval', conversationId, messageId, request, settled }),
       denials: (conversationId, messageId, denials) => server.broadcastRun({ type: 'denials', conversationId, messageId, denials }),
       busy: (conversationId, busy) => server.broadcastRun({ type: 'busy', conversationId, busy })
     },
@@ -203,6 +203,22 @@ describe.skipIf(!canRunFakes)('running assistants on the hub from another device
     await finished(conv.id)
     expect(replies(conv.id)[0].status).toBe('complete')
     expect(readFileSync(log, 'utf8')).toContain('"approval":"accept"')
+  })
+
+  it("shows Claude's question on the other device, and takes the answer from there", async () => {
+    const { remote, events, log, conversation, replies, finished } = await setup()
+    const conv = conversation({ provider: 'claude', mode: 'edit' })
+    await remote.send({ conversationId: conv.id, text: 'Run the tests [deny]' })
+    const asks = () => events.filter((e): e is Extract<RunWireEvent, { type: 'approval' }> => e.type === 'approval')
+    await until(() => asks().length === 1, 8000, 'the question to arrive')
+    expect(asks()[0].request).toMatchObject({ provider: 'claude', kind: 'command', summary: 'npm test' })
+    remote.respondApproval(conv.id, asks()[0].messageId, asks()[0].request.id, 'accept')
+    await finished(conv.id)
+    expect(replies(conv.id)[0]).toMatchObject({ status: 'complete', provider: 'claude' })
+    expect(replies(conv.id)[0].text).toContain('I ran the tests')
+    // The hub confirms the question is settled, which is what clears the card on every device.
+    expect(asks()[1]).toMatchObject({ settled: true, request: { id: asks()[0].request.id } })
+    expect(readFileSync(log, 'utf8')).toContain('"behavior":"allow"')
   })
 
   it('notices runs that started or ended while it was not listening', async () => {

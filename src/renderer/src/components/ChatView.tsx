@@ -45,10 +45,15 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
     return live.length ? [...stored, ...live].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)) : stored
   }, [stored, streaming, conversationId])
 
+  // A question holds up the whole turn, so it is always brought into view.
+  const asked = useRef(0)
   useLayoutEffect(() => {
     const el = scroller.current
+    const waiting = approvals?.length ?? 0
+    if (waiting > asked.current) stick.current = true
+    asked.current = waiting
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [messages])
+  }, [messages, approvals, denial])
 
   useEffect(() => {
     if (!focusMessageId) return
@@ -249,7 +254,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                 approvals?.map((a) => (
                   <ApprovalCard
                     key={a.request.id}
-                    provider="chatgpt"
+                    provider={a.request.provider ?? 'chatgpt'}
                     request={a.request}
                     onDecision={(d) => {
                       void window.api.respondApproval(conversation.id, a.messageId, a.request.id, d)

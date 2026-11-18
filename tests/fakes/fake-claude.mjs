@@ -28,8 +28,41 @@ const arg = (name) => {
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`)
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
+// With --permission-prompt-tool stdio the CLI asks for permission during the turn: it writes a
+// control_request on stdout and reads the control_response from stdin, which therefore stays open.
+const live = arg('--permission-prompt-tool') === 'stdio'
+if (live && process.env.FAKE_CLAUDE_NO_LIVE === '1') {
+  process.stderr.write("error: unknown option '--permission-prompt-tool'\n")
+  process.exit(1)
+}
+
+const queue = []
+const waiters = []
+let inputEnded = false
+let pending = ''
+const push = (line) => (waiters.length ? waiters.shift()(line) : queue.push(line))
+process.stdin.on('data', (d) => {
+  pending += d
+  let i
+  while ((i = pending.indexOf('\n')) >= 0) {
+    push(pending.slice(0, i))
+    pending = pending.slice(i + 1)
+  }
+})
+process.stdin.on('end', () => {
+  inputEnded = true
+  for (const w of waiters.splice(0)) w(undefined)
+})
+/** The next line of input, or undefined once the input has been closed. */
+const nextLine = () => (queue.length ? Promise.resolve(queue.shift()) : inputEnded ? Promise.resolve(undefined) : new Promise((r) => waiters.push(r)))
+
 let prompt = ''
-for await (const chunk of process.stdin) prompt += chunk
+if (live) {
+  prompt = (await nextLine()) ?? ''
+} else {
+  for (let line = await nextLine(); line !== undefined; line = await nextLine()) prompt += `${line}\n`
+  prompt += pending
+}
 
 // With --input-format stream-json the turn arrives as one JSON message that can carry images.
 let imageCount = 0
@@ -68,8 +101,6 @@ if (arg('--resume')) notes.push('I resumed my earlier session')
 if (imageCount) notes.push(`I can see ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`)
 if (prompt.includes('<attached_file')) notes.push('I read the attached file')
 if (system.includes('standing instructions')) notes.push('I have your standing instructions')
-const reply = `Claude here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
-
 const utilization = Number(process.env.FAKE_CLAUDE_UTILIZATION ?? '0.2')
 out({
   type: 'rate_limit_event',
@@ -80,23 +111,88 @@ out({
 const stream = (event) => out({ type: 'stream_event', ...base, parent_tool_use_id: null, event })
 stream({ type: 'message_start' })
 
-const wantsTool = prompt.includes('[tool]') || prompt.includes('[deny]')
-if (wantsTool) {
-  const toolId = `toolu_${randomUUID().slice(0, 8)}`
-  const command = prompt.includes('[deny]') ? 'npm test' : 'ls'
-  out({ type: 'assistant', ...base, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id: toolId, name: 'Bash', input: { command } }] } })
-  await sleep(30)
-  const allowed = (arg('--allowedTools') ?? '').includes('Bash')
-  if (prompt.includes('[deny]') && !allowed) {
-    out({ type: 'user', ...base, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, is_error: true, content: 'Permission denied' }] } })
-    stream({ type: 'content_block_start', content_block: { type: 'text' } })
-    stream({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'I need permission to run the tests.' } })
-    out({ type: 'assistant', ...base, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text: 'I need permission to run the tests.' }] } })
-    out({ type: 'result', subtype: 'success', is_error: false, result: 'I need permission to run the tests.', usage: { input_tokens: 40, output_tokens: 12 }, permission_denials: [{ tool_name: 'Bash', tool_use_id: toolId, tool_input: { command } }], ...base })
-    process.exit(0)
-  }
-  out({ type: 'user', ...base, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolId, content: 'file-a.txt\nfile-b.txt' }] } })
+/** Ends the turn. Like the real CLI, a live run only exits once its input has been closed. */
+async function end(result) {
+  out(result)
+  if (live) while ((await nextLine()) !== undefined);
+  process.exit(result.is_error ? 1 : 0)
 }
+
+const toolUse = (id, name, input) => out({ type: 'assistant', ...base, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'tool_use', id, name, input }] } })
+const toolResult = (id, content, isError = false) =>
+  out({ type: 'user', ...base, parent_tool_use_id: null, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, is_error: isError, content }] } })
+const newToolId = () => `toolu_${randomUUID().slice(0, 8)}`
+
+/** Asks the app whether a tool may be used, and waits for its answer. */
+async function ask(toolName, input, toolUseId, extra = {}) {
+  const id = randomUUID()
+  out({ type: 'control_request', request_id: id, request: { subtype: 'can_use_tool', tool_name: toolName, display_name: toolName, input, tool_use_id: toolUseId, ...extra } })
+  if (prompt.includes('[cancel]')) {
+    // Settled without the app, the way one of the user's own hooks would.
+    await sleep(40)
+    out({ type: 'control_cancel_request', request_id: id })
+    return { behavior: 'allow', updatedInput: input }
+  }
+  for (;;) {
+    const line = await nextLine()
+    if (line === undefined) process.exit(1)
+    let msg
+    try {
+      msg = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (msg.type !== 'control_response' || msg.response?.request_id !== id) continue
+    const answer = msg.response.subtype === 'success' ? msg.response.response : { behavior: 'deny', message: String(msg.response.error) }
+    if (log) appendFileSync(log, `${JSON.stringify({ tool: 'claude', permission: { toolName, ...answer } })}\n`)
+    return answer
+  }
+}
+
+const denials = []
+const say = async (text) => {
+  stream({ type: 'content_block_start', content_block: { type: 'text' } })
+  stream({ type: 'content_block_delta', delta: { type: 'text_delta', text } })
+  out({ type: 'assistant', ...base, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text }] } })
+}
+
+if (prompt.includes('[plan]')) {
+  // Plan mode ends with a request to leave it, which only Claude Code's own window can show.
+  const toolId = newToolId()
+  const input = { plan: '1. Read the code\n2. Change it' }
+  toolUse(toolId, 'ExitPlanMode', input)
+  const answer = live ? await ask('ExitPlanMode', input, toolId) : { behavior: 'deny', message: 'Permission denied' }
+  if (answer.behavior === 'allow') {
+    toolResult(toolId, 'Plan approved')
+    notes.push('I left plan mode')
+  } else {
+    toolResult(toolId, answer.message, true)
+    denials.push({ tool_name: 'ExitPlanMode', tool_use_id: toolId, tool_input: input })
+    notes.push(/as your answer/.test(answer.message) ? 'Here is the plan as text' : 'I could not show the plan')
+  }
+}
+
+if (prompt.includes('[tool]') || prompt.includes('[deny]')) {
+  const command = prompt.includes('[deny]') ? 'npm test' : 'ls'
+  const allowed = !prompt.includes('[deny]') || (arg('--allowedTools') ?? '').includes('Bash')
+  const rounds = prompt.includes('[twice]') ? 2 : 1
+  for (let round = 0; round < rounds; round++) {
+    const toolId = newToolId()
+    toolUse(toolId, 'Bash', { command })
+    await sleep(30)
+    const answer = allowed ? { behavior: 'allow' } : live ? await ask('Bash', { command }, toolId, { description: 'Run the test suite' }) : { behavior: 'deny', message: 'Permission denied' }
+    if (answer.behavior !== 'allow') {
+      toolResult(toolId, answer.message, true)
+      denials.push({ tool_name: 'Bash', tool_use_id: toolId, tool_input: { command } })
+      await say('I need permission to run the tests.')
+      await end({ type: 'result', subtype: 'success', is_error: false, result: 'I need permission to run the tests.', usage: { input_tokens: 40, output_tokens: 12 }, permission_denials: denials, ...base })
+    }
+    toolResult(toolId, command === 'ls' ? 'file-a.txt\nfile-b.txt' : 'All tests passed')
+    if (!allowed) notes.push(round ? 'I ran them a second time' : 'I ran the tests')
+  }
+}
+
+const reply = `Claude here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
 
 stream({ type: 'content_block_start', content_block: { type: 'text' } })
 const delay = Number(process.env.FAKE_DELAY_MS ?? '8')
@@ -105,4 +201,4 @@ for (const word of reply.split(/(?<= )/)) {
   await sleep(delay)
 }
 out({ type: 'assistant', ...base, parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text: reply }] } })
-out({ type: 'result', subtype: 'success', is_error: false, result: reply, usage: { input_tokens: Math.ceil(prompt.length / 4), output_tokens: Math.ceil(reply.length / 4) }, permission_denials: [], ...base })
+await end({ type: 'result', subtype: 'success', is_error: false, result: reply, usage: { input_tokens: Math.ceil(prompt.length / 4), output_tokens: Math.ceil(reply.length / 4) }, permission_denials: denials, ...base })

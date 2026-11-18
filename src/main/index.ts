@@ -102,7 +102,7 @@ function showRunEvent(event: RunWireEvent): void {
   if (event.type === 'stream') send('stream', event.message)
   else if (event.type === 'busy') send('busy', { conversationId: event.conversationId, busy: event.busy })
   else if (event.type === 'route') send('route', { conversationId: event.conversationId, decision: event.decision })
-  else if (event.type === 'approval') send('approval', { conversationId: event.conversationId, messageId: event.messageId, request: event.request })
+  else if (event.type === 'approval') send('approval', { conversationId: event.conversationId, messageId: event.messageId, request: event.request, settled: event.settled })
   else send('denials', { conversationId: event.conversationId, messageId: event.messageId, denials: event.denials })
 }
 
@@ -578,7 +578,7 @@ app.whenReady().then(async () => {
       return {
         stream: (message) => both({ type: 'stream', message }),
         route: (conversationId, decision) => both({ type: 'route', conversationId, decision }),
-        approval: (conversationId, messageId, request) => both({ type: 'approval', conversationId, messageId, request }),
+        approval: (conversationId, messageId, request, settled) => both({ type: 'approval', conversationId, messageId, request, settled }),
         denials: (conversationId, messageId, denials) => both({ type: 'denials', conversationId, messageId, denials }),
         busy: (conversationId, busy) => both({ type: 'busy', conversationId, busy })
       }

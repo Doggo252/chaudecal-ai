@@ -207,7 +207,7 @@ export function ApprovalCard({ provider, request, onDecision }: { provider: Prov
   return (
     <div className="card" data-testid="approval-card">
       <div className="card-title">
-        {PROVIDER_LABEL[provider]} wants to {request.kind === 'command' ? 'run a command' : 'change files'}
+        {PROVIDER_LABEL[provider]} wants to {request.kind === 'command' ? 'run a command' : request.kind === 'file' ? 'change files' : `use ${request.tool ?? 'a tool'}`}
       </div>
       <ul>
         <li>
@@ -216,13 +216,13 @@ export function ApprovalCard({ provider, request, onDecision }: { provider: Prov
         {request.reason && <li>{request.reason}</li>}
       </ul>
       <div className="card-actions">
-        <button type="button" className="btn btn-small btn-primary" onClick={() => onDecision('accept')}>
+        <button type="button" className="btn btn-small btn-primary" data-testid="approve-once" onClick={() => onDecision('accept')}>
           Allow once
         </button>
-        <button type="button" className="btn btn-small" onClick={() => onDecision('acceptForSession')}>
+        <button type="button" className="btn btn-small" data-testid="approve-chat" onClick={() => onDecision('acceptForSession')}>
           Allow for this chat
         </button>
-        <button type="button" className="btn btn-small" onClick={() => onDecision('decline')}>
+        <button type="button" className="btn btn-small" data-testid="approve-decline" onClick={() => onDecision('decline')}>
           Decline
         </button>
       </div>

@@ -1,7 +1,7 @@
 // Turns the Claude Code CLI's stream-json output (one JSON object per line)
 // into the app's provider-neutral run events. Pure: no process handling here.
 
-import type { PermissionDenial, RunEvent, ToolCall } from '@shared/types'
+import type { ApprovalRequest, PermissionDenial, RunEvent, ToolCall } from '@shared/types'
 import { limitsFromClaude, type ClaudeRateLimitInfo } from '@shared/usage'
 import { truncate } from './types'
 
@@ -22,6 +22,50 @@ export function ruleFor(name: string, input: Json | undefined): string {
   return name
 }
 
+/**
+ * The rule that is remembered when the user allows something for the rest of the chat.
+ * A command that is too involved to match exactly gets no rule, so it is asked about each time.
+ */
+export function sessionRule(name: string, input: Json | undefined): string | undefined {
+  const rule = ruleFor(name, input)
+  return name === 'Bash' && rule === 'Bash' ? undefined : rule
+}
+
+const COMMAND_TOOLS = new Set(['Bash', 'BashOutput', 'KillShell', 'KillBash'])
+const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
+
+/** A question Claude Code asks in the middle of a turn: may this tool be used? */
+export interface PermissionAsk {
+  /** The id the answer has to carry. */
+  id: string
+  toolName: string
+  toolUseId?: string
+  input: Json
+  request: ApprovalRequest
+}
+
+/** Reads a `can_use_tool` control request. Anything else gives undefined. */
+export function readPermissionAsk(msg: Json): PermissionAsk | undefined {
+  const r = msg?.request
+  if (msg?.type !== 'control_request' || typeof msg.request_id !== 'string' || r?.subtype !== 'can_use_tool' || typeof r.tool_name !== 'string') return undefined
+  const input: Json = r.input && typeof r.input === 'object' ? r.input : {}
+  const summary = describeTool(r.tool_name, input) || r.tool_name
+  const why = [r.decision_reason, r.description].find((t) => typeof t === 'string' && t.trim() && t.trim() !== summary)
+  return {
+    id: msg.request_id,
+    toolName: r.tool_name,
+    toolUseId: typeof r.tool_use_id === 'string' ? r.tool_use_id : undefined,
+    input,
+    request: {
+      id: msg.request_id,
+      kind: COMMAND_TOOLS.has(r.tool_name) ? 'command' : FILE_TOOLS.has(r.tool_name) ? 'file' : 'other',
+      summary,
+      reason: why ? String(why).trim().slice(0, 300) : undefined,
+      tool: typeof r.display_name === 'string' && r.display_name ? r.display_name : r.tool_name
+    }
+  }
+}
+
 function toolResultText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
@@ -33,12 +77,23 @@ function toolResultText(content: unknown): string {
   return ''
 }
 
-export function createClaudeParser(emit: (event: RunEvent) => void): { line(raw: string): void; sawError(): boolean } {
+export interface ClaudeParser {
+  line(raw: string): void
+  sawError(): boolean
+  /** True once the CLI has reported the end of the turn. */
+  ended(): boolean
+  /** The user already said no to this tool call, so it is not offered again after the turn. */
+  refuse(toolUseId: string): void
+}
+
+export function createClaudeParser(emit: (event: RunEvent) => void): ClaudeParser {
   /** Text for the current block already arrived as deltas, so the full copy is skipped. */
   let streamedText = false
   let anyText = false
   let errored = false
+  let ended = false
   const tools = new Map<string, ToolCall>()
+  const refused = new Set<string>()
 
   const text = (delta: string) => {
     if (!delta) return
@@ -53,6 +108,12 @@ export function createClaudeParser(emit: (event: RunEvent) => void): { line(raw:
 
   return {
     sawError: () => errored,
+    ended: () => ended,
+    refuse(toolUseId: string) {
+      refused.add(toolUseId)
+      const tool = tools.get(toolUseId)
+      if (tool) emit({ type: 'tool', tool: { ...tool, status: 'denied' } })
+    },
     line(raw: string) {
       let msg: Json
       try {
@@ -119,7 +180,8 @@ export function createClaudeParser(emit: (event: RunEvent) => void): { line(raw:
             if (block.type !== 'tool_result') continue
             const tool = tools.get(block.tool_use_id)
             if (!tool) continue
-            const done: ToolCall = { ...tool, status: block.is_error ? 'error' : 'done', output: truncate(toolResultText(block.content)) }
+            const status = refused.has(tool.id) ? 'denied' : block.is_error ? 'error' : 'done'
+            const done: ToolCall = { ...tool, status, output: truncate(toolResultText(block.content)) }
             tools.set(done.id, done)
             emit({ type: 'tool', tool: done })
           }
@@ -131,6 +193,7 @@ export function createClaudeParser(emit: (event: RunEvent) => void): { line(raw:
           return
         }
         case 'result': {
+          ended = true
           const u = msg.usage
           if (u) {
             emit({
@@ -141,18 +204,16 @@ export function createClaudeParser(emit: (event: RunEvent) => void): { line(raw:
               }
             })
           }
-          const denials: PermissionDenial[] = (msg.permission_denials ?? []).map((d: Json) => ({
-            toolName: d.tool_name,
-            summary: describeTool(d.tool_name, d.tool_input),
-            rule: ruleFor(d.tool_name, d.tool_input)
-          }))
-          if (denials.length) {
-            for (const d of msg.permission_denials as Json[]) {
-              const tool = tools.get(d.tool_use_id)
-              if (tool) emit({ type: 'tool', tool: { ...tool, status: 'denied' } })
-            }
-            emit({ type: 'denials', denials })
+          const blocked: Json[] = Array.isArray(msg.permission_denials) ? msg.permission_denials : []
+          for (const d of blocked) {
+            const tool = tools.get(d.tool_use_id)
+            if (tool) emit({ type: 'tool', tool: { ...tool, status: 'denied' } })
           }
+          // What the user declined during the turn was their choice. Only the rest is offered again.
+          const denials: PermissionDenial[] = blocked
+            .filter((d) => !refused.has(d.tool_use_id))
+            .map((d) => ({ toolName: d.tool_name, summary: describeTool(d.tool_name, d.tool_input), rule: ruleFor(d.tool_name, d.tool_input) }))
+          if (denials.length) emit({ type: 'denials', denials })
           if (msg.is_error && !errored) {
             const body = typeof msg.result === 'string' ? msg.result : 'Claude reported an error.'
             if (msg.api_error_status === 401) fail('auth', 'Claude is not signed in on this machine. Sign in again from Settings.')

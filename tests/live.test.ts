@@ -2,6 +2,7 @@
 // Skipped unless CHAUDECAL_LIVE names what to check, for example:
 //   CHAUDECAL_LIVE=chatgpt,claude npx vitest run tests/live.test.ts
 // Add chatgpt-image or claude-image to check that an attached image is really seen.
+// Add claude-ask to check that Claude really stops and asks before it runs a command.
 // Each check sends one very short message, so it uses a little of your plan.
 
 import { describe, expect, it } from 'vitest'
@@ -103,5 +104,32 @@ describe.skipIf(!live.includes('claude-image'))('live: Claude sees an attached i
     const errors = c.events.filter((e) => e.type === 'error')
     if (errors.length) expect(errors).toEqual([expect.objectContaining({ code: 'auth' })])
     else expect(c.text()).toContain('3')
+  }, 180_000)
+})
+
+describe.skipIf(!live.includes('claude-ask'))('live: Claude asks before running a command', () => {
+  it('stops for a question, runs the command once allowed, or says clearly that sign-in is needed', async () => {
+    await loadShellPath()
+    const claude = new ClaudeProvider(() => settings, join(tempDir(), 'tmp'))
+    const c = collect()
+    const prompt = 'Run this exact shell command and tell me the number it prints: node -e "console.log(123456 * 3)"'
+    const handle = claude.run({ prompt, system: '', model: 'haiku', mode: 'edit', cwd: tempDir() }, c.emit)
+    let finished = false
+    void handle.done.then(() => (finished = true))
+    const ask = () => c.events.find((e): e is Extract<RunEvent, { type: 'approval' }> => e.type === 'approval')
+    while (!finished && !ask()) await new Promise((r) => setTimeout(r, 100))
+    const asked = ask()
+    console.log('question', asked?.request)
+    if (asked) handle.respondApproval!(asked.request.id, 'accept')
+    await handle.done
+    console.log('reply', c.text(), c.events.filter((e) => e.type === 'error' || e.type === 'denials' || e.type === 'tool'))
+    const errors = c.events.filter((e) => e.type === 'error')
+    if (errors.length) {
+      expect(errors).toEqual([expect.objectContaining({ code: 'auth' })])
+      return
+    }
+    expect(asked?.request).toMatchObject({ kind: 'command' })
+    expect(c.text()).toContain('370368')
+    expect(c.events.some((e) => e.type === 'denials')).toBe(false)
   }, 180_000)
 })

@@ -19,7 +19,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Attachments.** Attach, paste or drop images and text files. Images go to whichever assistant is answering and follow the conversation when it switches. They sync between your machines too.
 - **Second opinion and branching.** One click asks another assistant to review an answer. Any answer can be branched into a separate conversation to try a different direction.
 - **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, artifacts, account settings). A web chat can be brought into the unified chat.
-- **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose.
+- **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
 
 | Switching assistants | Comparing answers |
 | --- | --- |
@@ -29,9 +29,9 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 | --- | --- |
 | ![An image and a text file attached to a message](docs/screenshots/attachments.png) | ![Usage tracker](docs/screenshots/usage.png) |
 
-| Working on the hub from another device |
-| --- |
-| ![A conversation on the Mac that runs on the hub PC, in a folder on the PC](docs/screenshots/remote.png) |
+| Working on the hub from another device | Asking before it acts |
+| --- | --- |
+| ![A conversation on the Mac that runs on the hub PC, in a folder on the PC](docs/screenshots/remote.png) | ![Claude asking whether it may run a command](docs/screenshots/approval.png) |
 
 The screenshots come from the automated test, which uses stand-in assistants, so the replies and numbers in them are not real.
 
@@ -122,7 +122,7 @@ This lets the Mac hand work to the PC: the PC's own Claude Code and Codex do it,
 2. On the Mac, a "Runs on" button appears in the message box within a minute. Choose the PC there for a conversation, or turn on "Run new conversations on the hub" under Settings, "Sync and hub".
 3. For Plan, Edit or Auto mode, click the folder button and type the full path of a folder on the PC, for example `C:\Users\you\project`.
 
-Replies stream to the Mac as they are written. If the Mac goes to sleep or offline, the PC carries on and the finished reply syncs when the Mac is back. Approval requests from ChatGPT appear on the Mac.
+Replies stream to the Mac as they are written. If the Mac goes to sleep or offline, the PC carries on and the finished reply syncs when the Mac is back. When Claude or ChatGPT asks for permission, the question appears on the Mac, and on the PC's own screen too. Answering on either one clears it on both.
 
 **Read this before turning it on.** With this setting on, anyone who has the pairing code and can reach the PC can edit files and run commands on it. Keep the hub on your home network and Tailscale, never forward its port to the internet, and make a new pairing code if the old one may have leaked. The setting is off by default.
 
@@ -130,6 +130,7 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 
 - **Choosing an assistant.** The picker in the message box sets the assistant and model. Auto keeps a conversation with the assistant it is already using, sends coding work to Claude and general questions to ChatGPT, answers short questions locally when you allow it, and steers away from an assistant that is close to its limit.
 - **Modes.** Chat is conversation only with web lookups. Plan lets the assistant read a folder and propose changes. Edit lets it change files in the folder. Auto also lets it run commands. Choose the folder with the folder button in the message box.
+- **Permission questions.** When an assistant wants to go beyond its mode (run a command in Edit mode, for example), the reply pauses and a card shows exactly what it wants to do. "Allow once" lets that one action through. "Allow for this chat" also stops it asking again for the same thing in this conversation. "Decline" tells the assistant no, and it carries on without it.
 - **Switching.** Click the switch button at the top of a conversation, pick the assistant, and choose what to hand over: the summary with recent messages (smaller, faster) or the full transcript (complete). The receiving assistant gets the file with your next message.
 - **The context files.** Both files are plain Markdown and are rewritten after every reply. Open them from the conversation menu to paste into anything else. The largest file is capped by the context budget in Settings (400,000 tokens by default) and by what the receiving model can take.
 - **Attachments.** Use the paperclip, paste a screenshot, or drop files on the message box. Images can be PNG, JPEG, GIF or WebP up to 8 MB. Text files (code, Markdown, CSV and so on) are read into the message, so they travel in the context file. When a conversation moves to another assistant, its four most recent images are sent along.
@@ -143,7 +144,8 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 
 - Image generation and voice are available through the built-in website tabs, not through the unified chat. PDFs cannot be attached yet.
 - A local model only understands images if it is a vision model. Others will report an error or ignore the image.
-- Claude asks for permission after a turn, not during it. If Claude was blocked from doing something, a card offers "Allow and continue". ChatGPT asks live.
+- Claude asking during a reply needs a recent Claude Code. With an older one the app notices and falls back to asking afterwards: a card lists what Claude was blocked from doing and offers "Allow and continue".
+- "Allow for this chat" is remembered on the machine doing the work, and for Claude it is forgotten when you choose a different folder. A long command made of several parts is asked about each time, because allowing it "for this chat" would have to allow every command.
 - A folder on the hub is chosen by typing its path. It cannot be browsed from the other device yet.
 - If the Mac disconnects while the PC is working, the PC finishes anyway, but an approval request raised in the meantime waits on the PC's own screen.
 - Local models chat only. They do not edit files or run commands.
@@ -168,7 +170,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 20 checks |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 21 checks |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 
@@ -178,7 +180,7 @@ The tests never contact Claude or ChatGPT. They use small stand-in programs in [
 CHAUDECAL_LIVE=chatgpt,claude npm test
 ```
 
-Add `chatgpt-image` or `claude-image` to that list to check that an attached image is really seen.
+Add `chatgpt-image` or `claude-image` to that list to check that an attached image is really seen. Add `claude-ask` to check that Claude really stops and asks before running a command.
 
 The design, the architecture and the roadmap are in [docs/PLAN.md](docs/PLAN.md).
 

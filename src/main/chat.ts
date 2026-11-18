@@ -52,7 +52,8 @@ export interface ChatEvents {
   /** A message changed while streaming. Not yet saved. */
   stream(message: Message): void
   route(conversationId: string, decision: RouteDecision): void
-  approval(conversationId: string, messageId: string, request: ApprovalRequest): void
+  /** With `settled`, the request was answered or withdrawn and its card should go away. */
+  approval(conversationId: string, messageId: string, request: ApprovalRequest, settled?: boolean): void
   denials(conversationId: string, messageId: string, denials: PermissionDenial[]): void
   busy(conversationId: string, busy: boolean): void
 }
@@ -64,6 +65,8 @@ interface Active {
   handles: RunHandle[]
   /** message id to run handle, for approvals. */
   byMessage: Map<string, RunHandle>
+  /** Approval requests still waiting for an answer, by request id. */
+  approvals: Map<string, ApprovalRequest>
 }
 
 export class ChatEngine {
@@ -128,6 +131,13 @@ export class ChatEngine {
     else this.store.kvDelete(`cwd:${conversationId}`)
     // A session is tied to its folder. A new folder means a new session, caught up from the context file.
     this.store.kvDeletePrefix(`session:${conversationId}:`)
+    // Permission given for one folder does not carry over to another.
+    this.store.kvDelete(`grants:${conversationId}`)
+  }
+
+  /** Rules the user allowed "for this chat". They stay on this device and apply to Claude's later turns. */
+  private grants(conversationId: string): string[] {
+    return this.store.kvGet<string[]>(`grants:${conversationId}`) ?? []
   }
 
   // ----- usage -----
@@ -253,7 +263,7 @@ export class ChatEngine {
       userText = messageBody(userMessage)
     }
 
-    const active: Active = { handles: [], byMessage: new Map() }
+    const active: Active = { handles: [], byMessage: new Map(), approvals: new Map() }
     this.active.set(conv.id, active)
     this.events.busy(conv.id, true)
 
@@ -378,7 +388,15 @@ export class ChatEngine {
           this.recordLimits(provider, event)
           break
         case 'approval':
-          this.events.approval(conv.id, message.id, event.request)
+          {
+            const request = { ...event.request, provider }
+            if (event.settled) args.active.approvals.delete(request.id)
+            else args.active.approvals.set(request.id, request)
+            this.events.approval(conv.id, message.id, request, event.settled)
+          }
+          break
+        case 'grant':
+          if (!compare) this.store.kvSet(`grants:${conv.id}`, [...new Set([...this.grants(conv.id), ...event.rules])].slice(-100))
           break
         case 'denials':
           this.events.denials(conv.id, message.id, event.denials)
@@ -396,8 +414,9 @@ export class ChatEngine {
       }
     }
 
+    const allow = compare ? args.allow : [...(args.allow ?? []), ...this.grants(conv.id)]
     const handle = this.providers[provider].run(
-      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow: args.allow, images },
+      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images },
       onEvent
     )
     args.active.handles.push(handle)
@@ -499,7 +518,14 @@ export class ChatEngine {
   }
 
   respondApproval(conversationId: string, messageId: string, approvalId: string, decision: ApprovalDecision): void {
-    this.active.get(conversationId)?.byMessage.get(messageId)?.respondApproval?.(approvalId, decision)
+    const active = this.active.get(conversationId)
+    active?.byMessage.get(messageId)?.respondApproval?.(approvalId, decision)
+    // Tell every window, so a card answered on one device goes away on the others.
+    const request = active?.approvals.get(approvalId)
+    if (request) {
+      active!.approvals.delete(approvalId)
+      this.events.approval(conversationId, messageId, request, true)
+    }
   }
 
   /** In compare mode, keep one answer as the conversation's reply. */

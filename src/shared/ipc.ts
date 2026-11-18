@@ -105,7 +105,7 @@ export interface AppEvents {
   stream: Message
   busy: { conversationId: string; busy: boolean }
   route: { conversationId: string; decision: RouteDecision }
-  approval: { conversationId: string; messageId: string; request: ApprovalRequest }
+  approval: { conversationId: string; messageId: string; request: ApprovalRequest; settled?: boolean }
   denials: { conversationId: string; messageId: string; denials: PermissionDenial[] }
   providers: { providers: Partial<Record<ProviderId, ProviderStatus>>; localModels: LocalModel[] }
   hub: HubStatus

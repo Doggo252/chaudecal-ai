@@ -198,6 +198,7 @@ export class Store {
     this.remove('conversation', id)
     this.kvDeletePrefix(`session:${id}:`)
     this.kvDelete(`cwd:${id}`)
+    this.kvDelete(`grants:${id}`)
   }
 
   // ----- sync -----

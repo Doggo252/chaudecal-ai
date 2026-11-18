@@ -295,6 +295,18 @@ try {
   await shot(b.page, '14-running-on-the-hub')
   ok('the folder on the hub is chosen from the second device, and a wrong path is refused')
 
+  // Claude asks before it runs a command. The question appears on B while the hub waits, and the answer goes back.
+  await sendMessage(b.page, 'Now run the tests. [deny]')
+  await b.page.waitForSelector(tid('approval-card'), { timeout: 15000 })
+  const question = await b.page.textContent(tid('approval-card'))
+  assert(question.includes('Claude wants to run a command') && question.includes('npm test'), `the card should say what Claude wants to do, got: ${question}`)
+  await shot(b.page, '15-claude-asks-first')
+  await b.page.click(tid('approve-once'))
+  await waitForReply(b.page, 'claude', 'I ran the tests')
+  assert((await b.page.$(tid('approval-card'))) === null, 'the question should be gone once answered')
+  assert((await b.page.$(tid('denial-card'))) === null, 'nothing should be offered again after the turn')
+  ok('Claude asks before running a command, and carries on once it is allowed')
+
   // What B wrote shows up on A.
   await a.page.click(tid('new-chat'))
   await a.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)

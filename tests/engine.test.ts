@@ -17,6 +17,7 @@ afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn()
   delete process.env.FAKE_CLAUDE_UTILIZATION
   delete process.env.FAKE_CLAUDE_LIMIT
+  delete process.env.FAKE_CLAUDE_NO_LIVE
 })
 
 async function setup(patch: (s: Settings) => void = () => {}) {
@@ -32,7 +33,7 @@ async function setup(patch: (s: Settings) => void = () => {}) {
   const codex = new CodexProvider(() => settings, '0.0.0-test', (l) => engine.recordLimits('chatgpt', l))
   cleanup.push(() => codex.dispose())
   const ready = (provider: ProviderId): ProviderStatus => ({ provider, installed: true, ready: true, detail: '', models: [] })
-  const seen = { routes: [] as RouteDecision[], approvals: [] as { messageId: string; request: ApprovalRequest }[], denials: [] as PermissionDenial[][], streamed: 0 }
+  const seen = { routes: [] as RouteDecision[], approvals: [] as { messageId: string; request: ApprovalRequest; settled?: boolean }[], denials: [] as PermissionDenial[][], streamed: 0 }
   const engine: ChatEngine = new ChatEngine(
     store,
     () => settings,
@@ -41,7 +42,7 @@ async function setup(patch: (s: Settings) => void = () => {}) {
     {
       stream: () => void seen.streamed++,
       route: (_c, d) => void seen.routes.push(d),
-      approval: (_c, messageId, request) => void seen.approvals.push({ messageId, request }),
+      approval: (_c, messageId, request, settled) => void seen.approvals.push({ messageId, request, settled }),
       denials: (_c, _m, d) => void seen.denials.push(d),
       busy: () => {}
     },
@@ -193,7 +194,59 @@ describe.skipIf(!canRunFakes)('conversation engine', () => {
     expect(last(conv.id).text).toContain('I received the context file')
   })
 
-  it('passes on blocked actions and approval requests', async () => {
+  it('passes on approval requests from both assistants while a turn is running', async () => {
+    const { engine, seen, last } = await setup()
+    const a = engine.createConversation({ provider: 'claude', mode: 'edit' })
+    const asking = engine.send({ conversationId: a.id, text: 'run the tests [deny]' })
+    await until(() => seen.approvals.length === 1, 5000, "Claude's question")
+    expect(seen.approvals[0].request).toMatchObject({ provider: 'claude', kind: 'command', summary: 'npm test' })
+    engine.respondApproval(a.id, seen.approvals[0].messageId, seen.approvals[0].request.id, 'decline')
+    await asking
+    expect(last(a.id).tools?.[0]).toMatchObject({ name: 'Bash', status: 'denied' })
+    expect(last(a.id).text).toBe('I need permission to run the tests.')
+    // Declining is an answer. Nothing is offered again once the turn has ended.
+    expect(seen.denials).toHaveLength(0)
+    // Every window is told the question is settled, so a card on another device goes away.
+    expect(seen.approvals[1]).toMatchObject({ settled: true, request: { id: seen.approvals[0].request.id } })
+
+    const b = engine.createConversation({ provider: 'chatgpt', mode: 'edit' })
+    const sending = engine.send({ conversationId: b.id, text: 'install it [approve]' })
+    await until(() => seen.approvals.length === 3, 5000, "ChatGPT's question")
+    expect(seen.approvals[2].request).toMatchObject({ provider: 'chatgpt', kind: 'command' })
+    engine.respondApproval(b.id, seen.approvals[2].messageId, seen.approvals[2].request.id, 'decline')
+    await sending
+    expect(last(b.id).tools?.[0]).toMatchObject({ name: 'Command', status: 'denied' })
+  })
+
+  it('remembers what was allowed for the rest of a chat, but not in other chats', async () => {
+    const { engine, seen, last } = await setup()
+    const conv = engine.createConversation({ provider: 'claude', mode: 'edit' })
+    const first = engine.send({ conversationId: conv.id, text: 'run the tests [deny]' })
+    await until(() => seen.approvals.length === 1, 5000, 'the question')
+    engine.respondApproval(conv.id, seen.approvals[0].messageId, seen.approvals[0].request.id, 'acceptForSession')
+    await first
+    expect(last(conv.id).text).toContain('I ran the tests')
+
+    // A later turn in the same chat runs the same command without asking.
+    await engine.send({ conversationId: conv.id, text: 'and again [deny]' })
+    expect(last(conv.id).tools?.[0]).toMatchObject({ name: 'Bash', status: 'done' })
+    expect(seen.approvals.filter((x) => !x.settled)).toHaveLength(1)
+
+    // Choosing another folder withdraws it, and another chat never had it.
+    engine.setWorkspace(conv.id, tempDir())
+    const other = engine.createConversation({ provider: 'claude', mode: 'edit' })
+    for (const id of [conv.id, other.id]) {
+      const before = seen.approvals.filter((x) => !x.settled).length
+      const again = engine.send({ conversationId: id, text: 'once more [deny]' })
+      await until(() => seen.approvals.filter((x) => !x.settled).length === before + 1, 5000, 'a new question')
+      const ask = seen.approvals.filter((x) => !x.settled).at(-1)!
+      engine.respondApproval(id, ask.messageId, ask.request.id, 'accept')
+      await again
+    }
+  })
+
+  it('offers a blocked action after the turn when Claude Code cannot ask during it', async () => {
+    process.env.FAKE_CLAUDE_NO_LIVE = '1'
     const { engine, seen, last } = await setup()
     const a = engine.createConversation({ provider: 'claude', mode: 'edit' })
     await engine.send({ conversationId: a.id, text: 'run the tests [deny]' })
@@ -202,13 +255,7 @@ describe.skipIf(!canRunFakes)('conversation engine', () => {
     await engine.send({ conversationId: a.id, text: 'You may. [deny]', allow: ['Bash(npm test)'], provider: 'claude' })
     expect(seen.denials).toHaveLength(1)
     expect(last(a.id).tools?.[0]).toMatchObject({ status: 'done' })
-
-    const b = engine.createConversation({ provider: 'chatgpt', mode: 'edit' })
-    const sending = engine.send({ conversationId: b.id, text: 'install it [approve]' })
-    await until(() => seen.approvals.length === 1, 5000, 'the approval request')
-    engine.respondApproval(b.id, seen.approvals[0].messageId, seen.approvals[0].request.id, 'decline')
-    await sending
-    expect(last(b.id).tools?.[0]).toMatchObject({ name: 'Command', status: 'denied' })
+    expect(seen.approvals).toHaveLength(0)
   })
 
   it('refuses a second message while the first is still being answered, and can stop', async () => {

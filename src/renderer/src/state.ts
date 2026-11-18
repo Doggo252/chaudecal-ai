@@ -186,8 +186,12 @@ export async function boot(): Promise<void> {
     })
   )
   api.on('route', ({ conversationId, decision }) => setState((s) => ({ routes: { ...s.routes, [conversationId]: decision } })))
-  api.on('approval', ({ conversationId, messageId, request }) =>
-    setState((s) => ({ approvals: { ...s.approvals, [conversationId]: [...(s.approvals[conversationId] ?? []), { messageId, request }] } }))
+  api.on('approval', ({ conversationId, messageId, request, settled }) =>
+    setState((s) => {
+      // An answer given on another device, or a request the assistant withdrew, removes the card here too.
+      const others = (s.approvals[conversationId] ?? []).filter((a) => a.request.id !== request.id)
+      return { approvals: { ...s.approvals, [conversationId]: settled ? others : [...others, { messageId, request }] } }
+    })
   )
   api.on('denials', ({ conversationId, messageId, denials }) => setState((s) => ({ denials: { ...s.denials, [conversationId]: { messageId, denials } } })))
   api.on('providers', ({ providers, localModels }) => setState((s) => (s.app ? { app: { ...s.app, providers, localModels } } : {})))
