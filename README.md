@@ -11,6 +11,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Context that travels.** Every conversation keeps two running context files up to date: a summary with the recent messages, and the full transcript. Switch assistants at any time and choose which one to hand over.
 - **Limit warnings.** The app tracks the 5 hour and weekly limits for both plans. When one passes the threshold you set (80% by default), a banner offers to continue on the other assistant with one click.
 - **Local AI on your PC.** Any OpenAI compatible runtime works, with presets for Ollama and LM Studio. The Mac reaches the models on the PC through the hub, so the PC's graphics card does the work.
+- **Remote work.** Type on the Mac, and the Claude or ChatGPT on the PC does the work, in a folder on the PC. It keeps going while the Mac sleeps, and the result is there when you come back.
 - **Sync.** The PC runs a small always-on hub. The Mac keeps a full offline copy and catches up when it reconnects. Works at home and away over Tailscale.
 - **Compare.** Send one message to several assistants side by side and keep the answer you like.
 - **Search everything.** One search across every conversation from every assistant.
@@ -27,6 +28,10 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 | Attachments | Usage |
 | --- | --- |
 | ![An image and a text file attached to a message](docs/screenshots/attachments.png) | ![Usage tracker](docs/screenshots/usage.png) |
+
+| Working on the hub from another device |
+| --- |
+| ![A conversation on the Mac that runs on the hub PC, in a folder on the PC](docs/screenshots/remote.png) |
 
 The screenshots come from the automated test, which uses stand-in assistants, so the replies and numbers in them are not real.
 
@@ -109,6 +114,18 @@ Notes for a Radeon RX 9070 XT (16 GB):
 
 Turn on "Keep summaries up to date with local AI" to have a local model write the running summaries. This costs nothing against either plan. Without it the app builds summaries by extracting key lines.
 
+### 5. Run assistants on the PC from the Mac (optional)
+
+This lets the Mac hand work to the PC: the PC's own Claude Code and Codex do it, using the PC's sign-ins and files.
+
+1. On the PC, open Settings, "Sync and hub", and turn on "Let my other devices run assistants on this machine".
+2. On the Mac, a "Runs on" button appears in the message box within a minute. Choose the PC there for a conversation, or turn on "Run new conversations on the hub" under Settings, "Sync and hub".
+3. For Plan, Edit or Auto mode, click the folder button and type the full path of a folder on the PC, for example `C:\Users\you\project`.
+
+Replies stream to the Mac as they are written. If the Mac goes to sleep or offline, the PC carries on and the finished reply syncs when the Mac is back. Approval requests from ChatGPT appear on the Mac.
+
+**Read this before turning it on.** With this setting on, anyone who has the pairing code and can reach the PC can edit files and run commands on it. Keep the hub on your home network and Tailscale, never forward its port to the internet, and make a new pairing code if the old one may have leaked. The setting is off by default.
+
 ## Using it
 
 - **Choosing an assistant.** The picker in the message box sets the assistant and model. Auto keeps a conversation with the assistant it is already using, sends coding work to Claude and general questions to ChatGPT, answers short questions locally when you allow it, and steers away from an assistant that is close to its limit.
@@ -127,7 +144,8 @@ Turn on "Keep summaries up to date with local AI" to have a local model write th
 - Image generation and voice are available through the built-in website tabs, not through the unified chat. PDFs cannot be attached yet.
 - A local model only understands images if it is a vision model. Others will report an error or ignore the image.
 - Claude asks for permission after a turn, not during it. If Claude was blocked from doing something, a card offers "Allow and continue". ChatGPT asks live.
-- Agent work runs on the machine you are sitting at. The Mac cannot yet start Claude or ChatGPT agent work on the PC. Local AI is the exception and always runs on the PC.
+- A folder on the hub is chosen by typing its path. It cannot be browsed from the other device yet.
+- If the Mac disconnects while the PC is working, the PC finishes anyway, but an approval request raised in the meantime waits on the PC's own screen.
 - Local models chat only. They do not edit files or run commands.
 - Updates are not installed for you. The sidebar shows "Update available" when a newer build is published, and clicking it opens the download page.
 - Sign-ins inside the website tabs are separate from the command line sign-ins and stay on each machine.
@@ -150,7 +168,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real window |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 20 checks |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

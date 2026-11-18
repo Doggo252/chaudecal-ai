@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startMockOpenAI } from '../tests/fakes/mock-openai.mjs'
 
@@ -107,7 +107,7 @@ try {
       claude: { cliPath: fakeClaude },
       chatgpt: { cliPath: fakeCodex },
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false },
-      hub: { hostEnabled: true, port: hubPort }
+      hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true }
     },
     { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl }
   )
@@ -262,6 +262,38 @@ try {
   await waitForReply(b.page, 'local', 'I have your standing instructions')
   await shot(b.page, '08-client-using-hub-local-ai')
   ok('the second device runs local AI on the hub machine, with shared instructions applied')
+
+  // Remote work: the message is typed on B, and the hub's own assistant does the work.
+  await b.page.waitForFunction(async () => (await window.api.state()).remote?.enabled)
+  await b.page.click(tid('new-chat'))
+  await pickProvider(b.page, 'claude')
+  await b.page.click(tid('runs-on-picker'))
+  await b.page.click(tid('runs-on-hub'))
+  await sendMessage(b.page, 'Run this one on the hub.')
+  await waitForReply(b.page, 'claude', 'Claude here. You said: "Run this one on the hub."')
+  const hubId = await a.page.evaluate(async () => (await window.api.state()).deviceId)
+  const remoteConv = await b.page.evaluate(async () => (await window.api.state()).conversations.find((c) => c.title.startsWith('Run this one')).id)
+  const writers = await b.page.evaluate(async (id) => (await window.api.messages(id)).map((m) => m.deviceId), remoteConv)
+  assert(writers.length === 2 && writers.every((d) => d === hubId), `both messages should have been written by the hub, got ${writers}`)
+  assert((await b.page.textContent('.composer-foot')).includes('Runs on Hub PC'), 'the message box should say where the work runs')
+  ok('a conversation typed on the second device is answered by the assistant on the hub')
+
+  // The working folder for such a conversation is a folder on the hub, given by its path.
+  await b.page.click(tid('mode-picker'))
+  await b.page.click(tid('mode-edit'))
+  await b.page.click(tid('hub-folder-picker'))
+  await b.page.fill(tid('hub-folder-input'), join(attachDir, 'not-here'))
+  await b.page.click(tid('hub-folder-save'))
+  await b.page.waitForSelector(tid('hub-folder-error'))
+  await b.page.fill(tid('hub-folder-input'), attachDir)
+  await shot(b.page, '13-folder-on-the-hub')
+  await b.page.click(tid('hub-folder-save'))
+  await b.page.waitForFunction((name) => document.querySelector('[data-testid="hub-folder-picker"]')?.textContent.includes(name), basename(attachDir))
+  assert((await a.page.evaluate((id) => window.api.getWorkspace(id), remoteConv)) === attachDir, 'the hub should now use that folder for the conversation')
+  await sendMessage(b.page, 'List the files. [tool]')
+  await waitForReply(b.page, 'claude', 'List the files.')
+  await shot(b.page, '14-running-on-the-hub')
+  ok('the folder on the hub is chosen from the second device, and a wrong path is refused')
 
   // What B wrote shows up on A.
   await a.page.click(tid('new-chat'))

@@ -27,6 +27,13 @@ export interface Draft {
   models: Partial<Record<ProviderId, string>>
   mode: RunMode
   private: boolean
+  /** Run on the hub machine instead of this one. */
+  runOnHub: boolean
+}
+
+/** The starting choices for a new conversation. */
+export function newDraft(app: AppState): Draft {
+  return { provider: app.settings.defaultProvider, models: {}, mode: app.settings.defaultMode, private: false, runOnHub: app.settings.runOnHubByDefault && !!app.remote?.enabled }
 }
 
 export interface UiState {
@@ -56,7 +63,7 @@ let state: UiState = {
   approvals: {},
   denials: {},
   web: {},
-  draft: { provider: 'auto', models: {}, mode: 'chat', private: false },
+  draft: { provider: 'auto', models: {}, mode: 'chat', private: false, runOnHub: false },
   variants: {},
   dismissed: {},
   dialog: null,
@@ -187,6 +194,7 @@ export async function boot(): Promise<void> {
   api.on('hub', (hub) => setState((s) => (s.app ? { app: { ...s.app, hub } } : {})))
   api.on('settings', (settings) => setState((s) => (s.app ? { app: { ...s.app, settings } } : {})))
   api.on('update', (update) => setState((s) => (s.app ? { app: { ...s.app, update } } : {})))
+  api.on('remote', (remote) => setState((s) => (s.app ? { app: { ...s.app, remote } } : {})))
   api.on('web', (web) => setState((s) => ({ web: { ...s.web, [web.service]: web } })))
   api.on('command', (command) => {
     if (command === 'new-chat') openChat(undefined)
@@ -195,7 +203,7 @@ export async function boot(): Promise<void> {
   })
 
   const app = await api.state()
-  setState({ app, draft: { provider: app.settings.defaultProvider, models: {}, mode: app.settings.defaultMode, private: false } })
+  setState({ app, draft: newDraft(app) })
 }
 
 export async function loadMessages(conversationId: string): Promise<void> {
@@ -207,7 +215,7 @@ export async function loadMessages(conversationId: string): Promise<void> {
 export function openChat(conversationId: string | undefined, focusMessageId?: string): void {
   const app = state.app
   const patch: Partial<UiState> = { view: { kind: 'chat', conversationId, focusMessageId }, dialog: null }
-  if (!conversationId && app) patch.draft = { provider: app.settings.defaultProvider, models: {}, mode: app.settings.defaultMode, private: false }
+  if (!conversationId && app) patch.draft = newDraft(app)
   setState(patch)
   if (conversationId) void loadMessages(conversationId)
 }
@@ -227,7 +235,7 @@ export function dismissRemoved(conversationId: string): void {
 /** Turn the choices made on the new-chat screen into a saved conversation and open it. */
 export async function createFromDraft(): Promise<Conversation> {
   const d = state.draft
-  const conv = await window.api.createConversation({ provider: d.provider, models: d.models, mode: d.mode, private: d.private || undefined })
+  const conv = await window.api.createConversation({ provider: d.provider, models: d.models, mode: d.mode, private: d.private || undefined, runOnHub: d.runOnHub || undefined })
   setState((s) => ({ messages: { ...s.messages, [conv.id]: s.messages[conv.id] ?? [] }, view: { kind: 'chat', conversationId: conv.id } }))
   return conv
 }

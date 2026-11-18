@@ -18,6 +18,7 @@ import type {
   ProviderStatus,
   ProviderUsage,
   RouteDecision,
+  RemoteInfo,
   SavedPrompt,
   Settings,
   SyncRecord,
@@ -92,6 +93,8 @@ export interface AppState {
   hub: HubStatus
   busy: string[]
   update?: UpdateInfo
+  /** Present on a client that is connected to a hub. */
+  remote?: RemoteInfo
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] }
@@ -109,6 +112,7 @@ export interface AppEvents {
   settings: Settings
   web: WebState
   update: UpdateInfo
+  remote: RemoteInfo | undefined
   command: 'new-chat' | 'search' | 'settings'
 }
 
@@ -150,6 +154,8 @@ export interface Api {
   getWorkspace(conversationId: string): Promise<string>
   pickWorkspace(conversationId: string): Promise<string>
   clearWorkspace(conversationId: string): Promise<void>
+  /** Set the working folder by typing its path. Used for conversations that run on the hub. */
+  setWorkspacePath(conversationId: string, path: string): Promise<{ path: string; error?: string }>
 
   saveNote(note: { id?: string; text: string }): Promise<void>
   deleteNote(id: string): Promise<void>
@@ -200,6 +206,7 @@ export const API_METHODS = [
   'getWorkspace',
   'pickWorkspace',
   'clearWorkspace',
+  'setWorkspacePath',
   'saveNote',
   'deleteNote',
   'savePrompt',
@@ -217,4 +224,4 @@ export const API_METHODS = [
   'webCapture'
 ] as const satisfies readonly Exclude<keyof Api, 'on'>[]
 
-export const EVENT_CHANNELS = ['records', 'stream', 'busy', 'route', 'approval', 'denials', 'providers', 'hub', 'settings', 'web', 'update', 'command'] as const satisfies readonly (keyof AppEvents)[]
+export const EVENT_CHANNELS = ['records', 'stream', 'busy', 'route', 'approval', 'denials', 'providers', 'hub', 'settings', 'web', 'update', 'remote', 'command'] as const satisfies readonly (keyof AppEvents)[]

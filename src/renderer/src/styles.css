@@ -1653,3 +1653,20 @@ a {
 .update-chip {
   color: var(--ok);
 }
+
+/* ---------- Typing a folder on the hub ---------- */
+
+.menu-form {
+  display: grid;
+  gap: 8px;
+  padding: 4px 6px 8px;
+  width: 300px;
+}
+.menu-form .menu-title {
+  padding: 4px 2px 0;
+}
+.menu-error {
+  font-size: 12px;
+  color: var(--bad);
+  line-height: 1.4;
+}

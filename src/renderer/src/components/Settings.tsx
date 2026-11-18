@@ -299,6 +299,8 @@ function Sync() {
   const app = useUi((x) => x.app!)
   const s = app.settings.hub
   const hub = app.hub
+  const remote = app.remote
+  const runOnHubByDefault = app.settings.runOnHubByDefault
   const [found, setFound] = useState<DiscoveredHub[] | null>(null)
   const [looking, setLooking] = useState(false)
   return (
@@ -356,9 +358,35 @@ function Sync() {
               <NumberField value={s.port} min={1024} max={65535} onCommit={(n) => save({ hub: { port: n } })} />
             </Row>
           </div>
+
+          <div className="group-title">Remote work</div>
+          <div className="group">
+            <Row
+              title="Let my other devices run assistants on this machine"
+              sub="Your Mac can then start Claude or ChatGPT work that runs here, in a folder on this machine, and keeps going while the Mac sleeps. Anyone with the pairing code could then edit files and run commands on this machine, so only turn it on if the code is safe."
+            >
+              <Toggle checked={s.allowRemoteRuns} label="Let my other devices run assistants on this machine" testId="allow-remote-runs" onChange={(v) => save({ hub: { allowRemoteRuns: v } })} />
+            </Row>
+          </div>
         </>
       ) : (
         <>
+          <div className="group-title">Remote work</div>
+          <div className="group">
+            <Row
+              title="Run new conversations on the hub"
+              sub={
+                remote?.enabled
+                  ? `${remote.deviceName} allows this. Each conversation can still be switched with "Runs on" in the message box.`
+                  : hub.connected
+                    ? 'The hub does not allow this yet. Turn on "Let my other devices run assistants on this machine" in its settings. It can take a minute to show up here.'
+                    : 'Available once this device is connected to a hub that allows it.'
+              }
+            >
+              <Toggle checked={runOnHubByDefault} label="Run new conversations on the hub" testId="run-on-hub-default" onChange={(v) => save({ runOnHubByDefault: v })} />
+            </Row>
+          </div>
+
           <div className="group-title">Connect to your hub</div>
           <div className="group">
             <Row title="Hub address" sub="For example my-pc:47600, or the PC's Tailscale name so it also works away from home." stack>

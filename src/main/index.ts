@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
-import type { Attachment, Blob, Conversation, HubStatus, LocalModel, MemoryNote, Message, Profile, ProviderId, ProviderStatus, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
+import type { Attachment, Blob, Conversation, HubStatus, LocalModel, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
 import { defaultSettings, MAX_IMAGE_BYTES, newId } from '@shared/types'
 import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo } from '@shared/ipc'
 import { Store } from './store'
@@ -14,6 +14,7 @@ import { LocalProvider } from './providers/local'
 import type { Provider } from './providers/types'
 import { HubServer, localAddresses } from './sync/hubServer'
 import { HubClient } from './sync/hubClient'
+import { checkFolder, createRunHost, RemoteRuns } from './sync/remoteRuns'
 import { announceHub, discoverHubs, shutdownDiscovery, stopAnnouncing } from './sync/discovery'
 import { ChatEngine } from './chat'
 import { Summarizer } from './summarizer'
@@ -36,6 +37,7 @@ let settings: Settings
 let engine: ChatEngine
 let hubServer: HubServer
 let hubClient: HubClient
+let remote: RemoteRuns
 let webTabs: WebTabs
 let local: LocalProvider
 let codex: CodexProvider
@@ -88,6 +90,20 @@ async function lookForUpdate(): Promise<void> {
     update = found
     send('update', found)
   }
+}
+
+/** True when this conversation's assistants run on the hub and this machine is not the hub. */
+function runsOnHub(conversationId: string): boolean {
+  return !settings.hub.hostEnabled && !!store.get<Conversation>('conversation', conversationId)?.runOnHub
+}
+
+/** Progress of a run, shown in this window whether the run is here or on the hub. */
+function showRunEvent(event: RunWireEvent): void {
+  if (event.type === 'stream') send('stream', event.message)
+  else if (event.type === 'busy') send('busy', { conversationId: event.conversationId, busy: event.busy })
+  else if (event.type === 'route') send('route', { conversationId: event.conversationId, decision: event.decision })
+  else if (event.type === 'approval') send('approval', { conversationId: event.conversationId, messageId: event.messageId, request: event.request })
+  else send('denials', { conversationId: event.conversationId, messageId: event.messageId, denials: event.denials })
 }
 
 function showWindow(): void {
@@ -173,7 +189,7 @@ async function applyHub(): Promise<void> {
 let refreshing: Promise<void> | undefined
 function refreshProviders(): Promise<void> {
   refreshing ??= (async () => {
-    const [c, g, l] = await Promise.all([providers.claude.status(), providers.chatgpt.status(), providers.local.status()])
+    const [c, g, l] = await Promise.all([providers.claude.status(), providers.chatgpt.status(), providers.local.status(), remote.refresh()])
     statuses = { claude: c, chatgpt: g, local: l }
     localModels = await local.models()
     send('providers', { providers: statuses, localModels })
@@ -195,8 +211,9 @@ function appState(): AppState {
     providers: statuses,
     localModels,
     hub: hubStatus(),
-    busy: store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id)).map((c) => c.id),
-    update
+    busy: store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id) || remote.isBusy(c.id)).map((c) => c.id),
+    update,
+    remote: settings.hub.hostEnabled ? undefined : remote.info()
   }
 }
 
@@ -218,13 +235,16 @@ const api: Omit<Api, 'on'> = {
     store.deleteConversation(id)
   },
   async send(input) {
-    await engine.send(input)
+    if (runsOnHub(input.conversationId)) await remote.send(input)
+    else await engine.send(input)
   },
   async stop(conversationId) {
-    engine.stop(conversationId)
+    if (remote.isBusy(conversationId)) remote.stop(conversationId)
+    else engine.stop(conversationId)
   },
   async respondApproval(conversationId, messageId, approvalId, decision) {
-    engine.respondApproval(conversationId, messageId, approvalId, decision)
+    if (remote.isBusy(conversationId)) remote.respondApproval(conversationId, messageId, approvalId, decision)
+    else engine.respondApproval(conversationId, messageId, approvalId, decision)
   },
   async selectVariant(messageId) {
     engine.selectVariant(messageId)
@@ -319,9 +339,18 @@ const api: Omit<Api, 'on'> = {
     return { ok: ready, detail: ready ? 'Signed in.' : `Sign-in did not finish (exit ${code}). You can also run "${provider === 'claude' ? 'claude auth login' : 'codex login'}" in a terminal.` }
   },
   async getWorkspace(conversationId) {
-    return engine.workspace(conversationId)
+    return runsOnHub(conversationId) ? remote.getWorkspace(conversationId) : engine.workspace(conversationId)
+  },
+  async setWorkspacePath(conversationId, path) {
+    if (runsOnHub(conversationId)) return remote.setWorkspace(conversationId, path)
+    const checked = checkFolder(path)
+    if (checked.error) return { path: engine.workspace(conversationId), error: checked.error }
+    engine.setWorkspace(conversationId, checked.path)
+    return checked
   },
   async pickWorkspace(conversationId) {
+    // A folder on the hub cannot be browsed from here. Its path is typed instead.
+    if (runsOnHub(conversationId)) return remote.getWorkspace(conversationId)
     let chosen = process.env.CHAUDECAL_E2E_WORKSPACE ?? ''
     if (!chosen && win) {
       const res = await dialog.showOpenDialog(win, { title: 'Choose a folder for this conversation', properties: ['openDirectory', 'createDirectory'] })
@@ -331,7 +360,8 @@ const api: Omit<Api, 'on'> = {
     return engine.workspace(conversationId)
   },
   async clearWorkspace(conversationId) {
-    engine.setWorkspace(conversationId, '')
+    if (runsOnHub(conversationId)) await remote.setWorkspace(conversationId, '')
+    else engine.setWorkspace(conversationId, '')
   },
   async saveNote(note) {
     const now = Date.now()
@@ -501,8 +531,34 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = settings.theme
   await loadShellPath()
 
-  hubServer = new HubServer(store, () => settings, app.getVersion())
-  hubClient = new HubClient(store, () => settings, () => send('hub', hubStatus()))
+  hubServer = new HubServer(
+    store,
+    () => settings,
+    app.getVersion(),
+    createRunHost(
+      {
+        send: (input) => engine.send(input),
+        stop: (id) => engine.stop(id),
+        respondApproval: (c, m, a, d) => engine.respondApproval(c, m, a, d),
+        workspace: (id) => engine.workspace(id),
+        setWorkspace: (id, path) => engine.setWorkspace(id, path)
+      },
+      () => settings,
+      () => statuses,
+      () => store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id)).map((c) => c.id)
+    )
+  )
+  let wasConnected = false
+  hubClient = new HubClient(store, () => settings, () => {
+    send('hub', hubStatus())
+    // Each time the hub comes into reach, ask again what it allows and what it is running.
+    const connected = !!hubClient.current()
+    if (connected !== wasConnected) {
+      wasConnected = connected
+      void remote.refresh()
+    }
+  })
+  remote = new RemoteRuns(hubClient, showRunEvent, (info) => send('remote', settings.hub.hostEnabled ? undefined : info))
   local = new LocalProvider(() => settings, hubClient)
   codex = new CodexProvider(() => settings, app.getVersion(), (limits) => engine?.recordLimits('chatgpt', limits))
   claude = new ClaudeProvider(() => settings, join(dataDir, 'tmp'), () => void refreshProviders())
@@ -513,13 +569,20 @@ app.whenReady().then(async () => {
     () => settings,
     providers,
     () => statuses,
-    {
-      stream: (message) => send('stream', message),
-      route: (conversationId, decision) => send('route', { conversationId, decision }),
-      approval: (conversationId, messageId, request) => send('approval', { conversationId, messageId, request }),
-      denials: (conversationId, messageId, denials) => send('denials', { conversationId, messageId, denials }),
-      busy: (conversationId, busy) => send('busy', { conversationId, busy })
-    },
+    // Every run is shown in this window, and on the hub it is also sent to the other devices.
+    (() => {
+      const both = (event: RunWireEvent) => {
+        showRunEvent(event)
+        hubServer.broadcastRun(event)
+      }
+      return {
+        stream: (message) => both({ type: 'stream', message }),
+        route: (conversationId, decision) => both({ type: 'route', conversationId, decision }),
+        approval: (conversationId, messageId, request) => both({ type: 'approval', conversationId, messageId, request }),
+        denials: (conversationId, messageId, denials) => both({ type: 'denials', conversationId, messageId, denials }),
+        busy: (conversationId, busy) => both({ type: 'busy', conversationId, busy })
+      }
+    })(),
     { context: join(dataDir, 'context'), scratch: join(dataDir, 'workspace'), attachments: join(dataDir, 'attachments') },
     summarizer
   )

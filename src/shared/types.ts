@@ -41,6 +41,8 @@ export interface Conversation {
   pinned?: boolean
   /** Keep this conversation on local AI only. */
   private?: boolean
+  /** Run this conversation's assistants on the hub machine, whichever device the message is typed on. */
+  runOnHub?: boolean
   summary?: ConversationSummary
 }
 
@@ -214,7 +216,11 @@ export interface Settings {
     /** Address of the hub when this machine is a client, for example http://my-pc:47600 */
     remoteUrl: string
     remoteToken: string
+    /** On the hub: paired devices may run Claude and ChatGPT here, including file edits and commands. */
+    allowRemoteRuns: boolean
   }
+  /** On a client: new conversations run on the hub when it allows that. */
+  runOnHubByDefault: boolean
   routing: { preferLocalForShort: boolean }
   /** When a provider hits its limit mid-conversation, carry on with another one without asking. */
   autoFailover: boolean
@@ -245,7 +251,8 @@ export function defaultSettings(deviceName: string): Settings {
       contextTokens: 16_000,
       summarize: true
     },
-    hub: { hostEnabled: false, port: DEFAULT_HUB_PORT, token: '', remoteUrl: '', remoteToken: '' },
+    hub: { hostEnabled: false, port: DEFAULT_HUB_PORT, token: '', remoteUrl: '', remoteToken: '', allowRemoteRuns: false },
+    runOnHubByDefault: false,
     routing: { preferLocalForShort: false },
     autoFailover: false,
     keepRunningInBackground: true,
@@ -293,6 +300,25 @@ export interface UpdateInfo {
   build: number
   url: string
 }
+
+/** What a client knows about running assistants on its hub. */
+export interface RemoteInfo {
+  /** The hub allows paired devices to run assistants on it. */
+  enabled: boolean
+  deviceName: string
+  platform: string
+  providers: Partial<Record<ProviderId, ProviderStatus>>
+  /** Conversations the hub is answering right now. */
+  busy: string[]
+}
+
+/** Live progress of a run on the hub, sent to connected devices. */
+export type RunWireEvent =
+  | { type: 'stream'; message: Message }
+  | { type: 'busy'; conversationId: string; busy: boolean }
+  | { type: 'route'; conversationId: string; decision: RouteDecision }
+  | { type: 'approval'; conversationId: string; messageId: string; request: ApprovalRequest }
+  | { type: 'denials'; conversationId: string; messageId: string; denials: PermissionDenial[] }
 
 export interface DiscoveredHub {
   name: string

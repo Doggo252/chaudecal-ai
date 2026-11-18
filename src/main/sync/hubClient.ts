@@ -2,7 +2,7 @@
 // offline, then pushes local changes and pulls remote ones whenever the hub is
 // reachable. A long-lived event stream tells it when there is something new.
 
-import type { HubStatus, Settings, SyncRecord } from '@shared/types'
+import type { HubStatus, RunWireEvent, Settings, SyncRecord } from '@shared/types'
 import type { Store } from '../store'
 import type { HubLink } from '../providers/local'
 
@@ -27,6 +27,8 @@ export class HubClient implements HubLink {
   private stream?: AbortController
   private unsubscribe?: () => void
   private backoff = 2000
+  /** Called with live progress of runs happening on the hub. */
+  onRun?: (event: RunWireEvent) => void
 
   constructor(
     private store: Store,
@@ -130,12 +132,27 @@ export class HubClient implements HubLink {
       if (!res.ok || !res.body) throw new Error(`events ${res.status}`)
       const reader = res.body.getReader()
       const decoder = new TextDecoder()
+      let buffer = ''
       for (;;) {
         const { value, done } = await reader.read()
         if (done) break
-        const text = decoder.decode(value, { stream: true })
-        const seqs = [...text.matchAll(/^data: (\d+)/gm)].map((m) => Number(m[1]))
-        if (seqs.length && Math.max(...seqs) > (this.store.kvGet<number>('cursor') ?? 0)) void this.sync()
+        buffer += decoder.decode(value, { stream: true })
+        // Events are separated by a blank line. Keep whatever is still incomplete for the next read.
+        const blocks = buffer.split('\n\n')
+        buffer = blocks.pop() ?? ''
+        let newest = 0
+        for (const block of blocks) {
+          const data = /^data: (.*)$/m.exec(block)?.[1]
+          if (data === undefined) continue
+          if (/^event: run$/m.test(block)) {
+            try {
+              this.onRun?.(JSON.parse(data) as RunWireEvent)
+            } catch {
+              // A malformed progress event is dropped. The finished message still arrives through sync.
+            }
+          } else if (/^\d+$/.test(data)) newest = Math.max(newest, Number(data))
+        }
+        if (newest > (this.store.kvGet<number>('cursor') ?? 0)) void this.sync()
       }
       throw new Error('stream ended')
     } catch {
@@ -143,6 +160,36 @@ export class HubClient implements HubLink {
       this.setState(false, 'Hub not reachable. Working offline, changes will sync when it is back.')
       this.retryLater()
     }
+  }
+
+  /** Wait until everything changed here has reached the hub and the hub's changes have arrived. */
+  async flush(timeoutMs = 20000): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs
+    let completed = false
+    while (this.running && this.connected && Date.now() < deadline) {
+      if (!this.syncing) {
+        if (completed && !this.again && this.store.dirtyCount() === 0) return true
+        await this.sync()
+        completed = true
+      } else {
+        await new Promise((r) => setTimeout(r, 25))
+      }
+    }
+    return false
+  }
+
+  /** An authenticated call to the hub. Throws with the hub's own explanation when it refuses. */
+  async request<T>(path: string, body?: unknown, timeoutMs = 15000): Promise<T> {
+    if (!this.connected) throw new Error('The hub is not reachable right now.')
+    const res = await fetch(`${this.url()}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: body === undefined ? this.headers() : { ...this.headers(), 'content-type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs)
+    })
+    const data = (await res.json().catch(() => ({}))) as { error?: string }
+    if (!res.ok) throw new Error(data.error || `The hub answered ${res.status}.`)
+    return data as T
   }
 
   async syncNow(): Promise<void> {

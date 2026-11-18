@@ -9,11 +9,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
 import { cpus, hostname, networkInterfaces, totalmem } from 'node:os'
-import type { Settings, SyncRecord } from '@shared/types'
+import type { RunWireEvent, Settings, SyncRecord } from '@shared/types'
 import type { Store } from '../store'
+import { cleanSendInput, type RunHost } from './remoteRuns'
 import { directModels } from '../providers/local'
 
 const MAX_BODY = 64 * 1024 * 1024
+const STREAM_INTERVAL_MS = 120
 
 function readBody(req: IncomingMessage): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -66,8 +68,52 @@ export class HubServer {
   constructor(
     private store: Store,
     private settings: () => Settings,
-    private appVersion: string
+    private appVersion: string,
+    /** Lets paired devices run assistants on this machine. Absent in setups that only sync. */
+    private runs?: RunHost
   ) {}
+
+  private pendingStream = new Map<string, { conversationId: string; timer?: ReturnType<typeof setTimeout>; sentAt: number; latest?: RunWireEvent }>()
+
+  /** Send live progress of a run to every connected device. */
+  broadcastRun(event: RunWireEvent): void {
+    if (!this.subscribers.size || !this.runs?.enabled()) return
+    const write = (e: RunWireEvent) => {
+      const block = `event: run\ndata: ${JSON.stringify(e)}\n\n`
+      for (const s of this.subscribers) s.write(block)
+    }
+    if (event.type !== 'stream') {
+      // Once a run has ended, nothing held back for its messages may arrive after the ending.
+      if (event.type === 'busy' && !event.busy) this.forgetStreams(event.conversationId)
+      write(event)
+      return
+    }
+    // A streaming reply changes many times a second and each update carries the whole text so far.
+    const id = event.message.id
+    const slot = this.pendingStream.get(id) ?? { conversationId: event.message.conversationId, sentAt: 0 }
+    this.pendingStream.set(id, slot)
+    const wait = STREAM_INTERVAL_MS - (Date.now() - slot.sentAt)
+    if (wait <= 0) {
+      slot.sentAt = Date.now()
+      write(event)
+      return
+    }
+    slot.latest = event
+    slot.timer ??= setTimeout(() => {
+      slot.timer = undefined
+      slot.sentAt = Date.now()
+      if (slot.latest) write(slot.latest)
+      slot.latest = undefined
+    }, wait)
+  }
+
+  private forgetStreams(conversationId: string): void {
+    for (const [id, slot] of this.pendingStream) {
+      if (slot.conversationId !== conversationId) continue
+      clearTimeout(slot.timer)
+      this.pendingStream.delete(id)
+    }
+  }
 
   get running(): boolean {
     return !!this.server
@@ -211,6 +257,60 @@ export class HubServer {
       return
     }
 
+    if (path.startsWith('/api/run/')) {
+      await this.handleRun(path, req, res)
+      return
+    }
+
+    json(res, 404, { error: 'not found' })
+  }
+
+  private async handleRun(path: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const runs = this.runs
+    if (path === '/api/run/info' && req.method === 'GET') {
+      json(res, 200, runs ? runs.info() : { enabled: false, deviceName: this.settings().deviceName, platform: process.platform, providers: {}, busy: [] })
+      return
+    }
+    if (!runs?.enabled()) {
+      json(res, 403, { error: 'Running assistants on the hub is turned off. Turn it on under Settings, Sync and hub, on the hub machine.' })
+      return
+    }
+    if (req.method !== 'POST') {
+      json(res, 404, { error: 'not found' })
+      return
+    }
+    const body = await readBody(req)
+    const conversationId = typeof body.conversationId === 'string' ? body.conversationId : ''
+
+    if (path === '/api/run/send') {
+      const input = cleanSendInput(body)
+      if (!input) {
+        json(res, 400, { error: 'That request could not be understood.' })
+        return
+      }
+      // The reply itself arrives through sync and the event stream. Only an immediate refusal is reported here.
+      const run = runs.send(input)
+      const early = await Promise.race([run.then(() => undefined, (e: unknown) => e), new Promise<undefined>((r) => setTimeout(() => r(undefined), 120))])
+      run.catch(() => {})
+      if (early) json(res, 409, { error: early instanceof Error ? early.message : String(early) })
+      else json(res, 200, { ok: true })
+      return
+    }
+    if (path === '/api/run/stop') {
+      runs.stop(conversationId)
+      json(res, 200, { ok: true })
+      return
+    }
+    if (path === '/api/run/approval') {
+      runs.respondApproval(conversationId, String(body.messageId ?? ''), String(body.approvalId ?? ''), body.decision)
+      json(res, 200, { ok: true })
+      return
+    }
+    if (path === '/api/run/workspace') {
+      // Without a path this reads the folder. With one (even empty, to clear it) it sets the folder.
+      json(res, 200, typeof body.path === 'string' ? runs.setWorkspace(conversationId, body.path) : { path: runs.getWorkspace(conversationId) })
+      return
+    }
     json(res, 404, { error: 'not found' })
   }
 }

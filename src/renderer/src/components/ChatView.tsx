@@ -88,7 +88,9 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const current: ProviderId | undefined = conversation?.private ? 'local' : conversation && conversation.provider !== 'auto' ? conversation.provider : lastProvider
   const warning = current ? limitWarning(app.usage[current]) : undefined
   const warningKey = warning && conversation ? `${conversation.id}:${warning.provider}:${warning.window}:${warning.status}` : ''
-  const available = { claude: !!app.providers.claude?.ready, chatgpt: !!app.providers.chatgpt?.ready, local: !!app.providers.local?.ready }
+  // For a conversation that runs on the hub, what matters is which assistants are ready there.
+  const where = conversation?.runOnHub && app.remote?.enabled ? app.remote.providers : app.providers
+  const available = { claude: !!where.claude?.ready, chatgpt: !!where.chatgpt?.ready, local: !!where.local?.ready }
   const target = warning ? switchTarget(warning.provider, available, app.usage) : undefined
 
   const branch = async (messageId: string) => {

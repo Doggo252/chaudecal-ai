@@ -80,6 +80,16 @@ After every turn the app writes two Markdown files for the conversation:
 
 Each is trimmed to the context budget (400,000 tokens by default) and then to what the receiving model can take, leaving a quarter of its window free for the reply. The rolling summary is written by a local model when one is available, so it costs nothing against either plan. Otherwise the app extracts key lines.
 
+### Remote work
+
+A conversation can be marked to run on the hub. When a message is sent in one from another device, that device first makes sure the hub has everything (the conversation, earlier messages, attached images), then asks the hub to answer. The hub's own conversation engine does exactly what it does for a message typed at the hub: it picks the provider, resumes or catches up that provider's session, and runs it in a folder on the hub.
+
+Progress is sent to connected devices over the same event stream that announces sync changes, throttled so a long reply does not flood the connection. The finished messages arrive through ordinary sync. A device shows a run as finished only once the saved reply is there, so the live copy never disappears first. Stop and approval answers go back to the hub as small requests.
+
+The provider sessions live on the hub, so they survive the other device sleeping, and a run started from the Mac can be continued at the PC or the other way round.
+
+This is off by default, because it allows a paired device to run commands on the hub.
+
 ### Sync
 
 Every conversation, message, memory note and saved prompt is a small record with an id, a last-changed time and the device that changed it. The newest change to a record wins. Because each message is its own record, two machines adding messages to the same conversation merge cleanly.
@@ -128,6 +138,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Automatic failover at a limit (off by default) | Built, tested |
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
 | Notice when a newer build is published | Built, tested |
+| Remote work: a conversation typed on one device runs on the hub | Built, tested with two app instances. Not yet run between two real machines. |
 | Light and dark themes | Built, tested |
 | Mac installer | Built and launched |
 | Windows installer | Built by GitHub Actions. Not yet run on a real PC. |
@@ -142,11 +153,12 @@ An image is stored as its own record, so it syncs like a message does. Sync batc
 
 ### Next
 
-1. **Remote agent work.** Let the Mac start Claude or ChatGPT agent work on the PC through the hub, so long tasks run on the desktop while the laptop sleeps.
-2. **Live approvals for Claude.** Ask during the turn, not after it, using the permission prompt hook in Claude Code.
-3. **PDF attachments.**
-4. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
-5. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
+1. **Live approvals for Claude.** Ask during the turn, not after it, using the permission prompt hook in Claude Code.
+2. **Browse folders on the hub** from another device, where today the path is typed.
+3. **A notification when a long run on the hub finishes.**
+4. **PDF attachments.**
+5. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
+6. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
 
 ### Suggested features
 
@@ -167,4 +179,4 @@ An image is stored as its own record, so it syncs like a message does. Sync batc
 - **Provider changes.** The app depends on two command line tools whose output formats and terms can change. The parsers are small and isolated, and stand-in programs in the tests make changes easy to spot.
 - **Website tabs.** Either site can change its sign-in flow or page layout. The tabs are a convenience, and the unified chat does not depend on them.
 - **Unsigned builds.** Both systems warn on first launch until the builds are signed.
-- **The pairing code is the only lock on the hub.** Keep the hub on the home network and Tailscale. Do not forward its port to the internet.
+- **The pairing code is the only lock on the hub.** Keep the hub on the home network and Tailscale. Do not forward its port to the internet. With remote work turned on, the code is also enough to run commands on the hub, so it matters more.

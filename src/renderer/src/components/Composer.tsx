@@ -4,7 +4,7 @@ import { MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
 import { headroom } from '@shared/usage'
 import type { AttachResult } from '@shared/ipc'
 import { createFromDraft, getState, setState, toast, useUi, type Draft } from '../state'
-import { IconBook, IconChevron, IconClip, IconColumns, IconFolder, IconLock, IconSend, IconStop } from '../icons'
+import { IconBook, IconChevron, IconClip, IconColumns, IconComputer, IconFolder, IconLock, IconSend, IconStop } from '../icons'
 import { AttachmentList, fileToBase64 } from './Attachments'
 import { MenuItem, Popover, ProviderDot, PROVIDERS, providerName } from './ui'
 
@@ -42,6 +42,14 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   const isPrivate = conversation?.private ?? draft.private
   const models = conversation?.models ?? draft.models
   const effective: ProviderChoice = isPrivate ? 'local' : provider
+  // When the hub allows it, a conversation can run there instead of on this computer.
+  const remote = app.remote?.enabled ? app.remote : undefined
+  // On the hub itself such a conversation simply runs here, so there is nothing to choose.
+  const onHub = !app.settings.hub.hostEnabled && !!(conversation?.runOnHub ?? draft.runOnHub)
+  const hubName = remote?.deviceName ?? 'the hub'
+  const providers = onHub && remote ? remote.providers : app.providers
+  const [folderDraft, setFolderDraft] = useState('')
+  const [folderError, setFolderError] = useState('')
 
   const change = (patch: Partial<Draft>) => {
     if (!conversation) {
@@ -57,6 +65,8 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     void window.api.updateConversation(conversation.id, patch)
   }
 
+  useEffect(() => setFolderDraft(workspace), [workspace])
+
   const lastId = useRef<string | undefined>(conversation?.id)
   useEffect(() => {
     // Keep what was typed when a new chat becomes a saved conversation.
@@ -68,9 +78,11 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     }
     setCompare(null)
     setWorkspace('')
+    setFolderError('')
     if (conversation) void window.api.getWorkspace(conversation.id).then(setWorkspace)
     ref.current?.focus()
-  }, [conversation?.id])
+    // The folder is kept per machine, so it is looked up again when the conversation moves to or from the hub.
+  }, [conversation?.id, conversation?.runOnHub])
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -79,7 +91,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     el.style.height = `${Math.min(el.scrollHeight, 260)}px`
   }, [text])
 
-  const ready = (p: ProviderId) => !!app.providers[p]?.ready
+  const ready = (p: ProviderId) => !!providers[p]?.ready
   const readyProviders = PROVIDERS.filter(ready)
 
   const submit = () => {
@@ -114,9 +126,19 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     setWorkspace(await window.api.pickWorkspace(conv.id))
   }
 
+  /** A folder on the hub cannot be browsed from here, so its path is typed. */
+  const setHubFolder = async (close: () => void) => {
+    const conv = conversation ?? (await createFromDraft())
+    const result = await window.api.setWorkspacePath(conv.id, folderDraft)
+    setFolderError(result.error ?? '')
+    if (result.error) return
+    setWorkspace(result.path)
+    close()
+  }
+
   const modelList = (p: ProviderId): string[] => {
     if (p === 'local') return app.localModels.map((m) => `${m.endpointId}/${m.id}`)
-    const fromStatus = app.providers[p]?.models ?? []
+    const fromStatus = providers[p]?.models ?? []
     const configured = p === 'claude' ? app.settings.claude.models : app.settings.chatgpt.models
     return [...new Set([...fromStatus, ...configured])]
   }
@@ -192,7 +214,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                   </MenuItem>
                   <div className="menu-sep" />
                   {PROVIDERS.map((p) => {
-                    const st = app.providers[p]
+                    const st = providers[p]
                     const room = headroom(app.usage[p])
                     const hint = !st ? 'Checking…' : !st.ready ? st.detail : room === 'none' ? 'Limit reached' : room === 'low' ? 'Running low' : st.detail
                     return (
@@ -288,10 +310,93 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               </Popover>
             )}
 
-            {!compare && effective !== 'local' && mode !== 'chat' && (
+            {!compare && effective !== 'local' && mode !== 'chat' && !onHub && (
               <button type="button" className="chip" title={workspace || 'Choose the folder the assistant works in'} data-testid="folder-picker" onClick={() => void pickFolder()}>
                 <IconFolder size={15} /> <span className="chip-path">{workspace ? shortPath(workspace) : 'Choose folder'}</span>
               </button>
+            )}
+
+            {!compare && effective !== 'local' && mode !== 'chat' && onHub && (
+              <Popover
+                up
+                testId="hub-folder-picker"
+                title={workspace || `Choose the folder on ${hubName} the assistant works in`}
+                label={
+                  <>
+                    <IconFolder size={15} /> <span className="chip-path">{workspace ? shortPath(workspace) : 'Choose folder'}</span>
+                  </>
+                }
+              >
+                {(close) => (
+                  <div className="menu-form">
+                    <div className="menu-title">Folder on {hubName}</div>
+                    <input
+                      className="input"
+                      autoFocus
+                      data-testid="hub-folder-input"
+                      placeholder={remote?.platform === 'win32' ? 'C:\\Users\\you\\project' : '/Users/you/project'}
+                      defaultValue={workspace}
+                      onChange={(e) => {
+                        setFolderDraft(e.target.value)
+                        setFolderError('')
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void setHubFolder(close)
+                      }}
+                    />
+                    {folderError && (
+                      <div className="menu-error" data-testid="hub-folder-error">
+                        {folderError}
+                      </div>
+                    )}
+                    <button type="button" className="btn btn-small btn-primary" data-testid="hub-folder-save" onClick={() => void setHubFolder(close)}>
+                      Use this folder
+                    </button>
+                  </div>
+                )}
+              </Popover>
+            )}
+
+            {(remote || onHub) && !app.settings.hub.hostEnabled && !compare && (
+              <Popover
+                up
+                testId="runs-on-picker"
+                title="Which computer does the work"
+                label={
+                  <>
+                    <IconComputer size={15} /> <span className="chip-path">{onHub ? hubName : 'This computer'}</span> <IconChevron size={13} />
+                  </>
+                }
+              >
+                {(close) => (
+                  <>
+                    <div className="menu-title">Runs on</div>
+                    <MenuItem
+                      selected={!onHub}
+                      hint="Uses the assistants signed in here"
+                      testId="runs-on-here"
+                      onClick={() => {
+                        change({ runOnHub: false })
+                        close()
+                      }}
+                    >
+                      This computer
+                    </MenuItem>
+                    <MenuItem
+                      selected={onHub}
+                      disabled={!remote}
+                      hint={remote ? "Uses the hub's sign-ins and files, and keeps going if this computer sleeps" : 'Not reachable right now, or not allowed by the hub'}
+                      testId="runs-on-hub"
+                      onClick={() => {
+                        change({ runOnHub: true })
+                        close()
+                      }}
+                    >
+                      {hubName}
+                    </MenuItem>
+                  </>
+                )}
+              </Popover>
             )}
 
             <span className="spacer" />
@@ -394,6 +499,10 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               : 'Pick at least two assistants to compare'
             : isPrivate
               ? 'Private conversation. Nothing leaves your own machines.'
+              : onHub
+                ? remote
+                  ? `Runs on ${hubName}. You can close this computer and the work carries on.`
+                  : 'Set to run on the hub, which is not reachable right now. Use "Runs on" to continue on this computer.'
               : 'One conversation, any assistant. Switch at any time and the context comes with you.'}
         </div>
       </div>
