@@ -112,6 +112,27 @@ describe('hub sync', () => {
     await until(() => !b.store.get('conversation', 'c1') && !hub.store.get('conversation', 'c1'), 8000, 'the deletion to spread')
   })
 
+  it('syncs large image attachments in several batches', async () => {
+    const hub = await startHub()
+    const mac = startClient(hub.url)
+    await until(() => mac.client.status().connected, 8000, 'the client to connect')
+    // Four images of about 9 MB each: more than one batch may carry.
+    const base64 = 'A'.repeat(9 * 1024 * 1024)
+    for (const id of ['img-1', 'img-2', 'img-3', 'img-4']) mac.store.put('blob', id, { id, name: `${id}.png`, mime: 'image/png', base64 })
+    expect(mac.store.dirty().length).toBeLessThan(4)
+    await until(() => hub.store.list('blob').length === 4, 15000, 'all four images to reach the hub')
+    await until(() => mac.store.dirtyCount() === 0, 8000, 'the client to finish sending')
+
+    const laptop = startClient(hub.url)
+    await until(() => laptop.store.list('blob').length === 4, 15000, 'all four images to reach the second device')
+    expect(laptop.store.list<{ id: string; base64: string }>('blob').map((b) => [b.id, b.base64.length]).sort()).toEqual(['img-1', 'img-2', 'img-3', 'img-4'].map((id) => [id, base64.length]))
+
+    // Deleting an image frees its bytes everywhere but keeps the deletion on record.
+    mac.store.remove('blob', 'img-1')
+    await until(() => laptop.store.get('blob', 'img-1') === undefined, 15000, 'the deletion to reach the second device')
+    expect(laptop.store.list('blob')).toHaveLength(3)
+  })
+
   it('rejects a wrong pairing code', async () => {
     const hub = await startHub()
     const stranger = startClient(hub.url, 'wrong')

@@ -1,16 +1,24 @@
 // Checks against the real services, using the sign-ins on this machine.
 // Skipped unless CHAUDECAL_LIVE names what to check, for example:
 //   CHAUDECAL_LIVE=chatgpt,claude npx vitest run tests/live.test.ts
+// Add chatgpt-image or claude-image to check that an attached image is really seen.
 // Each check sends one very short message, so it uses a little of your plan.
 
 import { describe, expect, it } from 'vitest'
-import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import type { RunEvent } from '@shared/types'
 import { defaultSettings } from '@shared/types'
 import { loadShellPath } from '../src/main/env'
 import { ClaudeProvider } from '../src/main/providers/claude'
 import { CodexProvider } from '../src/main/providers/codex'
+import type { RunImage } from '../src/main/providers/types'
 import { tempDir } from './helpers'
+
+// The app icon: three overlapping circles.
+const iconPath = resolve(import.meta.dirname, '../build/icon.png')
+const icon = (): RunImage => ({ name: 'icon.png', mime: 'image/png', base64: readFileSync(iconPath).toString('base64'), path: iconPath })
+const IMAGE_QUESTION = 'How many circles are in this image? Reply with a single digit and nothing else.'
 
 const live = (process.env.CHAUDECAL_LIVE ?? '').split(',').map((s) => s.trim())
 const settings = defaultSettings('live-test')
@@ -66,5 +74,34 @@ describe.skipIf(!live.includes('claude'))('live: Claude through Claude Code', ()
     const errors = c.events.filter((e) => e.type === 'error')
     if (errors.length) expect(errors).toEqual([expect.objectContaining({ code: 'auth' })])
     else expect(c.text().toLowerCase()).toContain('maple')
+  }, 180_000)
+})
+
+describe.skipIf(!live.includes('chatgpt-image'))('live: ChatGPT sees an attached image', () => {
+  it('answers a question about the image', async () => {
+    await loadShellPath()
+    const codex = new CodexProvider(() => settings, '0.0.0-live', () => {})
+    try {
+      const c = collect()
+      await codex.run({ prompt: IMAGE_QUESTION, system: '', model: '', mode: 'chat', cwd: tempDir(), images: [icon()] }, c.emit).done
+      console.log('reply', c.text(), c.events.filter((e) => e.type === 'error'))
+      expect(c.events.filter((e) => e.type === 'error')).toEqual([])
+      expect(c.text()).toContain('3')
+    } finally {
+      codex.dispose()
+    }
+  }, 180_000)
+})
+
+describe.skipIf(!live.includes('claude-image'))('live: Claude sees an attached image', () => {
+  it('answers a question about the image, or says clearly that sign-in is needed', async () => {
+    await loadShellPath()
+    const claude = new ClaudeProvider(() => settings, join(tempDir(), 'tmp'))
+    const c = collect()
+    await claude.run({ prompt: IMAGE_QUESTION, system: '', model: 'haiku', mode: 'chat', cwd: tempDir(), images: [icon()] }, c.emit).done
+    console.log('reply', c.text(), c.events.filter((e) => e.type === 'error'))
+    const errors = c.events.filter((e) => e.type === 'error')
+    if (errors.length) expect(errors).toEqual([expect.objectContaining({ code: 'auth' })])
+    else expect(c.text()).toContain('3')
   }, 180_000)
 })

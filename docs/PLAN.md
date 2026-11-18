@@ -123,33 +123,38 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Shared memory, profile and saved prompts | Built, tested |
 | Hub, client, offline changes, discovery | Built, tested with two app instances on one machine |
 | Website tabs and bringing a web chat in | Built. Loading is tested. Capture is best effort and depends on each site's page layout. |
+| Attachments: images and text files, picked, pasted or dropped | Built, tested. Image input is checked against real ChatGPT. |
+| Second opinion and branching | Built, tested |
+| Automatic failover at a limit (off by default) | Built, tested |
+| Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
+| Notice when a newer build is published | Built, tested |
 | Light and dark themes | Built, tested |
 | Mac installer | Built and launched |
 | Windows installer | Built by GitHub Actions. Not yet run on a real PC. |
 
-Not verified yet: real answers from Claude on the development Mac (its command line sign-in had expired), real Ollama and LM Studio, sync between two physical machines, and anything on Windows beyond the automated build.
+Not verified yet: real answers from Claude on the development Mac (its command line sign-in had expired, so image input to real Claude is also unchecked), real Ollama and LM Studio, sync between two physical machines, and anything on Windows beyond the automated build.
+
+### How attachments work
+
+An image is stored as its own record, so it syncs like a message does. Sync batches are capped by size so a few large images cannot stall it. Each assistant gets the image in the form it expects: Claude as one structured message on standard input, ChatGPT as a file on disk, a local model as a data URL. A text file is read once and kept inside the message, which puts it in the transcript and both context files. When an assistant has to be caught up on a conversation, the four most recent images it has not seen are sent with the context file.
 
 ## Roadmap
 
 ### Next
 
-1. **Hub in the system tray.** Keep the hub running when the window is closed, and start it with Windows.
-2. **Remote agent work.** Let the Mac start Claude or ChatGPT agent work on the PC through the hub, so long tasks run on the desktop while the laptop sleeps.
-3. **Attachments in the unified chat.** Images, PDFs and files in the message box, passed to whichever assistant is answering.
-4. **Live approvals for Claude.** Ask during the turn, not after it, using the permission prompt hook in Claude Code.
-5. **Automatic updates** from GitHub Releases.
-6. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
+1. **Remote agent work.** Let the Mac start Claude or ChatGPT agent work on the PC through the hub, so long tasks run on the desktop while the laptop sleeps.
+2. **Live approvals for Claude.** Ask during the turn, not after it, using the permission prompt hook in Claude Code.
+3. **PDF attachments.**
+4. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
+5. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
 
 ### Suggested features
 
-- **Automatic failover.** An option to continue on the other assistant without asking when a limit is hit in the middle of a long task.
 - **Limit forecast.** Predict when the current window will run out at the present pace, and suggest saving the stronger model for harder questions.
 - **Voice.** Dictation with a local speech model on the PC, and spoken replies.
 - **Local image generation** on the 9070 XT through a ComfyUI connection.
 - **Local models with tools.** File reading and web search for local models through MCP.
 - **Projects.** Group conversations with shared files and instructions that every assistant receives.
-- **Branching.** Fork a conversation at any message to try a different direction.
-- **Second opinion.** One click to have another assistant review the last answer.
 - **Scheduled prompts.** Run a saved prompt every morning on the PC and sync the result.
 - **Quick ask.** A global shortcut that opens a small window over whatever you are doing.
 - **Import.** Bring in the official data exports from Claude and ChatGPT so old conversations are searchable.

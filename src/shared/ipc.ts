@@ -3,6 +3,7 @@
 import type {
   ApprovalDecision,
   ApprovalRequest,
+  Attachment,
   Conversation,
   DiscoveredHub,
   HandoffVariant,
@@ -19,7 +20,8 @@ import type {
   RouteDecision,
   SavedPrompt,
   Settings,
-  SyncRecord
+  SyncRecord,
+  UpdateInfo
 } from './types'
 
 export interface SendInput {
@@ -35,6 +37,14 @@ export interface SendInput {
   retry?: boolean
   /** Extra permission rules the user just granted (Claude). */
   allow?: string[]
+  /** Files to send with this message, as returned by pickAttachments or addAttachment. */
+  attachments?: Attachment[]
+}
+
+export interface AttachResult {
+  attachments: Attachment[]
+  /** One line per file that could not be attached. */
+  errors: string[]
 }
 
 export interface SearchHit {
@@ -81,6 +91,7 @@ export interface AppState {
   localModels: LocalModel[]
   hub: HubStatus
   busy: string[]
+  update?: UpdateInfo
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] }
@@ -97,6 +108,7 @@ export interface AppEvents {
   hub: HubStatus
   settings: Settings
   web: WebState
+  update: UpdateInfo
   command: 'new-chat' | 'search' | 'settings'
 }
 
@@ -111,6 +123,18 @@ export interface Api {
   stop(conversationId: string): Promise<void>
   respondApproval(conversationId: string, messageId: string, approvalId: string, decision: ApprovalDecision): Promise<void>
   selectVariant(messageId: string): Promise<void>
+  /** Copy the conversation up to and including a message into a new one. */
+  branchConversation(conversationId: string, messageId: string): Promise<Conversation | undefined>
+
+  /** Let the user choose files to attach. */
+  pickAttachments(): Promise<AttachResult>
+  /** Attach a pasted or dropped file. */
+  addAttachment(file: { name: string; base64: string }): Promise<AttachResult>
+  /** An image attachment as a data URL, for display. */
+  attachmentUrl(id: string): Promise<string | undefined>
+  /** Forget an attachment that was added but never sent. */
+  discardAttachment(id: string): Promise<void>
+
   switchProvider(conversationId: string, to: ProviderChoice): Promise<void>
 
   handoffPreview(conversationId: string, variant: HandoffVariant, target?: ProviderId): Promise<HandoffInfo | undefined>
@@ -160,6 +184,11 @@ export const API_METHODS = [
   'stop',
   'respondApproval',
   'selectVariant',
+  'branchConversation',
+  'pickAttachments',
+  'addAttachment',
+  'attachmentUrl',
+  'discardAttachment',
   'switchProvider',
   'handoffPreview',
   'revealContext',
@@ -188,4 +217,4 @@ export const API_METHODS = [
   'webCapture'
 ] as const satisfies readonly Exclude<keyof Api, 'on'>[]
 
-export const EVENT_CHANNELS = ['records', 'stream', 'busy', 'route', 'approval', 'denials', 'providers', 'hub', 'settings', 'web', 'command'] as const satisfies readonly (keyof AppEvents)[]
+export const EVENT_CHANNELS = ['records', 'stream', 'busy', 'route', 'approval', 'denials', 'providers', 'hub', 'settings', 'web', 'update', 'command'] as const satisfies readonly (keyof AppEvents)[]

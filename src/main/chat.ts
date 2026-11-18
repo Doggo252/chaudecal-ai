@@ -7,6 +7,8 @@ import { join } from 'node:path'
 import type {
   ApprovalDecision,
   ApprovalRequest,
+  Attachment,
+  Blob,
   Conversation,
   HandoffVariant,
   MemoryNote,
@@ -22,25 +24,28 @@ import type {
   RunMode,
   Settings
 } from '@shared/types'
-import { newId, PROVIDER_LABEL } from '@shared/types'
+import { MAX_ATTACHMENTS, newId, PROVIDER_LABEL } from '@shared/types'
 import {
   buildHandoff,
   composeChatMessages,
   composePrompt,
+  messageBody,
   planTurn,
   providerBudget,
   sharedSystemText,
   threadMessages,
   titleFromText,
   type HandoffResult,
-  type SessionState
+  type SessionState,
+  type TurnPlan
 } from '@shared/context'
 import { estimateTokens } from '@shared/tokens'
-import { route } from '@shared/router'
+import { route, switchTarget } from '@shared/router'
 import { addTokens, applyLimits, emptyUsage, expireWindows } from '@shared/usage'
 import type { SendInput } from '@shared/ipc'
 import type { Store } from './store'
-import type { Provider, RunHandle } from './providers/types'
+import type { Provider, RunHandle, RunImage } from './providers/types'
+import { imageFile } from './attachments'
 import type { Summarizer } from './summarizer'
 
 export interface ChatEvents {
@@ -51,6 +56,9 @@ export interface ChatEvents {
   denials(conversationId: string, messageId: string, denials: PermissionDenial[]): void
   busy(conversationId: string, busy: boolean): void
 }
+
+/** Images from earlier in the conversation that are sent again when a provider is caught up. */
+const EARLIER_IMAGES = 4
 
 interface Active {
   handles: RunHandle[]
@@ -67,7 +75,7 @@ export class ChatEngine {
     private providers: Record<ProviderId, Provider>,
     private statuses: () => Partial<Record<ProviderId, ProviderStatus>>,
     private events: ChatEvents,
-    private dirs: { context: string; scratch: string },
+    private dirs: { context: string; scratch: string; attachments: string },
     private summarizer: Summarizer
   ) {
     mkdirSync(dirs.context, { recursive: true })
@@ -192,8 +200,9 @@ export class ChatEngine {
   }
 
   private choose(conv: Conversation, text: string, prior: Message[], override?: ProviderId): RouteDecision {
-    if (override) return { provider: override, reason: '' }
+    // Private comes first: nothing may send a private conversation to a cloud service.
     if (conv.private) return { provider: 'local', reason: 'This conversation is private, so it stays on local AI.' }
+    if (override) return { provider: override, reason: '' }
     if (conv.provider !== 'auto') return { provider: conv.provider, reason: '' }
     const s = this.settings()
     const last = [...prior].reverse().find((m) => m.role === 'assistant' && m.provider)?.provider
@@ -222,22 +231,26 @@ export class ChatEngine {
     let prior = threadMessages(all)
     let userText = input.text.trim()
     let userMessage: Message | undefined
+    const attachments = this.cleanAttachments(input.attachments)
 
     if (input.retry) {
       // Answer the last user message again. Failed or stopped replies after it are removed.
       const lastUserIdx = all.map((m) => m.role).lastIndexOf('user')
       if (lastUserIdx < 0) throw new Error('There is nothing to retry.')
       userMessage = all[lastUserIdx]
-      userText = userMessage.text
+      userText = messageBody(userMessage)
       for (const m of all.slice(lastUserIdx + 1)) if (m.role !== 'user') this.store.remove('message', m.id)
       prior = threadMessages(all.slice(0, lastUserIdx))
     } else {
-      if (!userText) return
+      if (!userText && !attachments.length) return
       userMessage = { id: newId(), conversationId: conv.id, role: 'user', text: userText, createdAt: Date.now(), deviceId: this.store.deviceId, status: 'complete' }
+      if (attachments.length) userMessage.attachments = attachments
       this.store.put('message', userMessage.id, userMessage)
       const patch: Partial<Conversation> = { updatedAt: Date.now() }
-      if (!prior.length && (conv.title === 'New chat' || !conv.title)) patch.title = titleFromText(userText)
+      if (!prior.length && (conv.title === 'New chat' || !conv.title)) patch.title = titleFromText(userText || attachments[0].name)
       this.updateConversation(conv.id, patch)
+      // From here on the text is what an assistant reads: the message plus its attached files.
+      userText = messageBody(userMessage)
     }
 
     const active: Active = { handles: [], byMessage: new Map() }
@@ -251,7 +264,27 @@ export class ChatEngine {
       } else {
         const decision = this.choose(conv, userText, prior, input.provider)
         if (decision.reason) this.events.route(conv.id, decision)
-        await this.runTurn({ conv, provider: decision.provider, prior, userText, userMessage, active, variant: input.variant ?? 'summary', allow: input.allow })
+        const variant = input.variant ?? 'summary'
+        const reply = await this.runTurn({ conv, provider: decision.provider, prior, userText, userMessage, active, variant, allow: input.allow })
+        const next = this.failoverTarget(conv, decision.provider, reply)
+        if (next) {
+          const from = decision.provider
+          // A reply that got part of the way stays in the thread, and the next assistant carries on from it.
+          const partial = !!reply.text.trim()
+          if (!partial) this.store.remove('message', reply.id)
+          const note: Message = { id: newId(), conversationId: conv.id, role: 'note', text: `${PROVIDER_LABEL[from]} reached its limit. Continued on ${PROVIDER_LABEL[next]}.`, createdAt: Date.now(), deviceId: this.store.deviceId, status: 'complete' }
+          this.store.put('message', note.id, note)
+          if (conv.provider === from) this.updateConversation(conv.id, { provider: next })
+          await this.runTurn({
+            conv,
+            provider: next,
+            prior: partial ? threadMessages(this.store.messages(conv.id)) : prior,
+            userText: partial ? 'The previous assistant ran out of usage before it finished. Continue from where it stopped.' : userText,
+            userMessage,
+            active,
+            variant
+          })
+        }
       }
     } finally {
       this.active.delete(conv.id)
@@ -272,7 +305,7 @@ export class ChatEngine {
     compareGroup?: string
     order?: number
     allow?: string[]
-  }): Promise<void> {
+  }): Promise<Message> {
     const { conv, provider, prior, userText } = args
     const s = this.settings()
     const compare = !!args.compareGroup
@@ -287,6 +320,7 @@ export class ChatEngine {
     const plan = planTurn(prior, session)
     const prompt = composePrompt({ plan, userText, conversation: conv, variant: args.variant, budgetTokens: budget, profile: this.profileText() })
     const messages = provider === 'local' ? composeChatMessages({ conversation: conv, prior, userText, budgetTokens: budget, system }) : undefined
+    const images = this.imagesFor(plan, args.userMessage)
 
     const message: Message = {
       id: newId(),
@@ -363,7 +397,7 @@ export class ChatEngine {
     }
 
     const handle = this.providers[provider].run(
-      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow: args.allow },
+      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow: args.allow, images },
       onEvent
     )
     args.active.handles.push(handle)
@@ -390,6 +424,74 @@ export class ChatEngine {
       this.store.kvDelete(this.sessionKey(conv.id, provider))
     }
     this.updateConversation(conv.id, { updatedAt: Date.now() })
+    return message
+  }
+
+  /** Where to carry on when a reply failed on a usage limit and the user asked not to be stopped by that. */
+  private failoverTarget(conv: Conversation, from: ProviderId, reply: Message): ProviderId | undefined {
+    if (!this.settings().autoFailover || conv.private) return undefined
+    if (reply.status !== 'error' || reply.error?.code !== 'rate_limit') return undefined
+    return switchTarget(from, this.availability(), this.allUsage())
+  }
+
+  // ----- attachments -----
+
+  /** Keep only well formed attachments whose image bytes are actually stored here. */
+  private cleanAttachments(input: Attachment[] | undefined): Attachment[] {
+    const out: Attachment[] = []
+    for (const a of input ?? []) {
+      if (!a || typeof a.id !== 'string' || typeof a.name !== 'string') continue
+      if (a.kind === 'image') {
+        if (!this.store.get<Blob>('blob', a.id)) continue
+        out.push({ id: a.id, name: a.name, mime: String(a.mime), size: Number(a.size) || 0, kind: 'image' })
+      } else if (a.kind === 'text' && typeof a.text === 'string') {
+        out.push({ id: a.id, name: a.name, mime: 'text/plain', size: Number(a.size) || 0, kind: 'text', text: a.text })
+      }
+      if (out.length >= MAX_ATTACHMENTS) break
+    }
+    return out
+  }
+
+  /**
+   * The images that go with a turn: the ones on the new message, plus the most
+   * recent ones from messages the provider has not seen, so that pictures
+   * survive a switch as well as text does.
+   */
+  private imagesFor(plan: TurnPlan, current: Message): RunImage[] {
+    const isImage = (a: Attachment) => a.kind === 'image'
+    const unseen = plan.kind === 'handoff' || plan.kind === 'catchup' ? plan.unseen : []
+    const earlier = unseen.flatMap((m) => (m.id === current.id ? [] : (m.attachments ?? []).filter(isImage))).slice(-EARLIER_IMAGES)
+    const out: RunImage[] = []
+    for (const a of [...earlier, ...(current.attachments ?? []).filter(isImage)]) {
+      const blob = this.store.get<Blob>('blob', a.id)
+      if (!blob?.base64) continue
+      try {
+        out.push({ name: blob.name, mime: blob.mime, base64: blob.base64, path: imageFile(this.dirs.attachments, blob) })
+      } catch {
+        // An image that cannot be written out is skipped. The message still names it.
+      }
+    }
+    return out
+  }
+
+  // ----- branching -----
+
+  /** Copy the conversation up to and including a message into a new one, to try another direction. */
+  branch(conversationId: string, messageId: string): Conversation | undefined {
+    const conv = this.store.get<Conversation>('conversation', conversationId)
+    if (!conv) return undefined
+    const thread = threadMessages(this.store.messages(conversationId))
+    const idx = thread.findIndex((m) => m.id === messageId)
+    if (idx < 0) return undefined
+    const copy = this.createConversation({ title: `${conv.title} (branch)`, provider: conv.provider, models: { ...conv.models }, mode: conv.mode, private: conv.private })
+    for (const m of thread.slice(0, idx + 1)) {
+      const id = newId()
+      this.store.put('message', id, { ...m, id, conversationId: copy.id, variantGroup: undefined, selected: undefined } satisfies Message)
+    }
+    const cwd = this.workspace(conversationId)
+    if (cwd) this.store.kvSet(`cwd:${copy.id}`, cwd)
+    this.writeContextFiles(copy.id)
+    return copy
   }
 
   stop(conversationId: string): void {

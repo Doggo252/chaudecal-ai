@@ -4,7 +4,7 @@
 // combine instead of overwriting each other.
 
 import { DatabaseSync } from 'node:sqlite'
-import type { Conversation, Message, RecordKind, SyncRecord } from '@shared/types'
+import type { Blob, Conversation, Message, RecordKind, SyncRecord } from '@shared/types'
 import type { SearchHit } from '@shared/ipc'
 
 type Row = {
@@ -29,6 +29,8 @@ function toRecord(row: Row): SyncRecord {
     seq: row.seq || undefined
   }
 }
+
+const MAX_BATCH_BYTES = 24 * 1024 * 1024
 
 /** True when `incoming` should replace `existing`. Ties break on device id so both sides agree. */
 export function isNewer(incoming: { updatedAt: number; deviceId: string }, existing: { updatedAt: number; deviceId: string }): boolean {
@@ -156,7 +158,9 @@ export class Store {
   remove(kind: RecordKind, id: string): void {
     const existing = this.getRaw(kind, id)
     if (!existing) return
-    this.put(kind, id, existing.data, { deleted: true })
+    // A deleted image keeps its record so the deletion syncs, but not its bytes.
+    const data = kind === 'blob' ? { ...(existing.data as Blob), base64: '' } : existing.data
+    this.put(kind, id, data, { deleted: true })
   }
 
   private getRaw(kind: RecordKind, id: string): SyncRecord | undefined {
@@ -180,7 +184,17 @@ export class Store {
   }
 
   deleteConversation(id: string): void {
-    for (const m of this.messages(id)) this.remove('message', m.id)
+    const messages = this.messages(id)
+    const elsewhere = this.db.prepare("select count(*) as n from records where kind = 'message' and deleted = 0 and conv_id != ? and data like ?")
+    for (const m of messages) {
+      for (const a of m.attachments ?? []) {
+        if (a.kind !== 'image') continue
+        // A branch of this conversation may still show the same image.
+        const used = (elsewhere.get(id, `%"id":"${a.id}"%`) as { n: number }).n
+        if (!used) this.remove('blob', a.id)
+      }
+    }
+    for (const m of messages) this.remove('message', m.id)
     this.remove('conversation', id)
     this.kvDeletePrefix(`session:${id}:`)
     this.kvDelete(`cwd:${id}`)
@@ -205,8 +219,19 @@ export class Store {
 
   /** Changes made here that the hub has not seen. */
   dirty(limit = 400): SyncRecord[] {
-    const rows = this.db.prepare('select * from records where dirty = 1 order by updated_at limit ?').all(limit) as Row[]
-    return rows.map(toRecord)
+    return this.page(this.db.prepare('select * from records where dirty = 1 order by updated_at limit ?').iterate(limit) as Iterable<Row>)
+  }
+
+  /** One batch for the wire. Image attachments are large, so a batch is capped by size as well as by count. */
+  private page(rows: Iterable<Row>): SyncRecord[] {
+    const out: SyncRecord[] = []
+    let bytes = 0
+    for (const row of rows) {
+      out.push(toRecord(row))
+      bytes += row.data.length
+      if (bytes > MAX_BATCH_BYTES) break
+    }
+    return out
   }
 
   dirtyCount(): number {
@@ -225,8 +250,7 @@ export class Store {
 
   /** Hub side: everything that changed after a sequence number. */
   since(seq: number, limit = 500): SyncRecord[] {
-    const rows = this.db.prepare('select * from records where seq > ? order by seq limit ?').all(seq, limit) as Row[]
-    return rows.map(toRecord)
+    return this.page(this.db.prepare('select * from records where seq > ? order by seq limit ?').iterate(seq, limit) as Iterable<Row>)
   }
 
   // ----- search -----

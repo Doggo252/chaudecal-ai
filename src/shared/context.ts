@@ -33,8 +33,22 @@ export function threadMessages(all: Message[]): Message[] {
     .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
 }
 
+/** What a user message says, including the files attached to it. Images are named, not included. */
+export function messageBody(m: Pick<Message, 'text' | 'attachments'>): string {
+  const parts = [m.text.trim()]
+  for (const a of m.attachments ?? []) {
+    if (a.kind === 'text') parts.push(`<attached_file name="${a.name}">\n${(a.text ?? '').trim()}\n</attached_file>`)
+    else parts.push(`[Attached image: ${a.name}]`)
+  }
+  return parts.filter(Boolean).join('\n\n')
+}
+
+/** Asked of another assistant when the user wants the last answer checked. */
+export const SECOND_OPINION_PROMPT =
+  'Give me a second opinion on the previous answer: what you agree with, what you would change, and anything it missed.'
+
 export function renderMessage(m: Message): string {
-  if (m.role === 'user') return `## User\n\n${m.text.trim()}`
+  if (m.role === 'user') return `## User\n\n${messageBody(m)}`
   const who = m.provider ? PROVIDER_LABEL[m.provider] : 'Assistant'
   const model = m.model ? `, ${m.model}` : ''
   let out = `## Assistant (${who}${model})\n\n${m.text.trim()}`
@@ -267,10 +281,10 @@ export function composeChatMessages(input: {
   const out: ChatTurn[] = []
   const system = input.system.trim()
   const room = Math.max(300, input.budgetTokens - estimateTokens(system) - estimateTokens(input.userText) - 100)
-  const total = input.prior.reduce((n, m) => n + estimateTokens(m.text) + 6, 0)
+  const total = input.prior.reduce((n, m) => n + estimateTokens(messageBody(m)) + 6, 0)
   if (total <= room) {
     if (system) out.push({ role: 'system', content: system })
-    for (const m of input.prior) out.push({ role: m.role === 'user' ? 'user' : 'assistant', content: m.text })
+    for (const m of input.prior) out.push(m.role === 'user' ? { role: 'user', content: messageBody(m) } : { role: 'assistant', content: m.text })
   } else {
     const handoff = buildHandoff({ conversation: input.conversation, messages: input.prior, variant: 'summary', budgetTokens: room })
     out.push({ role: 'system', content: [system, handoff.text].filter(Boolean).join('\n\n') })

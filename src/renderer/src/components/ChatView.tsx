@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Message, ProviderId } from '@shared/types'
+import type { Attachment, Message, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
-import { threadMessages } from '@shared/context'
+import { messageBody, SECOND_OPINION_PROMPT, threadMessages } from '@shared/context'
 import { estimateTokens, formatTokens } from '@shared/tokens'
 import { formatReset, limitWarning } from '@shared/usage'
 import { switchTarget } from '@shared/router'
@@ -61,15 +61,15 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
 
   const busy = conversation ? app.busy.includes(conversation.id) : false
   const thread = useMemo(() => threadMessages(stored), [stored])
-  const contextTokens = useMemo(() => thread.reduce((n, m) => n + estimateTokens(m.text) + 6, 0), [thread])
+  const contextTokens = useMemo(() => thread.reduce((n, m) => n + estimateTokens(m.role === 'user' ? messageBody(m) : m.text) + 6, 0), [thread])
 
-  const send = async (text: string, compare?: ProviderId[]) => {
+  const send = async (text: string, compare?: ProviderId[], attachments?: Attachment[]) => {
     try {
       const conv = conversation ?? (await createFromDraft())
       stick.current = true
       dismissRemoved(conv.id)
       const variant = getState().variants[conv.id]
-      await window.api.send({ conversationId: conv.id, text, compare, variant })
+      await window.api.send({ conversationId: conv.id, text, compare, variant, attachments })
     } catch (e) {
       toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e))
     }
@@ -91,8 +91,24 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const available = { claude: !!app.providers.claude?.ready, chatgpt: !!app.providers.chatgpt?.ready, local: !!app.providers.local?.ready }
   const target = warning ? switchTarget(warning.provider, available, app.usage) : undefined
 
+  const branch = async (messageId: string) => {
+    if (!conversation) return
+    const copy = await window.api.branchConversation(conversation.id, messageId)
+    if (!copy) return
+    openChat(copy.id)
+    toast('Branched. This is a separate conversation from here on.')
+  }
+
+  // A second opinion comes from whichever other assistant has room. Private chats never leave local AI.
+  const opinionFrom = !conversation || conversation.private || !lastProvider ? undefined : switchTarget(lastProvider, available, app.usage)
+  const secondOpinion = () => {
+    if (!conversation || busy || !opinionFrom) return
+    stick.current = true
+    void window.api.send({ conversationId: conversation.id, text: SECOND_OPINION_PROMPT, provider: opinionFrom }).catch((e) => toast(String(e.message ?? e)))
+  }
+
   const empty = !messages.length
-  const composer = <Composer conversation={conversation} onSend={(t, c) => void send(t, c)} />
+  const composer = <Composer conversation={conversation} onSend={(t, c, a) => void send(t, c, a)} />
 
   return (
     <>
@@ -226,7 +242,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
             }}
           >
             <div className="column">
-              <MessageList messages={messages} focusId={focusMessageId} onRetry={retry} onSwitch={() => openSwitch()} />
+              <MessageList messages={messages} focusId={focusMessageId} onRetry={retry} onSwitch={() => openSwitch()} onBranch={(id) => void branch(id)} onSecondOpinion={opinionFrom ? secondOpinion : undefined} />
               {conversation &&
                 approvals?.map((a) => (
                   <ApprovalCard

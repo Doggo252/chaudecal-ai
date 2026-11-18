@@ -18,6 +18,16 @@ export interface RunRequest {
   ephemeral?: boolean
   /** Extra permission rules granted by the user for this run (Claude syntax). */
   allow?: string[]
+  /** Images that go with this turn. */
+  images?: RunImage[]
+}
+
+export interface RunImage {
+  name: string
+  mime: string
+  base64: string
+  /** The same image as a file on this machine. */
+  path: string
 }
 
 export interface RunHandle {

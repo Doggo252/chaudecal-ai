@@ -170,14 +170,14 @@ export class HubClient implements HubLink {
           method: 'POST',
           headers: { ...this.headers(), 'content-type': 'application/json' },
           body: JSON.stringify({ records: batch }),
-          signal: AbortSignal.timeout(30000)
+          signal: AbortSignal.timeout(120000)
         })
         if (!res.ok) throw new Error(`push ${res.status} ${res.status === 401 ? 'unauthorized' : ''}`)
         this.store.markClean(batch)
       }
       for (;;) {
         const cursor = this.store.kvGet<number>('cursor') ?? 0
-        const res = await fetch(`${url}/api/sync/pull?since=${cursor}`, { headers: this.headers(), signal: AbortSignal.timeout(30000) })
+        const res = await fetch(`${url}/api/sync/pull?since=${cursor}`, { headers: this.headers(), signal: AbortSignal.timeout(120000) })
         if (!res.ok) throw new Error(`pull ${res.status} ${res.status === 401 ? 'unauthorized' : ''}`)
         const body = (await res.json()) as { records: SyncRecord[]; seq: number; more: boolean }
         this.store.applyRemote(body.records)

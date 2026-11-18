@@ -114,6 +114,22 @@ function General() {
         <Row title="Offer to switch at" sub="Percent of a 5-hour or weekly limit used before the app suggests continuing elsewhere.">
           <NumberField value={s.warnThresholdPct} min={10} max={99} onCommit={(n) => save({ warnThresholdPct: n })} />
         </Row>
+        <Row title="Switch automatically at a limit" sub="If an assistant hits its limit in the middle of a reply, carry on with another one without asking. Off means you are asked first.">
+          <Toggle checked={s.autoFailover} onChange={(v) => save({ autoFailover: v })} label="Switch automatically at a limit" testId="auto-failover-toggle" />
+        </Row>
+      </div>
+
+      <div className="group-title">Background and updates</div>
+      <div className="group">
+        <Row title="Keep running when the window is closed" sub="When this machine is the hub, closing the window leaves the app in the system tray so your other devices can still sync. A Mac keeps the app running either way.">
+          <Toggle checked={s.keepRunningInBackground} onChange={(v) => save({ keepRunningInBackground: v })} label="Keep running when the window is closed" />
+        </Row>
+        <Row title="Start when I sign in to this computer" sub="Starts quietly in the background. Useful on the hub PC.">
+          <Toggle checked={s.startAtLogin} onChange={(v) => save({ startAtLogin: v })} label="Start when I sign in to this computer" />
+        </Row>
+        <Row title="Tell me about new versions" sub="Checks the project's GitHub page a few times a day. Nothing is downloaded or installed for you.">
+          <Toggle checked={s.checkForUpdates} onChange={(v) => save({ checkForUpdates: v })} label="Tell me about new versions" />
+        </Row>
       </div>
     </>
   )

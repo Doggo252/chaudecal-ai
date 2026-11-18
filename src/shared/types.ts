@@ -76,7 +76,35 @@ export interface Message {
   variantGroup?: string
   /** In a variant group, only the selected answer is part of the conversation. */
   selected?: boolean
+  /** Files the user attached to this message. */
+  attachments?: Attachment[]
 }
+
+/**
+ * A file attached to a message. Text files carry their content, so it travels
+ * with the conversation. Images are stored as a separate blob record with the
+ * same id.
+ */
+export interface Attachment {
+  id: string
+  name: string
+  mime: string
+  size: number
+  kind: 'image' | 'text'
+  text?: string
+}
+
+/** The bytes of an image attachment. Synced like any other record. */
+export interface Blob {
+  id: string
+  name: string
+  mime: string
+  base64: string
+}
+
+export const MAX_ATTACHMENTS = 8
+export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+export const MAX_TEXT_CHARS = 200_000
 
 export type ErrorCode =
   | 'auth'
@@ -133,7 +161,7 @@ export interface ProviderUsage {
 
 // ---------- Sync records ----------
 
-export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage'
+export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage' | 'blob'
 
 export interface SyncRecord<T = unknown> {
   kind: RecordKind
@@ -188,6 +216,12 @@ export interface Settings {
     remoteToken: string
   }
   routing: { preferLocalForShort: boolean }
+  /** When a provider hits its limit mid-conversation, carry on with another one without asking. */
+  autoFailover: boolean
+  /** On the hub, closing the window keeps the app running in the background. */
+  keepRunningInBackground: boolean
+  startAtLogin: boolean
+  checkForUpdates: boolean
 }
 
 export const DEFAULT_HUB_PORT = 47600
@@ -212,7 +246,11 @@ export function defaultSettings(deviceName: string): Settings {
       summarize: true
     },
     hub: { hostEnabled: false, port: DEFAULT_HUB_PORT, token: '', remoteUrl: '', remoteToken: '' },
-    routing: { preferLocalForShort: false }
+    routing: { preferLocalForShort: false },
+    autoFailover: false,
+    keepRunningInBackground: true,
+    startAtLogin: false,
+    checkForUpdates: true
   }
 }
 
@@ -247,6 +285,13 @@ export interface HubStatus {
   pending: number
   /** Addresses other devices can use, shown on the hub. */
   addresses?: string[]
+}
+
+/** A newer build published on GitHub. */
+export interface UpdateInfo {
+  version: string
+  build: number
+  url: string
 }
 
 export interface DiscoveredHub {

@@ -1,9 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { Conversation, ProviderChoice, ProviderId, RunMode } from '@shared/types'
-import { PROVIDER_LABEL } from '@shared/types'
+import type { Attachment, Conversation, ProviderChoice, ProviderId, RunMode } from '@shared/types'
+import { MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
 import { headroom } from '@shared/usage'
-import { createFromDraft, getState, setState, useUi, type Draft } from '../state'
-import { IconBook, IconChevron, IconColumns, IconFolder, IconLock, IconSend, IconStop } from '../icons'
+import type { AttachResult } from '@shared/ipc'
+import { createFromDraft, getState, setState, toast, useUi, type Draft } from '../state'
+import { IconBook, IconChevron, IconClip, IconColumns, IconFolder, IconLock, IconSend, IconStop } from '../icons'
+import { AttachmentList, fileToBase64 } from './Attachments'
 import { MenuItem, Popover, ProviderDot, PROVIDERS, providerName } from './ui'
 
 const MODES: { id: RunMode; label: string; hint: string }[] = [
@@ -18,12 +20,20 @@ function shortPath(p: string): string {
   return parts.length ? parts[parts.length - 1] : p
 }
 
-export function Composer({ conversation, onSend }: { conversation?: Conversation; onSend: (text: string, compare?: ProviderId[]) => void }) {
+export function Composer({ conversation, onSend }: { conversation?: Conversation; onSend: (text: string, compare?: ProviderId[], attachments?: Attachment[]) => void }) {
   const app = useUi((s) => s.app)!
   const draft = useUi((s) => s.draft)
   const [text, setText] = useState('')
   const [compare, setCompare] = useState<ProviderId[] | null>(null)
   const [workspace, setWorkspace] = useState('')
+  const [attached, setAttachedState] = useState<Attachment[]>([])
+  // Files can arrive several at a time (a drop, a paste), so the latest list is also kept outside React state.
+  const attachedRef = useRef<Attachment[]>([])
+  const setAttached = (list: Attachment[]) => {
+    attachedRef.current = list
+    setAttachedState(list)
+  }
+  const [dragging, setDragging] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const busy = conversation ? app.busy.includes(conversation.id) : false
 
@@ -52,7 +62,10 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     // Keep what was typed when a new chat becomes a saved conversation.
     const created = lastId.current === undefined && conversation !== undefined
     lastId.current = conversation?.id
-    if (!created) setText('')
+    if (!created) {
+      setText('')
+      setAttached([])
+    }
     setCompare(null)
     setWorkspace('')
     if (conversation) void window.api.getWorkspace(conversation.id).then(setWorkspace)
@@ -71,9 +84,29 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
 
   const submit = () => {
     const value = text.trim()
-    if (!value || busy) return
+    if ((!value && !attached.length) || busy) return
     setText('')
-    onSend(value, compare && compare.length > 1 ? compare : undefined)
+    setAttached([])
+    onSend(value, compare && compare.length > 1 ? compare : undefined, attached.length ? attached : undefined)
+  }
+
+  const addAttached = (result: AttachResult) => {
+    if (result.errors.length) toast(result.errors.join(' '))
+    if (!result.attachments.length) return
+    const next = [...attachedRef.current, ...result.attachments]
+    if (next.length > MAX_ATTACHMENTS) toast(`A message can carry up to ${MAX_ATTACHMENTS} files.`)
+    for (const extra of next.slice(MAX_ATTACHMENTS)) void window.api.discardAttachment(extra.id)
+    setAttached(next.slice(0, MAX_ATTACHMENTS))
+    ref.current?.focus()
+  }
+
+  const addFiles = async (files: File[]) => {
+    for (const file of files) addAttached(await window.api.addAttachment({ name: file.name || 'pasted image', base64: await fileToBase64(file) }))
+  }
+
+  const removeAttached = (a: Attachment) => {
+    setAttached(attachedRef.current.filter((x) => x.id !== a.id))
+    void window.api.discardAttachment(a.id)
   }
 
   const pickFolder = async () => {
@@ -95,7 +128,22 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   return (
     <div className="composer-wrap">
       <div className="composer-col">
-        <div className="composer">
+        <div
+          className={`composer ${dragging ? 'dragging' : ''}`}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            setDragging(true)
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            setDragging(false)
+            if (!e.dataTransfer.files.length) return
+            e.preventDefault()
+            void addFiles([...e.dataTransfer.files])
+          }}
+        >
+          <AttachmentList items={attached} onRemove={removeAttached} />
           <textarea
             ref={ref}
             rows={1}
@@ -103,6 +151,13 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
             data-testid="composer-input"
             placeholder={compare ? 'Ask all selected assistants at once' : effective === 'auto' ? 'Ask anything' : `Message ${providerName(effective)}`}
             onChange={(e) => setText(e.target.value)}
+            onPaste={(e) => {
+              // A pasted screenshot or copied file becomes an attachment. Pasted text is left alone.
+              const files = [...e.clipboardData.files]
+              if (!files.length) return
+              e.preventDefault()
+              void addFiles(files)
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
@@ -241,6 +296,10 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
 
             <span className="spacer" />
 
+            <button type="button" className="icon-btn" title="Attach images or text files" data-testid="attach" onClick={() => void window.api.pickAttachments().then(addAttached)}>
+              <IconClip />
+            </button>
+
             {app.prompts.length > 0 && (
               <Popover up align="right" className="icon-btn" title="Saved prompts" label={<IconBook />}>
                 {(close) => (
@@ -322,7 +381,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                 <IconStop />
               </button>
             ) : (
-              <button type="button" className="send" title="Send" data-testid="send" disabled={!text.trim() || (!!compare && compare.length < 2)} onClick={submit}>
+              <button type="button" className="send" title="Send" data-testid="send" disabled={(!text.trim() && !attached.length) || (!!compare && compare.length < 2)} onClick={submit}>
                 <IconSend />
               </button>
             )}

@@ -4,7 +4,7 @@
 
 import type { LocalEndpoint, LocalModel, ProviderStatus, RunEvent, Settings } from '@shared/types'
 import type { ChatTurn } from '@shared/context'
-import type { Provider, RunHandle, RunRequest } from './types'
+import type { Provider, RunHandle, RunImage, RunRequest } from './types'
 
 export interface HubLink {
   /** Base URL and token of the hub when this machine is a connected client. */
@@ -106,6 +106,20 @@ export async function streamChat(
   }
 }
 
+type WirePart = { type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }
+type WireTurn = { role: ChatTurn['role']; content: string | WirePart[] }
+
+/** Attach images to the newest user message, in the form OpenAI compatible servers expect. */
+export function withImages(messages: ChatTurn[], images: RunImage[]): WireTurn[] {
+  if (!images.length) return messages
+  const idx = messages.map((m) => m.role).lastIndexOf('user')
+  return messages.map((m, i) =>
+    i === idx
+      ? { role: m.role, content: [{ type: 'text' as const, text: m.content }, ...images.map((img) => ({ type: 'image_url' as const, image_url: { url: `data:${img.mime};base64,${img.base64}` } }))] }
+      : m
+  )
+}
+
 export class LocalProvider implements Provider {
   private cache: { at: number; models: LocalModel[] } = { at: 0, models: [] }
 
@@ -154,7 +168,7 @@ export class LocalProvider implements Provider {
     return models.find((m) => modelRef(m) === wanted) ?? models.find((m) => m.id === wanted) ?? models[0]
   }
 
-  private async chat(model: LocalModel, messages: ChatTurn[], signal: AbortSignal, emit: (e: RunEvent) => void): Promise<void> {
+  private async chat(model: LocalModel, messages: WireTurn[], signal: AbortSignal, emit: (e: RunEvent) => void): Promise<void> {
     const payload = { model: model.id, messages, stream: true, stream_options: { include_usage: true } }
     if (model.via === 'hub') {
       const hub = this.hub.current()
@@ -177,7 +191,7 @@ export class LocalProvider implements Provider {
           return
         }
         emit({ type: 'model', model: modelRef(model) })
-        const messages = request.messages ?? [{ role: 'user' as const, content: request.prompt }]
+        const messages = withImages(request.messages ?? [{ role: 'user' as const, content: request.prompt }], request.images ?? [])
         await this.chat(model, messages, controller.signal, emit)
       } catch (e) {
         if (controller.signal.aborted) emit({ type: 'error', code: 'aborted', message: 'Stopped.' })

@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import type { Conversation, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
 import { openChat, setState, useUi } from '../state'
-import { IconGlobe, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
+import { IconDownload, IconGlobe, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
 import { Meter, ProviderDot } from './ui'
 
 function groupLabel(ts: number, now: number): string {
@@ -106,6 +106,12 @@ export function Sidebar() {
             {hub.role === 'host' ? 'Hub is running here' : hub.connected ? 'Synced with hub' : 'Hub offline'}
             {hub.pending > 0 && ` (${hub.pending} waiting)`}
           </div>
+        )}
+
+        {app.update && (
+          <button type="button" className="side-btn update-chip" data-testid="update-chip" title={`Version ${app.update.version}, build ${app.update.build}. Opens the download page.`} onClick={() => void window.api.openExternal(app.update!.url)}>
+            <IconDownload /> Update available
+          </button>
         )}
 
         <button type="button" className={`side-btn ${view.kind === 'settings' ? 'active' : ''}`} data-testid="open-settings" onClick={() => setState({ view: { kind: 'settings' } })}>

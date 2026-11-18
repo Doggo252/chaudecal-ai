@@ -45,7 +45,7 @@ async function setup(patch: (s: Settings) => void = () => {}) {
       denials: (_c, _m, d) => void seen.denials.push(d),
       busy: () => {}
     },
-    { context: join(dir, 'context'), scratch: join(dir, 'workspace') },
+    { context: join(dir, 'context'), scratch: join(dir, 'workspace'), attachments: join(dir, 'attachments') },
     new Summarizer(store, () => settings, local)
   )
   const replies = (id: string) => store.messages(id).filter((m) => m.role === 'assistant')

@@ -1,11 +1,11 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { join } from 'node:path'
-import type { Conversation, HubStatus, LocalModel, MemoryNote, Message, Profile, ProviderId, ProviderStatus, SavedPrompt, Settings } from '@shared/types'
-import { defaultSettings, newId } from '@shared/types'
-import { API_METHODS, type Api, type AppEvents, type AppState, type DeepPartial, type HandoffInfo } from '@shared/ipc'
+import { basename, delimiter, join } from 'node:path'
+import type { Attachment, Blob, Conversation, HubStatus, LocalModel, MemoryNote, Message, Profile, ProviderId, ProviderStatus, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
+import { defaultSettings, MAX_IMAGE_BYTES, newId } from '@shared/types'
+import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo } from '@shared/ipc'
 import { Store } from './store'
 import { findBinary, loadShellPath, spawnCli } from './env'
 import { ClaudeProvider } from './providers/claude'
@@ -18,6 +18,12 @@ import { announceHub, discoverHubs, shutdownDiscovery, stopAnnouncing } from './
 import { ChatEngine } from './chat'
 import { Summarizer } from './summarizer'
 import { WebTabs } from './webtabs'
+import { makeAttachment } from './attachments'
+import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
+import { checkForUpdate } from './updates'
+
+/** Set by the build on GitHub. Zero for a build made on a developer's machine. */
+declare const __BUILD_NUMBER__: number
 
 // Tests and side-by-side instances point the app at their own data folder.
 const dataOverride = process.env.CHAUDECAL_USER_DATA
@@ -38,6 +44,61 @@ let providers: Record<ProviderId, Provider>
 let statuses: Partial<Record<ProviderId, ProviderStatus>> = {}
 let localModels: LocalModel[] = []
 let hubError = ''
+let update: UpdateInfo | undefined
+let quitting = false
+
+/** Turn chosen, pasted or dropped files into attachments, storing image bytes as they come in. */
+function attach(files: { name: string; bytes: Buffer }[]): AttachResult {
+  const result: AttachResult = { attachments: [], errors: [] }
+  for (const file of files) {
+    const outcome = makeAttachment(file.name, file.bytes)
+    if ('error' in outcome) {
+      result.errors.push(outcome.error)
+      continue
+    }
+    if (outcome.blob) store.put<Blob>('blob', outcome.blob.id, outcome.blob)
+    result.attachments.push(outcome.attachment)
+  }
+  return result
+}
+
+function readFiles(paths: string[]): { files: { name: string; bytes: Buffer }[]; errors: string[] } {
+  const files: { name: string; bytes: Buffer }[] = []
+  const errors: string[] = []
+  for (const path of paths) {
+    try {
+      // Nothing larger than the biggest image is ever useful, so do not read it into memory.
+      if (statSync(path).size > MAX_IMAGE_BYTES) errors.push(`${basename(path)} is too large to attach.`)
+      else files.push({ name: basename(path), bytes: readFileSync(path) })
+    } catch {
+      errors.push(`${basename(path)} could not be read.`)
+    }
+  }
+  return { files, errors }
+}
+
+async function lookForUpdate(): Promise<void> {
+  if (!settings.checkForUpdates) return
+  // Tests never reach the network, unless they point the check at their own server.
+  const override = process.env.CHAUDECAL_UPDATE_URL
+  if (dataOverride && !override) return
+  const build = Number(process.env.CHAUDECAL_BUILD_OVERRIDE ?? __BUILD_NUMBER__) || 0
+  const found = await checkForUpdate({ version: app.getVersion(), build }, override || undefined)
+  if (found && found.build !== update?.build) {
+    update = found
+    send('update', found)
+  }
+}
+
+function showWindow(): void {
+  if (!win || win.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
 
 function send<K extends keyof AppEvents>(channel: K, payload: AppEvents[K]): void {
   if (win && !win.isDestroyed()) win.webContents.send(`event:${channel}`, payload)
@@ -134,7 +195,8 @@ function appState(): AppState {
     providers: statuses,
     localModels,
     hub: hubStatus(),
-    busy: store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id)).map((c) => c.id)
+    busy: store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id)).map((c) => c.id),
+    update
   }
 }
 
@@ -167,6 +229,32 @@ const api: Omit<Api, 'on'> = {
   async selectVariant(messageId) {
     engine.selectVariant(messageId)
   },
+  async branchConversation(conversationId, messageId) {
+    return engine.branch(conversationId, messageId)
+  },
+  async pickAttachments() {
+    let paths = (process.env.CHAUDECAL_E2E_ATTACH ?? '').split(delimiter).filter(Boolean)
+    if (!paths.length && win) {
+      const res = await dialog.showOpenDialog(win, { title: 'Attach files', properties: ['openFile', 'multiSelections'] })
+      paths = res.canceled ? [] : res.filePaths
+    }
+    const { files, errors } = readFiles(paths)
+    const result = attach(files)
+    return { attachments: result.attachments, errors: [...errors, ...result.errors] }
+  },
+  async addAttachment(file) {
+    if (typeof file?.base64 !== 'string' || file.base64.length > MAX_IMAGE_BYTES * 1.4) return { attachments: [], errors: ['That file is too large to attach.'] }
+    return attach([{ name: String(file.name || 'pasted'), bytes: Buffer.from(file.base64, 'base64') }])
+  },
+  async attachmentUrl(id) {
+    const blob = store.get<Blob>('blob', id)
+    return blob?.base64 ? `data:${blob.mime};base64,${blob.base64}` : undefined
+  },
+  async discardAttachment(id) {
+    // Only an image that no message uses is thrown away.
+    const used = store.list<Message>('message').some((m) => (m.attachments ?? []).some((a: Attachment) => a.id === id))
+    if (!used) store.remove('blob', id)
+  },
   async switchProvider(conversationId, to) {
     engine.switchProvider(conversationId, to)
   },
@@ -196,6 +284,8 @@ const api: Omit<Api, 'on'> = {
     send('settings', settings)
     const hubChanged = JSON.stringify(before.hub) !== JSON.stringify(settings.hub) || before.deviceName !== settings.deviceName
     if (hubChanged) await applyHub()
+    if (before.startAtLogin !== settings.startAtLogin && !dataOverride) applyStartAtLogin(settings.startAtLogin)
+    if (!before.checkForUpdates && settings.checkForUpdates) void lookForUpdate()
     const providersChanged = JSON.stringify([before.claude, before.chatgpt, before.local]) !== JSON.stringify([settings.claude, settings.chatgpt, settings.local])
     if (providersChanged || hubChanged) void refreshProviders()
     return settings
@@ -354,6 +444,9 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+/** Started by the system at sign-in: stay in the background until asked for. */
+let startHidden = false
+
 function createWindow(): void {
   const isMac = process.platform === 'darwin'
   win = new BrowserWindow({
@@ -368,7 +461,16 @@ function createWindow(): void {
     ...(isMac ? { trafficLightPosition: { x: 16, y: 16 } } : { titleBarOverlay: { color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e6e1' : '#3d3a35', height: 44 } }),
     webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
   })
-  win.once('ready-to-show', () => win?.show())
+  win.once('ready-to-show', () => {
+    if (!startHidden) win?.show()
+    startHidden = false
+  })
+  win.on('close', (e) => {
+    if (!hidesOnClose({ platform: process.platform, hosting: settings.hub.hostEnabled, keepRunning: settings.keepRunningInBackground, quitting })) return
+    // This machine is the hub: keep serving the other devices from the tray.
+    e.preventDefault()
+    win?.hide()
+  })
   win.on('closed', () => {
     webTabs.dispose()
     win = undefined
@@ -388,9 +490,7 @@ function createWindow(): void {
 }
 
 app.on('second-instance', () => {
-  if (!win) return
-  if (win.isMinimized()) win.restore()
-  win.focus()
+  if (app.isReady()) showWindow()
 })
 
 app.whenReady().then(async () => {
@@ -420,34 +520,41 @@ app.whenReady().then(async () => {
       denials: (conversationId, messageId, denials) => send('denials', { conversationId, messageId, denials }),
       busy: (conversationId, busy) => send('busy', { conversationId, busy })
     },
-    { context: join(dataDir, 'context'), scratch: join(dataDir, 'workspace') },
+    { context: join(dataDir, 'context'), scratch: join(dataDir, 'workspace'), attachments: join(dataDir, 'attachments') },
     summarizer
   )
   webTabs = new WebTabs(() => win, (state) => send('web', state))
-  store.onChange((records) => send('records', records))
+  // Image bytes stay in the backend. The window asks for one when it needs to show it.
+  store.onChange((records) => send('records', records.filter((r) => r.kind !== 'blob')))
 
   for (const name of API_METHODS) {
     ipcMain.handle(`api:${name}`, (_event, ...args: unknown[]) => (api[name] as (...a: unknown[]) => unknown)(...args))
   }
 
   buildMenu()
+  startHidden = !dataOverride && startedHidden(process.argv, app.getLoginItemSettings().wasOpenedAtLogin)
   createWindow()
+  showTray({
+    open: showWindow,
+    quit: () => app.quit(),
+    status: () => (settings.hub.hostEnabled ? (hubServer.running ? 'Hub is running' : 'Hub is not running') : hubClient.status().connected ? 'Connected to the hub' : 'Not connected to a hub')
+  })
   await applyHub()
   void refreshProviders()
   // Local runtimes come and go, and limits reset on their own schedule.
   setInterval(() => void refreshProviders(), 60_000)
+  void lookForUpdate()
+  setInterval(() => void lookForUpdate(), 6 * 60 * 60 * 1000)
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+  app.on('activate', showWindow)
 })
 
 app.on('window-all-closed', () => {
-  // On the hub machine the app keeps serving other devices only while it is open.
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('before-quit', () => {
+  quitting = true
   codex?.dispose()
   hubClient?.stop()
   shutdownDiscovery()

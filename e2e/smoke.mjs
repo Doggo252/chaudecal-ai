@@ -6,10 +6,11 @@
 
 import { _electron as electron } from 'playwright-core'
 import { createRequire } from 'node:module'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startMockOpenAI } from '../tests/fakes/mock-openai.mjs'
 
@@ -22,9 +23,10 @@ const fakeClaude = join(root, 'tests/fakes/fake-claude.mjs')
 const fakeCodex = join(root, 'tests/fakes/fake-codex.mjs')
 
 const steps = []
+const started = Date.now()
 function ok(name) {
   steps.push(name)
-  console.log(`  ok  ${name}`)
+  console.log(`  ok  ${((Date.now() - started) / 1000).toFixed(1).padStart(5)}s  ${name}`)
 }
 function assert(cond, message) {
   if (!cond) throw new Error(`Assertion failed: ${message}`)
@@ -79,6 +81,20 @@ async function pickProvider(page, provider) {
 
 const runtime = await startMockOpenAI()
 const hubPort = await freePort()
+
+// Files for the attachment check: a real image and a small text file.
+const attachDir = mkdtempSync(join(tmpdir(), 'chaudecal-e2e-files-'))
+const notesFile = join(attachDir, 'notes.md')
+writeFileSync(notesFile, '# Notes\nThe launch is on Friday.\n')
+const attachFiles = [join(root, 'build/icon.png'), notesFile].join(delimiter)
+
+// Stand-in for the GitHub releases page, announcing a newer build.
+const releases = createHttpServer((_req, res) => {
+  res.writeHead(200, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ tag_name: 'v9.9.9-build.1', html_url: 'https://github.com/Doggo252/chaudecal-ai/releases/latest' }))
+})
+await new Promise((r) => releases.listen(0, '127.0.0.1', r))
+const releasesUrl = `http://127.0.0.1:${releases.address().port}/latest`
 let a
 let b
 try {
@@ -93,7 +109,7 @@ try {
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false },
       hub: { hostEnabled: true, port: hubPort }
     },
-    { FAKE_CLAUDE_UTILIZATION: '0.86' }
+    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl }
   )
   await a.page.waitForFunction(async () => {
     const s = await window.api.state()
@@ -159,6 +175,40 @@ try {
   await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="user-message"]')].some((el) => el.textContent.includes('Biscuit')))
   ok('search finds a message and opens its conversation')
 
+  // Attachments: an image and a text file go to the assistant with the message.
+  await a.page.click(tid('new-chat'))
+  await pickProvider(a.page, 'claude')
+  await a.page.click(tid('attach'))
+  await a.page.waitForFunction(() => document.querySelectorAll('.attachments.pending [data-testid="attachment"]').length === 2)
+  await sendMessage(a.page, 'What is in these?')
+  await waitForReply(a.page, 'claude', 'I can see 1 image. I read the attached file')
+  await a.page.waitForFunction(() => {
+    const img = document.querySelector('[data-testid="user-message"] img.attach-thumb')
+    return img && img.complete && img.naturalWidth > 0 && !!document.querySelector('[data-testid="user-message"] [data-kind="text"]')
+  })
+  await shot(a.page, '10-attachments')
+  ok('an image and a text file are attached, shown, and reach the assistant')
+
+  // Second opinion: another assistant reviews the answer, and gets the image too.
+  await a.page.click(tid('second-opinion'), { force: true })
+  await waitForReply(a.page, 'chatgpt', 'I can see 1 image')
+  assert((await a.page.textContent(`${tid('assistant-message')}[data-provider="chatgpt"]`)).includes('I received the context file'), 'the second assistant should get the context file')
+  await shot(a.page, '11-second-opinion')
+  ok('a second opinion comes from another assistant, with the context and the image')
+
+  // Branch from the first answer into a separate conversation.
+  await a.page.click(`${tid('assistant-message')}[data-provider="claude"] ${tid('branch')}`, { force: true })
+  await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="conversation"]')].some((el) => el.textContent.includes('(branch)')))
+  await a.page.waitForFunction(() => document.querySelectorAll('[data-testid="assistant-message"]').length === 1 && document.querySelectorAll('[data-testid="user-message"]').length === 1)
+  assert(await a.page.$(`${tid('conversation')}.active:has-text("(branch)")`), 'the branch should be the open conversation')
+  ok('branching copies the conversation up to that answer into a new one')
+
+  // A newer build was announced by the stand-in releases page.
+  await a.page.waitForSelector(tid('update-chip'))
+  assert((await a.page.getAttribute(tid('update-chip'), 'title')).includes('9.9.9'), 'the update chip should name the new version')
+  await shot(a.page, '12-update-available')
+  ok('a newer build is announced in the sidebar')
+
   // Settings screens.
   await a.page.click(tid('open-settings'))
   for (const tab of ['general', 'accounts', 'local', 'sync', 'memory', 'usage']) {
@@ -187,13 +237,22 @@ try {
     local: { endpoints: [], summarize: false },
     hub: { remoteUrl: `127.0.0.1:${hubPort}`, remoteToken: token }
   })
-  await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 2, null, { timeout: 15000 })
+  await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 4, null, { timeout: 15000 })
   ok('a second device pairs with the hub and receives every conversation')
 
   await b.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
   await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="assistant-message"]').length === 3)
   await b.page.waitForFunction(async () => (await window.api.state()).notes.length === 1 && (await window.api.state()).profile.instructions === 'Be brief.')
   ok('messages, memory and instructions arrive on the second device')
+
+  // The attached image was synced too, not just its name.
+  await b.page.click(`${tid('conversation')}:has-text("What is in these?"):not(:has-text("(branch)"))`)
+  await b.page.waitForFunction(() => {
+    const img = document.querySelector('[data-testid="user-message"] img.attach-thumb')
+    return img && img.complete && img.naturalWidth > 0
+  }, null, { timeout: 15000 })
+  await b.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
+  ok('attached images sync to the second device')
 
   // B has no local runtime of its own. It uses the hub's.
   await b.page.evaluate(() => window.api.refreshProviders())
@@ -238,4 +297,6 @@ try {
 } finally {
   for (const d of [b, a]) if (d) await d.app.close().catch(() => {})
   await runtime.close()
+  releases.close()
+  rmSync(attachDir, { recursive: true, force: true })
 }

@@ -186,6 +186,7 @@ export async function boot(): Promise<void> {
   api.on('providers', ({ providers, localModels }) => setState((s) => (s.app ? { app: { ...s.app, providers, localModels } } : {})))
   api.on('hub', (hub) => setState((s) => (s.app ? { app: { ...s.app, hub } } : {})))
   api.on('settings', (settings) => setState((s) => (s.app ? { app: { ...s.app, settings } } : {})))
+  api.on('update', (update) => setState((s) => (s.app ? { app: { ...s.app, update } } : {})))
   api.on('web', (web) => setState((s) => ({ web: { ...s.web, [web.service]: web } })))
   api.on('command', (command) => {
     if (command === 'new-chat') openChat(undefined)

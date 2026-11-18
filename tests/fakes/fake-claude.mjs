@@ -31,6 +31,15 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 let prompt = ''
 for await (const chunk of process.stdin) prompt += chunk
 
+// With --input-format stream-json the turn arrives as one JSON message that can carry images.
+let imageCount = 0
+if (arg('--input-format') === 'stream-json') {
+  const content = JSON.parse(prompt.trim().split('\n')[0]).message.content
+  imageCount = content.filter((c) => c.type === 'image' && c.source?.type === 'base64' && c.source.data).length
+  prompt = content.filter((c) => c.type === 'text').map((c) => c.text).join('\n')
+  if (log) appendFileSync(log, `${JSON.stringify({ tool: 'claude', images: imageCount })}\n`)
+}
+
 const sessionId = arg('--resume') ?? randomUUID()
 const model = arg('--model') ?? 'claude-fake-1'
 const systemFile = arg('--append-system-prompt-file')
@@ -56,6 +65,8 @@ const notes = []
 if (prompt.includes('<context_file>')) notes.push('I received the context file')
 if (prompt.includes('<conversation_since_your_last_reply>')) notes.push('I was caught up on what happened in between')
 if (arg('--resume')) notes.push('I resumed my earlier session')
+if (imageCount) notes.push(`I can see ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`)
+if (prompt.includes('<attached_file')) notes.push('I read the attached file')
 if (system.includes('standing instructions')) notes.push('I have your standing instructions')
 const reply = `Claude here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
 

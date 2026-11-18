@@ -26,6 +26,9 @@ jobs:
             name: windows
             dist: dist:win
     runs-on: ${{ matrix.os }}
+    env:
+      # Baked into the app so it can tell when a newer build has been published.
+      CHAUDECAL_BUILD: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
 

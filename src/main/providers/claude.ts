@@ -81,6 +81,9 @@ export class ClaudeProvider implements Provider {
     if (request.model) args.push('--model', request.model)
     if (request.sessionId) args.push('--resume', request.sessionId)
     if (request.ephemeral) args.push('--no-session-persistence')
+    const images = request.images ?? []
+    // Images cannot travel as plain text, so the turn is sent as one structured message.
+    if (images.length) args.push('--input-format', 'stream-json')
 
     const allow = [...(request.allow ?? [])]
     switch (request.mode) {
@@ -116,7 +119,15 @@ export class ClaudeProvider implements Provider {
     child.stdout.on('data', lineReader((line) => parser.line(line)))
     child.stderr.on('data', (d) => (stderr = (stderr + d).slice(-4000)))
     child.stdin.on('error', () => {})
-    child.stdin.end(request.prompt)
+    if (images.length) {
+      const content = [
+        { type: 'text', text: request.prompt },
+        ...images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mime, data: i.base64 } }))
+      ]
+      child.stdin.end(`${JSON.stringify({ type: 'user', message: { role: 'user', content } })}\n`)
+    } else {
+      child.stdin.end(request.prompt)
+    }
 
     const done = new Promise<void>((resolve) => {
       let finished = false

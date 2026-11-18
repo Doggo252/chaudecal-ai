@@ -2,7 +2,7 @@
 // Stand-in for the Codex CLI, used by tests. `app-server` speaks the same
 // newline-delimited JSON-RPC as the real one for the calls this app makes.
 
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
 
@@ -35,7 +35,7 @@ const threads = new Map()
 const pendingApprovals = new Map()
 let rpcId = 1000
 
-async function runTurn(threadId, text) {
+async function runTurn(threadId, text, imageCount = 0) {
   const turnId = randomUUID()
   const thread = threads.get(threadId)
   send({ method: 'turn/started', params: { threadId, turn: { id: turnId, status: 'inProgress' } } })
@@ -63,6 +63,8 @@ async function runTurn(threadId, text) {
   if (text.includes('<context_file>')) notes.push('I received the context file')
   if (text.includes('<conversation_since_your_last_reply>')) notes.push('I was caught up on what happened in between')
   if (thread.resumed) notes.push('I resumed my earlier session')
+  if (imageCount) notes.push(`I can see ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`)
+  if (text.includes('<attached_file')) notes.push('I read the attached file')
   if ((thread.developerInstructions ?? '').includes('standing instructions')) notes.push('I have your standing instructions')
   const reply = `ChatGPT here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
 
@@ -128,8 +130,10 @@ createInterface({ input: process.stdin }).on('line', (line) => {
     }
     case 'turn/start': {
       const text = (params.input ?? []).map((i) => i.text ?? '').join('\n')
+      const images = (params.input ?? []).filter((i) => i.type === 'localImage' && existsSync(i.path)).length
+      record({ images })
       reply({ turn: { id: 'pending', status: 'inProgress' } })
-      void runTurn(params.threadId, text)
+      void runTurn(params.threadId, text, images)
       return
     }
     case 'turn/interrupt': {

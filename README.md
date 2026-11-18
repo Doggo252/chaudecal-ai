@@ -15,12 +15,18 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Compare.** Send one message to several assistants side by side and keep the answer you like.
 - **Search everything.** One search across every conversation from every assistant.
 - **Shared memory and prompts.** Notes about you and saved prompts that every assistant receives, so you never repeat yourself.
+- **Attachments.** Attach, paste or drop images and text files. Images go to whichever assistant is answering and follow the conversation when it switches. They sync between your machines too.
+- **Second opinion and branching.** One click asks another assistant to review an answer. Any answer can be branched into a separate conversation to try a different direction.
 - **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, artifacts, account settings). A web chat can be brought into the unified chat.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose.
 
-| Switching assistants | Comparing answers | Usage |
-| --- | --- | --- |
-| ![Switch dialog](docs/screenshots/switch.png) | ![Compare mode](docs/screenshots/compare.png) | ![Usage tracker](docs/screenshots/usage.png) |
+| Switching assistants | Comparing answers |
+| --- | --- |
+| ![Switch dialog](docs/screenshots/switch.png) | ![Compare mode](docs/screenshots/compare.png) |
+
+| Attachments | Usage |
+| --- | --- |
+| ![An image and a text file attached to a message](docs/screenshots/attachments.png) | ![Usage tracker](docs/screenshots/usage.png) |
 
 The screenshots come from the automated test, which uses stand-in assistants, so the replies and numbers in them are not real.
 
@@ -77,7 +83,7 @@ On the PC, open Settings, then "Sync and hub", and turn on "This machine is the 
 
 The page then shows a pairing code and the addresses the hub can be reached at. Treat the pairing code like a password: anyone with the code and network access to the PC can read your chats.
 
-Keep the app open on the PC (minimized is fine). On Windows, closing the window quits the app and stops the hub.
+On the hub PC, closing the window does not stop the app. It stays in the system tray next to the clock so your other devices can keep syncing. Right-click the tray icon to quit. To have the hub come back after a restart, turn on "Start when I sign in to this computer" under Settings, "General".
 
 ### 3. Connect the Mac
 
@@ -109,18 +115,23 @@ Turn on "Keep summaries up to date with local AI" to have a local model write th
 - **Modes.** Chat is conversation only with web lookups. Plan lets the assistant read a folder and propose changes. Edit lets it change files in the folder. Auto also lets it run commands. Choose the folder with the folder button in the message box.
 - **Switching.** Click the switch button at the top of a conversation, pick the assistant, and choose what to hand over: the summary with recent messages (smaller, faster) or the full transcript (complete). The receiving assistant gets the file with your next message.
 - **The context files.** Both files are plain Markdown and are rewritten after every reply. Open them from the conversation menu to paste into anything else. The largest file is capped by the context budget in Settings (400,000 tokens by default) and by what the receiving model can take.
+- **Attachments.** Use the paperclip, paste a screenshot, or drop files on the message box. Images can be PNG, JPEG, GIF or WebP up to 8 MB. Text files (code, Markdown, CSV and so on) are read into the message, so they travel in the context file. When a conversation moves to another assistant, its four most recent images are sent along.
+- **Second opinion.** Hover over the latest answer and click the speech bubbles. Another assistant with room left reads the conversation and reviews the answer. Your next message goes back to the assistant you were using.
+- **Branching.** Hover over any answer and click the branch icon. The conversation up to that answer is copied into a new one, and the original is left as it was.
+- **At a limit.** By default the app asks before switching. Turn on "Switch automatically at a limit" under Settings, "General" to have it carry on with another assistant by itself when a limit is hit in the middle of a reply.
 - **Private chats.** A private conversation only ever uses local AI.
 - **Shortcuts.** New chat is Cmd or Ctrl+N. Search is Cmd or Ctrl+K. Settings is Cmd or Ctrl+comma.
 
 ## Limits of this version
 
-- Images and voice are available through the built-in website tabs, not through the unified chat. The message box does not take attachments yet.
+- Image generation and voice are available through the built-in website tabs, not through the unified chat. PDFs cannot be attached yet.
+- A local model only understands images if it is a vision model. Others will report an error or ignore the image.
 - Claude asks for permission after a turn, not during it. If Claude was blocked from doing something, a card offers "Allow and continue". ChatGPT asks live.
 - Agent work runs on the machine you are sitting at. The Mac cannot yet start Claude or ChatGPT agent work on the PC. Local AI is the exception and always runs on the PC.
 - Local models chat only. They do not edit files or run commands.
-- There is no automatic update. Download the newer installer from Releases.
+- Updates are not installed for you. The sidebar shows "Update available" when a newer build is published, and clicking it opens the download page.
 - Sign-ins inside the website tabs are separate from the command line sign-ins and stay on each machine.
-- The Windows build is produced and tested automatically, but it has not been used day to day yet. Please report anything odd.
+- The Windows build is produced and tested automatically, but it has not been used day to day yet. The tray icon, closing to the tray and starting at sign-in in particular have only been checked in code, not on a real PC. Please report anything odd.
 
 ## Development
 
@@ -148,6 +159,8 @@ The tests never contact Claude or ChatGPT. They use small stand-in programs in [
 ```bash
 CHAUDECAL_LIVE=chatgpt,claude npm test
 ```
+
+Add `chatgpt-image` or `claude-image` to that list to check that an attached image is really seen.
 
 The design, the architecture and the roadmap are in [docs/PLAN.md](docs/PLAN.md).
 

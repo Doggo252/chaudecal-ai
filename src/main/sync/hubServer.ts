@@ -142,9 +142,10 @@ export class HubServer {
 
     if (path === '/api/sync/pull' && req.method === 'GET') {
       const since = Number(url.searchParams.get('since') ?? 0) || 0
-      const limit = 500
-      const records = this.store.since(since, limit)
-      json(res, 200, { records, seq: this.store.latestSeq(), more: records.length === limit })
+      const records = this.store.since(since)
+      const latest = this.store.latestSeq()
+      const last = records[records.length - 1]?.seq ?? latest
+      json(res, 200, { records, seq: latest, more: last < latest })
       return
     }
     if (path === '/api/sync/push' && req.method === 'POST') {

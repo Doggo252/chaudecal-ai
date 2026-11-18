@@ -16,13 +16,18 @@ export function startMockOpenAI({ models = ['mock-llama:8b'], delayMs = 5 } = {}
       for await (const c of req) raw += c
       const body = JSON.parse(raw)
       requests.push(body)
-      const last = body.messages[body.messages.length - 1]?.content ?? ''
+      const lastContent = body.messages[body.messages.length - 1]?.content ?? ''
+      // A message with images arrives as a list of parts.
+      const parts = Array.isArray(lastContent) ? lastContent : [{ type: 'text', text: lastContent }]
+      const last = parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n')
+      const imageCount = parts.filter((p) => p.type === 'image_url' && String(p.image_url?.url).startsWith('data:image/')).length
       const system = body.messages.find((m) => m.role === 'system')?.content ?? ''
       const isSummary = /running summary/i.test(system)
       const notes = []
       if (body.messages.length > 2) notes.push(`I can see ${body.messages.length - 1} earlier messages`)
       if (system.includes('Context file')) notes.push('I received the context file')
       if (system.includes('standing instructions')) notes.push('I have your standing instructions')
+      if (imageCount) notes.push(`I can see ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`)
       const reply = isSummary ? 'SUMMARY: the user is testing the app and asked several questions.' : `Local model here. You said: "${String(last).split('\n').pop()}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
       res.writeHead(200, { 'content-type': 'text/event-stream' })
       for (const word of reply.split(/(?<= )/)) {

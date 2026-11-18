@@ -3,8 +3,9 @@ import type { ApprovalDecision, ApprovalRequest, Message, PermissionDenial, Prov
 import { PROVIDER_LABEL } from '@shared/types'
 import { renderMarkdown } from '../markdown'
 import { setState, toast } from '../state'
-import { IconCopy, IconRetry, IconSwitch } from '../icons'
+import { IconBranch, IconCopy, IconOpinion, IconRetry, IconSwitch } from '../icons'
 import { ProviderDot } from './ui'
+import { AttachmentList } from './Attachments'
 
 function shortModel(model?: string): string {
   if (!model) return ''
@@ -96,7 +97,15 @@ function ErrorBox({ m, onRetry, onSwitch }: { m: Message; onRetry: () => void; o
   )
 }
 
-function AssistantMessage({ m, focus, onRetry, onSwitch, isLast }: { m: Message; focus: boolean; onRetry: () => void; onSwitch: () => void; isLast: boolean }) {
+interface Actions {
+  onRetry: () => void
+  onSwitch: () => void
+  onBranch: (messageId: string) => void
+  /** Missing when no other assistant can be asked. */
+  onSecondOpinion?: () => void
+}
+
+function AssistantMessage({ m, focus, onRetry, onSwitch, onBranch, onSecondOpinion, isLast }: { m: Message; focus: boolean; isLast: boolean } & Actions) {
   return (
     <div className={`msg msg-assistant ${focus ? 'focus' : ''}`} data-testid="assistant-message" data-provider={m.provider} data-message-id={m.id}>
       <Who m={m} />
@@ -125,6 +134,14 @@ function AssistantMessage({ m, focus, onRetry, onSwitch, isLast }: { m: Message;
               <IconSwitch size={15} />
             </button>
           )}
+          {isLast && onSecondOpinion && m.status === 'complete' && (
+            <button type="button" className="icon-btn" title="Ask another assistant for a second opinion on this answer" data-testid="second-opinion" onClick={onSecondOpinion}>
+              <IconOpinion size={15} />
+            </button>
+          )}
+          <button type="button" className="icon-btn" title="Branch: start a new conversation from here" data-testid="branch" onClick={() => onBranch(m.id)}>
+            <IconBranch size={15} />
+          </button>
         </div>
       )}
     </div>
@@ -238,7 +255,7 @@ export function DenialCard({ denials, onAllow, onDismiss }: { denials: Permissio
 
 type Item = { kind: 'single'; m: Message } | { kind: 'group'; id: string; variants: Message[] }
 
-export function MessageList({ messages, focusId, onRetry, onSwitch }: { messages: Message[]; focusId?: string; onRetry: () => void; onSwitch: () => void }) {
+export function MessageList({ messages, focusId, onRetry, onSwitch, onBranch, onSecondOpinion }: { messages: Message[]; focusId?: string } & Actions) {
   const items = useMemo(() => {
     const out: Item[] = []
     const groups = new Map<string, Message[]>()
@@ -276,11 +293,12 @@ export function MessageList({ messages, focusId, onRetry, onSwitch }: { messages
         if (m.role === 'user') {
           return (
             <div className={`msg msg-user ${m.id === focusId ? 'focus' : ''}`} key={m.id} data-testid="user-message" data-message-id={m.id}>
-              <div className="bubble">{m.text}</div>
+              {!!m.attachments?.length && <AttachmentList items={m.attachments} />}
+              {m.text && <div className="bubble">{m.text}</div>}
             </div>
           )
         }
-        return <AssistantMessage key={m.id} m={m} focus={m.id === focusId} onRetry={onRetry} onSwitch={onSwitch} isLast={m.id === lastAssistantId && m.id === lastId} />
+        return <AssistantMessage key={m.id} m={m} focus={m.id === focusId} onRetry={onRetry} onSwitch={onSwitch} onBranch={onBranch} onSecondOpinion={onSecondOpinion} isLast={m.id === lastAssistantId && m.id === lastId} />
       })}
     </>
   )

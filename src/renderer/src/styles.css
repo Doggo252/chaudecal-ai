@@ -1569,3 +1569,87 @@ a {
   box-shadow: var(--shadow);
   max-width: 70vw;
 }
+
+/* ---------- Attachments ---------- */
+
+.attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+  max-width: 82%;
+  margin-bottom: 6px;
+}
+.msg-user {
+  flex-direction: column;
+  align-items: flex-end;
+}
+.attachments.pending {
+  justify-content: flex-start;
+  max-width: none;
+  margin: 0;
+  padding: 10px 12px 2px;
+}
+.attachment {
+  position: relative;
+  display: inline-flex;
+}
+.attach-thumb {
+  width: 56px;
+  height: 56px;
+  border-radius: 10px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  display: block;
+}
+.attach-thumb.large {
+  width: auto;
+  height: auto;
+  max-width: 280px;
+  max-height: 220px;
+  border-radius: 14px;
+}
+.attach-thumb.placeholder.large {
+  width: 120px;
+  height: 90px;
+}
+.attach-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-raised, var(--bg));
+  font-size: 13px;
+  max-width: 260px;
+}
+.attach-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--text);
+  color: var(--bg);
+  border: none;
+  cursor: pointer;
+}
+.composer.dragging {
+  outline: 2px dashed color-mix(in srgb, var(--local) 60%, transparent);
+  outline-offset: 2px;
+}
+.update-chip {
+  color: var(--ok);
+}

@@ -353,7 +353,8 @@ export class CodexProvider implements Provider {
         finish()
         return
       }
-      const turn = await this.request<Json>('turn/start', { threadId, input: [{ type: 'text', text: request.prompt, text_elements: [] }] })
+      const input = [{ type: 'text', text: request.prompt, text_elements: [] }, ...(request.images ?? []).map((i) => ({ type: 'localImage', path: i.path }))]
+      const turn = await this.request<Json>('turn/start', { threadId, input })
       run.turnId = turn.turn?.id ?? run.turnId
       if (stopRequested && run.turnId) this.request('turn/interrupt', { threadId, turnId: run.turnId }).catch(() => finish())
     })().catch((e) => {

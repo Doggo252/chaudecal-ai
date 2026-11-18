@@ -135,3 +135,33 @@ export const IconSync = (p: P) => (
     <path d="M19.500 11A7.500 7.500 0 0 0 6 7l-1 1M4.500 13A7.500 7.500 0 0 0 18 17l1-1" />
   </Svg>
 )
+export const IconClip = (p: P) => (
+  <Svg {...p}>
+    <path d="M20 11.5 12.5 19a5 5 0 0 1-7-7l8-8a3.3 3.3 0 0 1 4.7 4.7l-8 8a1.7 1.7 0 0 1-2.4-2.4l7.3-7.3" />
+  </Svg>
+)
+export const IconBranch = (p: P) => (
+  <Svg {...p}>
+    <circle cx="7" cy="5" r="2" />
+    <circle cx="7" cy="19" r="2" />
+    <circle cx="17" cy="9" r="2" />
+    <path d="M7 7v10M17 11c0 3-3 4-10 4" />
+  </Svg>
+)
+export const IconOpinion = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 5h11a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H9l-4 3v-3H4z" />
+    <path d="M20 9v6a2 2 0 0 1-2 2h-1v3l-3-3" />
+  </Svg>
+)
+export const IconFile = (p: P) => (
+  <Svg {...p}>
+    <path d="M7 3h7l5 5v13H7z" />
+    <path d="M14 3v5h5" />
+  </Svg>
+)
+export const IconDownload = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 4v11M7 11l5 5 5-5M5 20h14" />
+  </Svg>
+)
