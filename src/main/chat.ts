@@ -1,0 +1,434 @@
+// The conversation engine. It owns the one thread a conversation has, decides
+// which provider answers each turn, catches that provider up on anything it has
+// not seen, records usage, and keeps the running context files current.
+
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type {
+  ApprovalDecision,
+  ApprovalRequest,
+  Conversation,
+  HandoffVariant,
+  MemoryNote,
+  Message,
+  PermissionDenial,
+  Profile,
+  ProviderChoice,
+  ProviderId,
+  ProviderStatus,
+  ProviderUsage,
+  RouteDecision,
+  RunEvent,
+  RunMode,
+  Settings
+} from '@shared/types'
+import { newId, PROVIDER_LABEL } from '@shared/types'
+import {
+  buildHandoff,
+  composeChatMessages,
+  composePrompt,
+  planTurn,
+  providerBudget,
+  sharedSystemText,
+  threadMessages,
+  titleFromText,
+  type HandoffResult,
+  type SessionState
+} from '@shared/context'
+import { estimateTokens } from '@shared/tokens'
+import { route } from '@shared/router'
+import { addTokens, applyLimits, emptyUsage, expireWindows } from '@shared/usage'
+import type { SendInput } from '@shared/ipc'
+import type { Store } from './store'
+import type { Provider, RunHandle } from './providers/types'
+import type { Summarizer } from './summarizer'
+
+export interface ChatEvents {
+  /** A message changed while streaming. Not yet saved. */
+  stream(message: Message): void
+  route(conversationId: string, decision: RouteDecision): void
+  approval(conversationId: string, messageId: string, request: ApprovalRequest): void
+  denials(conversationId: string, messageId: string, denials: PermissionDenial[]): void
+  busy(conversationId: string, busy: boolean): void
+}
+
+interface Active {
+  handles: RunHandle[]
+  /** message id to run handle, for approvals. */
+  byMessage: Map<string, RunHandle>
+}
+
+export class ChatEngine {
+  private active = new Map<string, Active>()
+
+  constructor(
+    private store: Store,
+    private settings: () => Settings,
+    private providers: Record<ProviderId, Provider>,
+    private statuses: () => Partial<Record<ProviderId, ProviderStatus>>,
+    private events: ChatEvents,
+    private dirs: { context: string; scratch: string },
+    private summarizer: Summarizer
+  ) {
+    mkdirSync(dirs.context, { recursive: true })
+    mkdirSync(dirs.scratch, { recursive: true })
+  }
+
+  // ----- conversations -----
+
+  createConversation(partial: Partial<Conversation> = {}): Conversation {
+    const s = this.settings()
+    const now = Date.now()
+    const conv: Conversation = {
+      id: newId(),
+      title: 'New chat',
+      createdAt: now,
+      updatedAt: now,
+      provider: s.defaultProvider,
+      models: {},
+      mode: s.defaultMode,
+      ...partial
+    }
+    this.store.put('conversation', conv.id, conv)
+    return conv
+  }
+
+  updateConversation(id: string, patch: Partial<Conversation>): Conversation | undefined {
+    const conv = this.store.get<Conversation>('conversation', id)
+    if (!conv) return undefined
+    const next = { ...conv, ...patch, id: conv.id }
+    this.store.put('conversation', id, next)
+    return next
+  }
+
+  isBusy(conversationId: string): boolean {
+    return this.active.has(conversationId)
+  }
+
+  // ----- per machine state -----
+
+  private sessionKey(conversationId: string, provider: ProviderId): string {
+    return `session:${conversationId}:${provider}`
+  }
+
+  workspace(conversationId: string): string {
+    return this.store.kvGet<string>(`cwd:${conversationId}`) ?? ''
+  }
+
+  setWorkspace(conversationId: string, path: string): void {
+    if (path) this.store.kvSet(`cwd:${conversationId}`, path)
+    else this.store.kvDelete(`cwd:${conversationId}`)
+    // A session is tied to its folder. A new folder means a new session, caught up from the context file.
+    this.store.kvDeletePrefix(`session:${conversationId}:`)
+  }
+
+  // ----- usage -----
+
+  usage(provider: ProviderId): ProviderUsage {
+    const now = Date.now()
+    return expireWindows(this.store.get<ProviderUsage>('usage', provider) ?? emptyUsage(provider, now), now)
+  }
+
+  allUsage(): Record<ProviderId, ProviderUsage> {
+    return { claude: this.usage('claude'), chatgpt: this.usage('chatgpt'), local: this.usage('local') }
+  }
+
+  recordLimits(provider: ProviderId, patch: Parameters<typeof applyLimits>[1]): void {
+    const next = applyLimits(this.usage(provider), patch, this.settings().warnThresholdPct, Date.now())
+    this.store.put('usage', provider, next)
+  }
+
+  private recordTokens(provider: ProviderId, tokens: number): void {
+    this.store.put('usage', provider, addTokens(this.usage(provider), tokens, Date.now()))
+  }
+
+  // ----- shared instructions -----
+
+  private profileText(): string {
+    return this.store.get<Profile>('profile', 'profile')?.instructions ?? ''
+  }
+
+  private systemText(): string {
+    const notes = this.store
+      .list<MemoryNote>('note')
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((n) => n.text)
+    return sharedSystemText(this.profileText(), notes)
+  }
+
+  // ----- context files -----
+
+  handoff(conversationId: string, variant: HandoffVariant, target?: ProviderId): HandoffResult | undefined {
+    const conv = this.store.get<Conversation>('conversation', conversationId)
+    if (!conv) return undefined
+    const s = this.settings()
+    const budget = target ? providerBudget(target, s) : s.contextBudgetTokens
+    return buildHandoff({ conversation: conv, messages: threadMessages(this.store.messages(conversationId)), variant, budgetTokens: budget, profile: this.profileText() })
+  }
+
+  contextDir(conversationId: string): string {
+    return join(this.dirs.context, conversationId)
+  }
+
+  /** Rewrite both context files so they are ready the moment a switch is wanted. */
+  writeContextFiles(conversationId: string): void {
+    try {
+      const dir = this.contextDir(conversationId)
+      mkdirSync(dir, { recursive: true })
+      for (const variant of ['summary', 'full'] as const) {
+        const h = this.handoff(conversationId, variant)
+        if (h) writeFileSync(join(dir, `${variant}.md`), h.text, 'utf8')
+      }
+    } catch {
+      // The files are a convenience copy. The database is the source of truth.
+    }
+  }
+
+  // ----- routing -----
+
+  private availability(): Record<ProviderId, boolean> {
+    const st = this.statuses()
+    return { claude: !!st.claude?.ready, chatgpt: !!st.chatgpt?.ready, local: !!st.local?.ready }
+  }
+
+  private choose(conv: Conversation, text: string, prior: Message[], override?: ProviderId): RouteDecision {
+    if (override) return { provider: override, reason: '' }
+    if (conv.private) return { provider: 'local', reason: 'This conversation is private, so it stays on local AI.' }
+    if (conv.provider !== 'auto') return { provider: conv.provider, reason: '' }
+    const s = this.settings()
+    const last = [...prior].reverse().find((m) => m.role === 'assistant' && m.provider)?.provider
+    return route({
+      text,
+      mode: conv.mode,
+      hasWorkspace: !!this.workspace(conv.id),
+      private: !!conv.private,
+      available: this.availability(),
+      usage: this.allUsage(),
+      lastProvider: last,
+      contextTokens: prior.reduce((n, m) => n + estimateTokens(m.text), 0),
+      localContextTokens: s.local.contextTokens,
+      preferLocalForShort: s.routing.preferLocalForShort
+    })
+  }
+
+  // ----- sending -----
+
+  async send(input: SendInput): Promise<void> {
+    const conv = this.store.get<Conversation>('conversation', input.conversationId)
+    if (!conv) throw new Error('That conversation no longer exists.')
+    if (this.active.has(conv.id)) throw new Error('This conversation is still answering.')
+
+    const all = this.store.messages(conv.id)
+    let prior = threadMessages(all)
+    let userText = input.text.trim()
+    let userMessage: Message | undefined
+
+    if (input.retry) {
+      // Answer the last user message again. Failed or stopped replies after it are removed.
+      const lastUserIdx = all.map((m) => m.role).lastIndexOf('user')
+      if (lastUserIdx < 0) throw new Error('There is nothing to retry.')
+      userMessage = all[lastUserIdx]
+      userText = userMessage.text
+      for (const m of all.slice(lastUserIdx + 1)) if (m.role !== 'user') this.store.remove('message', m.id)
+      prior = threadMessages(all.slice(0, lastUserIdx))
+    } else {
+      if (!userText) return
+      userMessage = { id: newId(), conversationId: conv.id, role: 'user', text: userText, createdAt: Date.now(), deviceId: this.store.deviceId, status: 'complete' }
+      this.store.put('message', userMessage.id, userMessage)
+      const patch: Partial<Conversation> = { updatedAt: Date.now() }
+      if (!prior.length && (conv.title === 'New chat' || !conv.title)) patch.title = titleFromText(userText)
+      this.updateConversation(conv.id, patch)
+    }
+
+    const active: Active = { handles: [], byMessage: new Map() }
+    this.active.set(conv.id, active)
+    this.events.busy(conv.id, true)
+
+    try {
+      if (input.compare && input.compare.length > 1) {
+        const group = newId()
+        await Promise.all(input.compare.map((p, i) => this.runTurn({ conv, provider: p, prior, userText, userMessage: userMessage!, active, variant: 'summary', compareGroup: group, order: i })))
+      } else {
+        const decision = this.choose(conv, userText, prior, input.provider)
+        if (decision.reason) this.events.route(conv.id, decision)
+        await this.runTurn({ conv, provider: decision.provider, prior, userText, userMessage, active, variant: input.variant ?? 'summary', allow: input.allow })
+      }
+    } finally {
+      this.active.delete(conv.id)
+      this.events.busy(conv.id, false)
+      this.writeContextFiles(conv.id)
+      void this.summarizer.maybeSummarize(conv.id)
+    }
+  }
+
+  private async runTurn(args: {
+    conv: Conversation
+    provider: ProviderId
+    prior: Message[]
+    userText: string
+    userMessage: Message
+    active: Active
+    variant: HandoffVariant
+    compareGroup?: string
+    order?: number
+    allow?: string[]
+  }): Promise<void> {
+    const { conv, provider, prior, userText } = args
+    const s = this.settings()
+    const compare = !!args.compareGroup
+    const mode: RunMode = compare ? 'chat' : conv.mode
+    const model = conv.models[provider] ?? (provider === 'claude' ? s.claude.defaultModel : provider === 'chatgpt' ? s.chatgpt.defaultModel : s.local.defaultModel)
+    const system = this.systemText()
+    const budget = providerBudget(provider, s)
+    const cwd = this.workspace(conv.id) || this.dirs.scratch
+
+    // Compare answers are one-off: they never continue or create a provider session.
+    const session = compare ? undefined : this.store.kvGet<SessionState>(this.sessionKey(conv.id, provider))
+    const plan = planTurn(prior, session)
+    const prompt = composePrompt({ plan, userText, conversation: conv, variant: args.variant, budgetTokens: budget, profile: this.profileText() })
+    const messages = provider === 'local' ? composeChatMessages({ conversation: conv, prior, userText, budgetTokens: budget, system }) : undefined
+
+    const message: Message = {
+      id: newId(),
+      conversationId: conv.id,
+      role: 'assistant',
+      text: '',
+      // Keep compare answers in a stable order, right after the question.
+      createdAt: Math.max(Date.now(), args.userMessage.createdAt + 1) + (args.order ?? 0),
+      deviceId: this.store.deviceId,
+      provider,
+      model: model || undefined,
+      status: 'streaming',
+      variantGroup: args.compareGroup,
+      selected: compare ? false : undefined
+    }
+    this.events.stream(message)
+
+    let sessionId = plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined
+    let lastFlush = 0
+    const flush = (force = false) => {
+      const now = Date.now()
+      if (!force && now - lastFlush < 60) return
+      lastFlush = now
+      this.events.stream({ ...message, tools: message.tools ? [...message.tools] : undefined })
+    }
+
+    const onEvent = (event: RunEvent) => {
+      switch (event.type) {
+        case 'text':
+          message.text += event.delta
+          flush()
+          break
+        case 'thinking':
+          message.thinking = (message.thinking ?? '') + event.delta
+          flush()
+          break
+        case 'tool': {
+          const tools = message.tools ?? (message.tools = [])
+          const idx = tools.findIndex((t) => t.id === event.tool.id)
+          if (idx >= 0) tools[idx] = event.tool
+          else tools.push(event.tool)
+          flush(true)
+          break
+        }
+        case 'session':
+          sessionId = event.sessionId
+          break
+        case 'model':
+          if (event.model) message.model = event.model
+          break
+        case 'usage':
+          message.usage = event.usage
+          break
+        case 'limits':
+          this.recordLimits(provider, event)
+          break
+        case 'approval':
+          this.events.approval(conv.id, message.id, event.request)
+          break
+        case 'denials':
+          this.events.denials(conv.id, message.id, event.denials)
+          break
+        case 'error':
+          if (event.code === 'aborted') message.status = 'stopped'
+          else {
+            message.status = 'error'
+            message.error = { code: event.code, message: event.message }
+            if (event.code === 'rate_limit') this.recordLimits(provider, { fiveHour: { status: 'exhausted', usedPct: 100 } })
+          }
+          break
+        case 'done':
+          break
+      }
+    }
+
+    const handle = this.providers[provider].run(
+      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow: args.allow },
+      onEvent
+    )
+    args.active.handles.push(handle)
+    args.active.byMessage.set(message.id, handle)
+    await handle.done
+
+    if (message.status === 'streaming') message.status = 'complete'
+    message.text = message.text.trim()
+    for (const t of message.tools ?? []) if (t.status === 'running') t.status = message.status === 'complete' ? 'done' : 'error'
+
+    const answered = message.status === 'complete' || (message.status === 'stopped' && !!message.text)
+    // Stopped before anything arrived: leave no empty bubble behind.
+    const empty = message.status === 'stopped' && !message.text && !(message.tools ?? []).length
+    if (!empty) this.store.put('message', message.id, message)
+
+    const used = message.usage ? message.usage.inputTokens + message.usage.outputTokens : estimateTokens(prompt) + estimateTokens(message.text)
+    if (message.status !== 'error') this.recordTokens(provider, used)
+
+    if (!compare && answered && sessionId && provider !== 'local') {
+      this.store.kvSet(this.sessionKey(conv.id, provider), { sessionId, syncedMessageId: message.id } satisfies SessionState)
+    }
+    if (message.status === 'error' && message.error?.code === 'auth') {
+      // The stored session cannot be trusted after a sign-in problem.
+      this.store.kvDelete(this.sessionKey(conv.id, provider))
+    }
+    this.updateConversation(conv.id, { updatedAt: Date.now() })
+  }
+
+  stop(conversationId: string): void {
+    for (const h of this.active.get(conversationId)?.handles ?? []) h.stop()
+  }
+
+  respondApproval(conversationId: string, messageId: string, approvalId: string, decision: ApprovalDecision): void {
+    this.active.get(conversationId)?.byMessage.get(messageId)?.respondApproval?.(approvalId, decision)
+  }
+
+  /** In compare mode, keep one answer as the conversation's reply. */
+  selectVariant(messageId: string): void {
+    const chosen = this.store.get<Message>('message', messageId)
+    if (!chosen?.variantGroup) return
+    for (const m of this.store.messages(chosen.conversationId)) {
+      if (m.variantGroup !== chosen.variantGroup) continue
+      const selected = m.id === messageId
+      if (m.selected !== selected) this.store.put('message', m.id, { ...m, selected })
+    }
+    this.writeContextFiles(chosen.conversationId)
+  }
+
+  /** Move the conversation to another provider from now on. */
+  switchProvider(conversationId: string, to: ProviderChoice): void {
+    const conv = this.store.get<Conversation>('conversation', conversationId)
+    if (!conv || conv.provider === to) return
+    this.updateConversation(conversationId, { provider: to })
+    if (to !== 'auto') {
+      const note: Message = {
+        id: newId(),
+        conversationId,
+        role: 'note',
+        text: `Continued on ${PROVIDER_LABEL[to]}`,
+        createdAt: Date.now(),
+        deviceId: this.store.deviceId,
+        status: 'complete'
+      }
+      const hasHistory = threadMessages(this.store.messages(conversationId)).length > 0
+      if (hasHistory) this.store.put('message', note.id, note)
+    }
+  }
+}

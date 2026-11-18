@@ -1,0 +1,269 @@
+// Local database. Everything that syncs is a record: {kind, id, updatedAt,
+// deviceId, deleted, data}. Two machines merge by keeping the newer copy of each
+// record, and messages are separate records, so chats written on both machines
+// combine instead of overwriting each other.
+
+import { DatabaseSync } from 'node:sqlite'
+import type { Conversation, Message, RecordKind, SyncRecord } from '@shared/types'
+import type { SearchHit } from '@shared/ipc'
+
+type Row = {
+  kind: string
+  id: string
+  updated_at: number
+  device_id: string
+  deleted: number
+  data: string
+  dirty: number
+  seq: number
+}
+
+function toRecord(row: Row): SyncRecord {
+  return {
+    kind: row.kind as RecordKind,
+    id: row.id,
+    updatedAt: row.updated_at,
+    deviceId: row.device_id,
+    deleted: row.deleted === 1,
+    data: JSON.parse(row.data),
+    seq: row.seq || undefined
+  }
+}
+
+/** True when `incoming` should replace `existing`. Ties break on device id so both sides agree. */
+export function isNewer(incoming: { updatedAt: number; deviceId: string }, existing: { updatedAt: number; deviceId: string }): boolean {
+  if (incoming.updatedAt !== existing.updatedAt) return incoming.updatedAt > existing.updatedAt
+  return incoming.deviceId > existing.deviceId
+}
+
+export class Store {
+  private db: DatabaseSync
+  private listeners = new Set<(records: SyncRecord[], origin: 'local' | 'remote') => void>()
+  /** When true this machine is the hub and numbers every change itself. */
+  isHub = false
+  readonly deviceId: string
+
+  constructor(path: string) {
+    this.db = new DatabaseSync(path)
+    this.db.exec(`
+      pragma journal_mode = wal;
+      create table if not exists records(
+        kind text not null, id text not null, updated_at integer not null, device_id text not null,
+        deleted integer not null default 0, data text not null, dirty integer not null default 0,
+        seq integer not null default 0, conv_id text,
+        primary key(kind, id)
+      );
+      create index if not exists records_seq on records(seq);
+      create index if not exists records_conv on records(conv_id, kind);
+      create index if not exists records_dirty on records(dirty);
+      create table if not exists kv(key text primary key, value text not null);
+      create virtual table if not exists msg_fts using fts5(id unindexed, conv_id unindexed, body);
+    `)
+    let id = this.kvGet<string>('deviceId')
+    if (!id) {
+      id = `dev-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
+      this.kvSet('deviceId', id)
+    }
+    this.deviceId = id
+  }
+
+  close(): void {
+    this.db.close()
+  }
+
+  onChange(listener: (records: SyncRecord[], origin: 'local' | 'remote') => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
+  private emit(records: SyncRecord[], origin: 'local' | 'remote'): void {
+    if (!records.length) return
+    for (const l of this.listeners) l(records, origin)
+  }
+
+  // ----- key/value (this machine only, never synced) -----
+
+  kvGet<T>(key: string): T | undefined {
+    const row = this.db.prepare('select value from kv where key = ?').get(key) as { value: string } | undefined
+    return row ? (JSON.parse(row.value) as T) : undefined
+  }
+
+  kvSet(key: string, value: unknown): void {
+    this.db.prepare('insert into kv(key, value) values(?, ?) on conflict(key) do update set value = excluded.value').run(key, JSON.stringify(value))
+  }
+
+  kvDelete(key: string): void {
+    this.db.prepare('delete from kv where key = ?').run(key)
+  }
+
+  kvDeletePrefix(prefix: string): void {
+    this.db.prepare("delete from kv where key like ? escape '\\'").run(`${prefix.replace(/[\\%_]/g, '\\$&')}%`)
+  }
+
+  // ----- sequence numbers (hub) -----
+
+  latestSeq(): number {
+    return this.kvGet<number>('seq') ?? 0
+  }
+
+  private nextSeq(): number {
+    const seq = this.latestSeq() + 1
+    this.kvSet('seq', seq)
+    return seq
+  }
+
+  /** Called when this machine becomes the hub: give every record a place in the change log. */
+  numberAll(): void {
+    const rows = this.db.prepare('select kind, id from records where seq = 0 order by updated_at').all() as { kind: string; id: string }[]
+    const stmt = this.db.prepare('update records set seq = ?, dirty = 0 where kind = ? and id = ?')
+    for (const r of rows) stmt.run(this.nextSeq(), r.kind, r.id)
+  }
+
+  // ----- records -----
+
+  private write(record: SyncRecord, dirty: boolean, seq: number): void {
+    const convId = record.kind === 'message' ? (record.data as Message).conversationId : null
+    this.db
+      .prepare(
+        `insert into records(kind, id, updated_at, device_id, deleted, data, dirty, seq, conv_id) values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+         on conflict(kind, id) do update set updated_at = excluded.updated_at, device_id = excluded.device_id, deleted = excluded.deleted,
+           data = excluded.data, dirty = excluded.dirty, seq = excluded.seq, conv_id = excluded.conv_id`
+      )
+      .run(record.kind, record.id, record.updatedAt, record.deviceId, record.deleted ? 1 : 0, JSON.stringify(record.data), dirty ? 1 : 0, seq, convId)
+    if (record.kind === 'message') this.indexMessage(record as SyncRecord<Message>)
+  }
+
+  private indexMessage(record: SyncRecord<Message>): void {
+    this.db.prepare('delete from msg_fts where id = ?').run(record.id)
+    const m = record.data
+    if (record.deleted || m.role === 'note' || !m.text) return
+    this.db.prepare('insert into msg_fts(id, conv_id, body) values(?, ?, ?)').run(record.id, m.conversationId, m.text)
+  }
+
+  /** Save a change made on this machine. */
+  put<T>(kind: RecordKind, id: string, data: T, opts: { deleted?: boolean; silent?: boolean } = {}): SyncRecord<T> {
+    const existing = this.getRaw(kind, id)
+    // Never go backwards in time relative to what is stored, or the change would lose to itself.
+    const updatedAt = Math.max(Date.now(), (existing?.updatedAt ?? 0) + 1)
+    const record: SyncRecord<T> = { kind, id, updatedAt, deviceId: this.deviceId, deleted: opts.deleted ?? false, data }
+    const seq = this.isHub ? this.nextSeq() : (existing?.seq ?? 0)
+    if (this.isHub) record.seq = seq
+    this.write(record, !this.isHub, seq)
+    if (!opts.silent) this.emit([record], 'local')
+    return record
+  }
+
+  remove(kind: RecordKind, id: string): void {
+    const existing = this.getRaw(kind, id)
+    if (!existing) return
+    this.put(kind, id, existing.data, { deleted: true })
+  }
+
+  private getRaw(kind: RecordKind, id: string): SyncRecord | undefined {
+    const row = this.db.prepare('select * from records where kind = ? and id = ?').get(kind, id) as Row | undefined
+    return row ? toRecord(row) : undefined
+  }
+
+  get<T>(kind: RecordKind, id: string): T | undefined {
+    const r = this.getRaw(kind, id)
+    return r && !r.deleted ? (r.data as T) : undefined
+  }
+
+  list<T>(kind: RecordKind): T[] {
+    const rows = this.db.prepare('select * from records where kind = ? and deleted = 0').all(kind) as Row[]
+    return rows.map((r) => JSON.parse(r.data) as T)
+  }
+
+  messages(conversationId: string): Message[] {
+    const rows = this.db.prepare("select data from records where kind = 'message' and conv_id = ? and deleted = 0").all(conversationId) as { data: string }[]
+    return rows.map((r) => JSON.parse(r.data) as Message).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+  }
+
+  deleteConversation(id: string): void {
+    for (const m of this.messages(id)) this.remove('message', m.id)
+    this.remove('conversation', id)
+    this.kvDeletePrefix(`session:${id}:`)
+    this.kvDelete(`cwd:${id}`)
+  }
+
+  // ----- sync -----
+
+  /** Merge records that came from another machine. Returns the ones that changed anything here. */
+  applyRemote(incoming: SyncRecord[]): SyncRecord[] {
+    const applied: SyncRecord[] = []
+    for (const rec of incoming) {
+      const existing = this.getRaw(rec.kind, rec.id)
+      if (existing && !isNewer(rec, existing)) continue
+      const seq = this.isHub ? this.nextSeq() : (rec.seq ?? 0)
+      const stored = { ...rec, seq: seq || undefined }
+      this.write(stored, false, seq)
+      applied.push(stored)
+    }
+    this.emit(applied, 'remote')
+    return applied
+  }
+
+  /** Changes made here that the hub has not seen. */
+  dirty(limit = 400): SyncRecord[] {
+    const rows = this.db.prepare('select * from records where dirty = 1 order by updated_at limit ?').all(limit) as Row[]
+    return rows.map(toRecord)
+  }
+
+  dirtyCount(): number {
+    return (this.db.prepare('select count(*) as n from records where dirty = 1').get() as { n: number }).n
+  }
+
+  /** Mark records as delivered, unless they changed again while the push was in flight. */
+  markClean(pushed: SyncRecord[]): void {
+    const stmt = this.db.prepare('update records set dirty = 0 where kind = ? and id = ? and updated_at = ?')
+    for (const r of pushed) stmt.run(r.kind, r.id, r.updatedAt)
+  }
+
+  markAllDirty(): void {
+    this.db.exec('update records set dirty = 1')
+  }
+
+  /** Hub side: everything that changed after a sequence number. */
+  since(seq: number, limit = 500): SyncRecord[] {
+    const rows = this.db.prepare('select * from records where seq > ? order by seq limit ?').all(seq, limit) as Row[]
+    return rows.map(toRecord)
+  }
+
+  // ----- search -----
+
+  search(query: string, limit = 40): SearchHit[] {
+    const terms = query
+      .split(/\s+/)
+      .map((t) => t.replace(/["*]/g, '').trim())
+      .filter(Boolean)
+    if (!terms.length) return []
+    const hits: SearchHit[] = []
+    const seen = new Set<string>()
+    const convs = new Map(this.list<Conversation>('conversation').map((c) => [c.id, c]))
+
+    const needle = terms.join(' ').toLowerCase()
+    for (const c of convs.values()) {
+      if (c.title.toLowerCase().includes(needle)) {
+        hits.push({ conversationId: c.id, title: c.title, snippet: 'Title match', createdAt: c.updatedAt })
+        seen.add(c.id)
+      }
+    }
+
+    const match = terms.map((t) => `"${t}"*`).join(' ')
+    let rows: { id: string; conv_id: string; snip: string }[] = []
+    try {
+      rows = this.db
+        .prepare("select id, conv_id, snippet(msg_fts, 2, '[[', ']]', ' … ', 14) as snip from msg_fts where msg_fts match ? order by rank limit ?")
+        .all(match, limit) as typeof rows
+    } catch {
+      rows = []
+    }
+    for (const r of rows) {
+      const conv = convs.get(r.conv_id)
+      if (!conv) continue
+      const msg = this.get<Message>('message', r.id)
+      hits.push({ conversationId: r.conv_id, messageId: r.id, title: conv.title, snippet: r.snip, createdAt: msg?.createdAt ?? conv.updatedAt })
+    }
+    return hits.slice(0, limit)
+  }
+}

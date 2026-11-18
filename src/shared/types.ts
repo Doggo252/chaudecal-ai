@@ -1,0 +1,299 @@
+// Types shared by the main process, the renderer and the hub.
+
+export type ProviderId = 'claude' | 'chatgpt' | 'local'
+export type ProviderChoice = ProviderId | 'auto'
+
+export const PROVIDER_LABEL: Record<ProviderId, string> = {
+  claude: 'Claude',
+  chatgpt: 'ChatGPT',
+  local: 'Local AI'
+}
+
+/**
+ * What the assistant may do on this machine.
+ * chat: answer only, no tools.
+ * plan: may read files in the workspace folder, changes nothing.
+ * edit: may read and edit files in the workspace folder.
+ * auto: may also run commands without asking.
+ */
+export type RunMode = 'chat' | 'plan' | 'edit' | 'auto'
+
+export type HandoffVariant = 'summary' | 'full'
+
+export interface ConversationSummary {
+  text: string
+  /** Last message covered by the summary. */
+  uptoMessageId: string
+  updatedAt: number
+  /** Which engine wrote it: a local model, or the built-in extractive fallback. */
+  source: 'local' | 'extractive'
+}
+
+export interface Conversation {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+  provider: ProviderChoice
+  /** Chosen model per provider. Empty string means the provider's own default. */
+  models: Partial<Record<ProviderId, string>>
+  mode: RunMode
+  pinned?: boolean
+  /** Keep this conversation on local AI only. */
+  private?: boolean
+  summary?: ConversationSummary
+}
+
+export interface ToolCall {
+  id: string
+  name: string
+  /** Short human readable description, for example the command or the file path. */
+  summary: string
+  status: 'running' | 'done' | 'error' | 'denied'
+  output?: string
+}
+
+export interface MessageUsage {
+  inputTokens: number
+  outputTokens: number
+}
+
+export interface Message {
+  id: string
+  conversationId: string
+  role: 'user' | 'assistant' | 'note'
+  text: string
+  createdAt: number
+  deviceId: string
+  provider?: ProviderId
+  model?: string
+  thinking?: string
+  tools?: ToolCall[]
+  status: 'complete' | 'streaming' | 'error' | 'stopped'
+  error?: { code: ErrorCode; message: string }
+  usage?: MessageUsage
+  /** Messages answering the same prompt in compare mode share a group id. */
+  variantGroup?: string
+  /** In a variant group, only the selected answer is part of the conversation. */
+  selected?: boolean
+}
+
+export type ErrorCode =
+  | 'auth'
+  | 'rate_limit'
+  | 'not_installed'
+  | 'unreachable'
+  | 'aborted'
+  | 'unknown'
+
+export interface MemoryNote {
+  id: string
+  text: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface SavedPrompt {
+  id: string
+  title: string
+  text: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** Personal instructions applied to every provider. Single record with id "profile". */
+export interface Profile {
+  id: 'profile'
+  instructions: string
+  updatedAt: number
+}
+
+// ---------- Usage ----------
+
+export type LimitStatus = 'ok' | 'warning' | 'exhausted' | 'unknown'
+
+export interface LimitWindow {
+  /** 0 to 100 when the provider reports a number. */
+  usedPct?: number
+  status: LimitStatus
+  /** Epoch milliseconds. */
+  resetsAt?: number
+}
+
+export interface ProviderUsage {
+  id: ProviderId
+  provider: ProviderId
+  fiveHour: LimitWindow
+  weekly: LimitWindow
+  /** Tokens this app has seen the provider use in the current 5-hour window. */
+  tokensInWindow: number
+  windowStartedAt: number
+  updatedAt: number
+}
+
+// ---------- Sync records ----------
+
+export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage'
+
+export interface SyncRecord<T = unknown> {
+  kind: RecordKind
+  id: string
+  updatedAt: number
+  deviceId: string
+  deleted: boolean
+  data: T
+  /** Assigned by the hub. Missing on records that have not reached the hub yet. */
+  seq?: number
+}
+
+// ---------- Settings (per machine, not synced) ----------
+
+export interface LocalEndpoint {
+  id: string
+  name: string
+  /** Base URL of an OpenAI compatible server, for example http://127.0.0.1:11434/v1 */
+  baseUrl: string
+  enabled: boolean
+}
+
+export interface Settings {
+  deviceName: string
+  theme: 'system' | 'light' | 'dark'
+  /** Context budget for the running context file, in tokens. */
+  contextBudgetTokens: number
+  /** Percent of a limit used at which the app offers to switch. */
+  warnThresholdPct: number
+  defaultProvider: ProviderChoice
+  defaultMode: RunMode
+  /** contextTokens is the model window the plan gives you. The app never sends more than this. */
+  claude: { cliPath: string; models: string[]; defaultModel: string; contextTokens: number }
+  chatgpt: { cliPath: string; models: string[]; defaultModel: string; contextTokens: number }
+  local: {
+    /** Runtimes on this machine. On the hub these are shared with other devices. */
+    endpoints: LocalEndpoint[]
+    defaultModel: string
+    /** Context window to assume for local models, in tokens. */
+    contextTokens: number
+    /** Use a local model to keep conversation summaries up to date. */
+    summarize: boolean
+  }
+  hub: {
+    /** This machine is the hub: it stores the master copy and shares its local AI. */
+    hostEnabled: boolean
+    port: number
+    /** Secret that other devices need in order to connect. Generated on the hub. */
+    token: string
+    /** Address of the hub when this machine is a client, for example http://my-pc:47600 */
+    remoteUrl: string
+    remoteToken: string
+  }
+  routing: { preferLocalForShort: boolean }
+}
+
+export const DEFAULT_HUB_PORT = 47600
+
+export function defaultSettings(deviceName: string): Settings {
+  return {
+    deviceName,
+    theme: 'system',
+    contextBudgetTokens: 400_000,
+    warnThresholdPct: 80,
+    defaultProvider: 'auto',
+    defaultMode: 'chat',
+    claude: { cliPath: '', models: ['opus', 'sonnet', 'haiku'], defaultModel: '', contextTokens: 200_000 },
+    chatgpt: { cliPath: '', models: [], defaultModel: '', contextTokens: 400_000 },
+    local: {
+      endpoints: [
+        { id: 'ollama', name: 'Ollama', baseUrl: 'http://127.0.0.1:11434/v1', enabled: true },
+        { id: 'lmstudio', name: 'LM Studio', baseUrl: 'http://127.0.0.1:1234/v1', enabled: true }
+      ],
+      defaultModel: '',
+      contextTokens: 16_000,
+      summarize: true
+    },
+    hub: { hostEnabled: false, port: DEFAULT_HUB_PORT, token: '', remoteUrl: '', remoteToken: '' },
+    routing: { preferLocalForShort: false }
+  }
+}
+
+// ---------- Provider status ----------
+
+export interface ProviderStatus {
+  provider: ProviderId
+  /** The CLI or runtime was found. */
+  installed: boolean
+  /** Signed in (CLIs) or reachable (local). */
+  ready: boolean
+  detail: string
+  version?: string
+  models: string[]
+}
+
+export interface LocalModel {
+  /** Model id as the runtime names it. */
+  id: string
+  endpointId: string
+  endpointName: string
+  /** 'direct' when the runtime is on this machine, 'hub' when it is reached through the hub. */
+  via: 'direct' | 'hub'
+}
+
+export interface HubStatus {
+  role: 'host' | 'client' | 'off'
+  connected: boolean
+  url: string
+  detail: string
+  lastSyncAt?: number
+  pending: number
+  /** Addresses other devices can use, shown on the hub. */
+  addresses?: string[]
+}
+
+export interface DiscoveredHub {
+  name: string
+  url: string
+}
+
+// ---------- Streaming events from a provider run ----------
+
+export type RunEvent =
+  | { type: 'text'; delta: string }
+  | { type: 'thinking'; delta: string }
+  | { type: 'tool'; tool: ToolCall }
+  | { type: 'session'; sessionId: string }
+  | { type: 'model'; model: string }
+  | { type: 'usage'; usage: MessageUsage }
+  | { type: 'limits'; fiveHour?: Partial<LimitWindow>; weekly?: Partial<LimitWindow> }
+  | { type: 'approval'; request: ApprovalRequest }
+  | { type: 'denials'; denials: PermissionDenial[] }
+  | { type: 'error'; code: ErrorCode; message: string }
+  | { type: 'done' }
+
+/** The assistant is waiting for the user to allow an action before it continues. */
+export interface ApprovalRequest {
+  id: string
+  kind: 'command' | 'file' | 'other'
+  summary: string
+  reason?: string
+}
+
+export type ApprovalDecision = 'accept' | 'acceptForSession' | 'decline'
+
+/** A tool the assistant tried to use but was not allowed to. */
+export interface PermissionDenial {
+  toolName: string
+  summary: string
+  /** Rule that would allow it, in the provider's own syntax. */
+  rule: string
+}
+
+export interface RouteDecision {
+  provider: ProviderId
+  reason: string
+}
+
+export function newId(): string {
+  // Sortable enough for display, unique enough across two machines.
+  const rand = Array.from({ length: 10 }, () => Math.floor(Math.random() * 36).toString(36)).join('')
+  return `${Date.now().toString(36)}-${rand}`
+}

@@ -1,0 +1,70 @@
+// Checks against the real services, using the sign-ins on this machine.
+// Skipped unless CHAUDECAL_LIVE names what to check, for example:
+//   CHAUDECAL_LIVE=chatgpt,claude npx vitest run tests/live.test.ts
+// Each check sends one very short message, so it uses a little of your plan.
+
+import { describe, expect, it } from 'vitest'
+import { join } from 'node:path'
+import type { RunEvent } from '@shared/types'
+import { defaultSettings } from '@shared/types'
+import { loadShellPath } from '../src/main/env'
+import { ClaudeProvider } from '../src/main/providers/claude'
+import { CodexProvider } from '../src/main/providers/codex'
+import { tempDir } from './helpers'
+
+const live = (process.env.CHAUDECAL_LIVE ?? '').split(',').map((s) => s.trim())
+const settings = defaultSettings('live-test')
+
+function collect() {
+  const events: RunEvent[] = []
+  return { events, emit: (e: RunEvent) => void events.push(e), text: () => events.filter((e) => e.type === 'text').map((e) => (e as { delta: string }).delta).join('') }
+}
+
+describe.skipIf(!live.includes('chatgpt'))('live: ChatGPT through Codex', () => {
+  it('signs in, lists models, reads limits, answers and resumes', async () => {
+    await loadShellPath()
+    const limits: unknown[] = []
+    const codex = new CodexProvider(() => settings, '0.0.0-live', (l) => limits.push(l))
+    try {
+      const status = await codex.status()
+      console.log('status', status)
+      expect(status.ready).toBe(true)
+      expect(status.models.length).toBeGreaterThan(0)
+      await codex.refreshLimits()
+      console.log('limits', JSON.stringify(limits[limits.length - 1]))
+      expect(limits.length).toBeGreaterThan(0)
+
+      const first = collect()
+      await codex.run({ prompt: 'Reply with exactly this and nothing else: The code word is maple.', system: '', model: '', mode: 'chat', cwd: tempDir() }, first.emit).done
+      console.log('first', first.text(), first.events.filter((e) => e.type !== 'text' && e.type !== 'thinking'))
+      expect(first.events.filter((e) => e.type === 'error')).toEqual([])
+      expect(first.text().toLowerCase()).toContain('maple')
+      // Streaming, not one lump.
+      expect(first.events.filter((e) => e.type === 'text').length).toBeGreaterThan(1)
+
+      const session = first.events.find((e) => e.type === 'session') as { sessionId: string }
+      const second = collect()
+      await codex.run({ prompt: 'What was the code word? Answer with the single word.', system: '', model: '', mode: 'chat', cwd: tempDir(), sessionId: session.sessionId }, second.emit).done
+      console.log('second', second.text())
+      expect(second.text().toLowerCase()).toContain('maple')
+    } finally {
+      codex.dispose()
+    }
+  }, 180_000)
+})
+
+describe.skipIf(!live.includes('claude'))('live: Claude through Claude Code', () => {
+  it('reports status and either answers or says clearly that sign-in is needed', async () => {
+    await loadShellPath()
+    const claude = new ClaudeProvider(() => settings, join(tempDir(), 'tmp'))
+    const status = await claude.status()
+    console.log('status', status)
+    expect(status.installed).toBe(true)
+    const c = collect()
+    await claude.run({ prompt: 'Reply with exactly this and nothing else: The code word is maple.', system: '', model: 'haiku', mode: 'chat', cwd: tempDir() }, c.emit).done
+    console.log('reply', c.text(), c.events.filter((e) => e.type !== 'text' && e.type !== 'thinking'))
+    const errors = c.events.filter((e) => e.type === 'error')
+    if (errors.length) expect(errors).toEqual([expect.objectContaining({ code: 'auth' })])
+    else expect(c.text().toLowerCase()).toContain('maple')
+  }, 180_000)
+})

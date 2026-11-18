@@ -1,0 +1,42 @@
+{
+  "name": "chaudecal-ai",
+  "productName": "Chaudecal AI",
+  "version": "0.1.0",
+  "description": "One desktop app for Claude, ChatGPT and local AI, with shared context, usage tracking and Mac/PC sync.",
+  "main": "out/main/index.js",
+  "author": "Doggo252",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "e2e": "node e2e/smoke.mjs",
+    "dist:mac": "electron-vite build && electron-builder --mac --publish never",
+    "dist:win": "electron-vite build && electron-builder --win --publish never",
+    "postinstall": "node node_modules/electron/install.js"
+  },
+  "dependencies": {
+    "bonjour-service": "^1.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "dompurify": "^3.4.18",
+    "electron": "^45.3.4",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "highlight.js": "^11.12.0",
+    "marked": "^18.2.1",
+    "playwright-core": "^1.50.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

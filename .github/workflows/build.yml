@@ -1,0 +1,105 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: mac
+            dist: dist:mac
+          - os: windows-latest
+            name: windows
+            dist: dist:win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      # Drives the real app window against stand-in services. The stand-ins are
+      # scripts, which Windows cannot start directly, so this runs on macOS.
+      - name: End-to-end test
+        if: matrix.name == 'mac'
+        run: npm run e2e
+
+      - name: Package installer
+        run: npm run ${{ matrix.dist }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chaudecal-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.exe
+
+      - uses: actions/upload-artifact@v4
+        if: failure() && matrix.name == 'mac'
+        with:
+          name: e2e-screenshots
+          path: e2e/artifacts
+
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Read version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}-build.${{ github.run_number }}
+          name: Chaudecal AI ${{ steps.version.outputs.version }} (build ${{ github.run_number }})
+          body: |
+            Automatic build of commit ${{ github.sha }}.
+
+            - Windows: download `Chaudecal-AI-${{ steps.version.outputs.version }}-windows-setup.exe`.
+            - Mac with Apple silicon: download the `mac-arm64.dmg`.
+            - Mac with Intel: download the `mac-x64.dmg`.
+
+            These builds are not signed with a paid developer certificate, so both systems warn on first launch. See the README for how to open them.
+          files: |
+            artifacts/*.dmg
+            artifacts/*.zip
+            artifacts/*.exe
