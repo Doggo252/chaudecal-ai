@@ -76,30 +76,43 @@ jobs:
 
   release:
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Publish whatever was built. GitHub sometimes has no Mac runner free, and
+    # that should not hold back the Windows installer (or the other way round).
+    # An installer is only uploaded after its job passed the checks and tests.
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           path: artifacts
+          pattern: chaudecal-*
           merge-multiple: true
 
-      - name: Read version
-        id: version
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: See what was built
+        id: built
+        run: |
+          mkdir -p artifacts
+          ls -la artifacts
+          count=$(find artifacts -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' \) | wc -l)
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v2
+        if: steps.built.outputs.count != '0'
         with:
-          tag_name: v${{ steps.version.outputs.version }}-build.${{ github.run_number }}
-          name: Chaudecal AI ${{ steps.version.outputs.version }} (build ${{ github.run_number }})
+          tag_name: v${{ steps.built.outputs.version }}-build.${{ github.run_number }}
+          name: Chaudecal AI ${{ steps.built.outputs.version }} (build ${{ github.run_number }})
           body: |
             Automatic build of commit ${{ github.sha }}.
 
-            - Windows: download `Chaudecal-AI-${{ steps.version.outputs.version }}-windows-setup.exe`.
-            - Mac with Apple silicon: download the `mac-arm64.dmg`.
-            - Mac with Intel: download the `mac-x64.dmg`.
+            - Windows: the file ending in `windows-setup.exe`.
+            - Mac with Apple silicon: the file ending in `mac-arm64.dmg`.
+            - Mac with Intel: the file ending in `mac-x64.dmg`.
+
+            If the file for your system is missing, its build did not finish this time. Use the newest earlier release that has it.
 
             These builds are not signed with a paid developer certificate, so both systems warn on first launch. See the README for how to open them.
           files: |
