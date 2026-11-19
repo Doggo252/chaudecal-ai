@@ -9,6 +9,8 @@ import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, setS
 import { IconColumns, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
 import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList } from './Messages'
+import { ArtifactPanel, declined } from './ArtifactPanel'
+import { artifactBlocks } from '@shared/artifacts'
 import { MenuItem, Popover, ProviderDot } from './ui'
 
 const EMPTY: Message[] = []
@@ -29,6 +31,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const approvals = useUi((s) => (conversationId ? s.approvals[conversationId] : undefined))
   const denial = useUi((s) => (conversationId ? s.denials[conversationId] : undefined))
   const dismissed = useUi((s) => s.dismissed)
+  const openArtifact = useUi((s) => s.artifact)
   const conversation = app.conversations.find((c) => c.id === conversationId)
   const [renaming, setRenaming] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
@@ -65,6 +68,40 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   }, [focusMessageId, stored])
 
   const busy = conversation ? app.busy.includes(conversation.id) : false
+
+  // A reply that writes an artifact opens it in the panel and keeps showing the newest part,
+  // unless the user closed the panel or picked something else while it was being written.
+  useEffect(() => {
+    if (!conversationId) return
+    for (const m of Object.values(streaming)) {
+      if (m.conversationId !== conversationId || m.role !== 'assistant' || m.variantGroup || declined.has(m.id) || !/```|~~~/.test(m.text)) continue
+      const blocks = artifactBlocks(m.text)
+      const last = blocks[blocks.length - 1]
+      if (!last) continue
+      const current = getState().artifact
+      if (current && current.conversationId === conversationId && current.messageId === m.id && current.index === last.index) continue
+      if (current && current.conversationId === conversationId && !current.follow && current.messageId === m.id) continue
+      setState({ artifact: { conversationId, messageId: m.id, index: last.index, follow: true, wide: current?.wide } })
+    }
+  }, [streaming, conversationId])
+
+  const showCard = (e: React.MouseEvent) => {
+    const card = (e.target as HTMLElement).closest<HTMLElement>('.artifact-card')
+    const messageId = card?.closest<HTMLElement>('[data-message-id]')?.dataset.messageId
+    if (!card || !messageId || !conversationId) return
+    const current = getState().artifact
+    if (current?.follow && current.messageId !== messageId) declined.add(current.messageId)
+    if (current?.follow && current.messageId === messageId) declined.add(messageId)
+    setState({ artifact: { conversationId, messageId, index: Number(card.dataset.artifactIndex ?? 0), wide: current?.wide } })
+  }
+
+  const askFix = (title: string, error: string) => {
+    if (!conversation || busy) return
+    stick.current = true
+    const text = `The artifact "${title}" shows this error in its preview:\n\n${error}\n\nPlease fix it and write the artifact again in full with the same title.`
+    void window.api.send({ conversationId: conversation.id, text, variant: getState().variants[conversation.id] }).catch((e) => toast(String(e.message ?? e)))
+  }
+  const panel = openArtifact && conversation && openArtifact.conversationId === conversation.id ? openArtifact : undefined
   const thread = useMemo(() => threadMessages(stored), [stored])
   const contextTokens = useMemo(() => thread.reduce((n, m) => n + estimateTokens(m.role === 'user' ? messageBody(m) : m.text) + 6, 0), [thread])
 
@@ -118,7 +155,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const composer = <Composer conversation={conversation} onSend={(t, c, a) => void send(t, c, a)} />
 
   return (
-    <>
+    <div className={`chat-split ${panel ? 'with-panel' : ''} ${panel?.wide ? 'panel-wide' : ''}`}>
+      <div className="chat-pane">
       <header className="topbar drag">
         {conversation && !empty ? (
           <>
@@ -243,6 +281,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
             className="scroll"
             ref={scroller}
             data-testid="message-scroll"
+            onClick={showCard}
             onScroll={(e) => {
               const el = e.currentTarget
               stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
@@ -310,6 +349,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
           {composer}
         </>
       )}
-    </>
+      </div>
+      {panel && <ArtifactPanel open={panel} messages={messages} onAskFix={busy ? undefined : askFix} />}
+    </div>
   )
 }

@@ -23,6 +23,7 @@ import { Summarizer } from './summarizer'
 import { WebTabs } from './webtabs'
 import { readAttachment } from './attachments'
 import { normalizeMcpServer, testMcpServer } from './mcp'
+import { guardFrames, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
 import { checkForUpdate } from './updates'
 import { finishedNotice, questionNotice, shouldNotify, type Notice } from './notify'
@@ -34,6 +35,8 @@ declare const __BUILD_NUMBER__: number
 const dataOverride = process.env.CHAUDECAL_USER_DATA
 if (dataOverride) app.setPath('userData', dataOverride)
 else if (!app.requestSingleInstanceLock()) app.quit()
+// Artifact previews are served under their own scheme, which has to be known before the app starts.
+registerArtifactScheme()
 
 let win: BrowserWindow | undefined
 let store: Store
@@ -539,6 +542,12 @@ const api: Omit<Api, 'on'> = {
     if (problem) return { ok: false, tools: [], error: problem }
     return testMcpServer(server, app.getVersion())
   },
+  async artifactView(html) {
+    return previewUrl(html)
+  },
+  async saveArtifact(name, content) {
+    return saveArtifact(win, name, content)
+  },
   async hubDiscover() {
     return discoverHubs()
   },
@@ -666,6 +675,7 @@ function createWindow(): void {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }
   })
+  guardFrames(win.webContents)
   win.webContents.on('will-navigate', (e, url) => {
     const devUrl = process.env.ELECTRON_RENDERER_URL
     if (devUrl && url.startsWith(devUrl)) return
@@ -685,6 +695,7 @@ app.whenReady().then(async () => {
   const dataDir = app.getPath('userData')
   mkdirSync(dataDir, { recursive: true })
   store = new Store(join(dataDir, 'chaudecal.db'))
+  servePreviews()
   settings = loadSettings()
   nativeTheme.themeSource = settings.theme
   await loadShellPath()

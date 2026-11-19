@@ -103,6 +103,9 @@ const toolsDir = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tm
 const toolServer = join(toolsDir, 'notes-server.mjs')
 copyFileSync(join(root, 'tests/fakes/fake-mcp.mjs'), toolServer)
 const savedNotes = join(toolsDir, 'saved-notes.txt')
+// Where downloaded artifacts go, instead of asking with a dialog.
+const saveDir = join(attachDir, 'saved')
+mkdirSync(saveDir)
 
 // Stand-in for the GitHub releases page, announcing a newer build.
 const releases = createHttpServer((_req, res) => {
@@ -125,7 +128,7 @@ try {
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false },
       hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true }
     },
-    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir }
+    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir }
   )
   await a.page.waitForFunction(async () => {
     const s = await window.api.state()
@@ -496,6 +499,123 @@ try {
   assert((await a.page.evaluate(async () => (await window.api.state()).settings.textSize)) === 'default', 'the text size is a setting of each device')
   await b.page.click(tid('new-chat'))
   ok('the text size can be made smaller or larger')
+
+  // Artifacts: Claude writes a web page, an image and a program. They open in a panel beside the conversation.
+  const until = async (fn, what, timeout = 15000) => {
+    const end = Date.now() + timeout
+    for (;;) {
+      const value = await fn().catch(() => undefined)
+      if (value) return value
+      if (Date.now() > end) throw new Error(`timed out waiting: ${what}`)
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
+  const panelTitle = () => a.page.textContent(tid('artifact-title'))
+  const previewFrame = () => until(async () => a.page.frames().find((f) => f.url().startsWith('chaudecal-artifact://')), 'a preview frame')
+  const frameText = async (selector, want) => until(async () => (await (await previewFrame()).textContent(selector)) === want, `${selector} to read "${want}"`)
+  await a.page.click(tid('new-chat'))
+  await pickProvider(a.page, 'claude')
+  await sendMessage(a.page, 'Make me a page. [artifact]')
+  // The panel opens by itself while the reply is still being written.
+  await a.page.waitForSelector(tid('artifact-panel'), { timeout: 15000 })
+  await waitForReply(a.page, 'claude', 'A small example stays in the reply')
+  assert((await a.page.textContent(`${tid('assistant-message')}:last-of-type`)).includes('I know how to write artifacts.'), 'Claude should have been told how to write artifacts')
+  const cards = await a.page.$$eval(`${tid('assistant-message')}:last-of-type ${tid('artifact-card')}`, (els) => els.map((e) => e.querySelector('.artifact-card-title').textContent))
+  assert(JSON.stringify(cards) === JSON.stringify(['Greeting page', 'Two shapes', 'Count words']), `three artifact cards expected, got ${JSON.stringify(cards)}`)
+  assert((await a.page.$$(`${tid('assistant-message')}:last-of-type .code-block`)).length === 1, 'the small example should stay an ordinary code block')
+  await until(async () => (await panelTitle()) === 'Count words', 'the panel to follow the newest artifact')
+  assert((await a.page.textContent(tid('artifact-code'))).includes('sys.stdin'), 'a program is shown as code')
+
+  // The page runs its own script, but cannot reach the app or the internet.
+  await a.page.click(`${tid('artifact-card')}:has-text("Greeting page")`)
+  await until(async () => (await panelTitle()) === 'Greeting page', 'the page to open')
+  await frameText('#ran', 'Scripts ran.')
+  await frameText('#reach', 'The app is out of reach.')
+  await frameText('#net', 'The request was blocked.')
+  const frame = await previewFrame()
+  assert(await frame.evaluate(() => document.getElementById('pic').naturalWidth === 0), 'an image from the internet should not load')
+  // A link in the preview stays put, and says so.
+  const pageUrl = frame.url()
+  await frame.click('#out')
+  await a.page.waitForFunction(() => /Links in a preview do not open/.test(document.querySelector('.toast')?.textContent ?? ''))
+  assert(frame.url() === pageUrl, 'a link should not take the preview anywhere')
+  await shot(a.page, '25-artifact-page')
+  // A script that sends the frame elsewhere is stopped too. Running the preview again brings it back.
+  await frame.evaluate(() => {
+    location.href = 'https://example.com/'
+  })
+  await new Promise((r) => setTimeout(r, 800))
+  assert(!a.page.frames().some((f) => f.url().startsWith('https://example.com')), 'the preview should not be able to go to another site')
+  await a.page.click(tid('artifact-reload'))
+  await frameText('#ran', 'Scripts ran.')
+  await a.page.click(tid('artifact-tab-code'))
+  assert((await a.page.textContent(tid('artifact-code'))).includes('<h1 id="hello">'), 'the code tab shows the source')
+  await a.page.click(tid('artifact-download'))
+  const saved = join(saveDir, 'greeting-page.html')
+  await until(async () => existsSync(saved), 'the page to be saved')
+  assert(readFileSync(saved, 'utf8').includes('Hello from an artifact'), 'the saved file holds the page')
+  await a.page.click(tid('artifact-tab-preview'))
+
+  // An image.
+  await a.page.click(`${tid('artifact-card')}:has-text("Two shapes")`)
+  await until(async () => (await panelTitle()) === 'Two shapes', 'the image to open')
+  await until(async () => (await (await previewFrame()).$('svg circle')) !== null, 'the image to be drawn')
+  ok('Claude writes artifacts, which open in a side panel with a live, sealed-off preview')
+
+  // A new version of the page, a document, and a component. The page's script fails on purpose.
+  await sendMessage(a.page, 'Change it. [artifact-v2]')
+  await waitForReply(a.page, 'claude', 'Here is the page again.')
+  await a.page.click(`${tid('assistant-message')}:last-of-type ${tid('artifact-card')}:has-text("Greeting page")`)
+  await until(async () => (await a.page.textContent(tid('artifact-version'))) === '2 of 2', 'the second version')
+  await frameText('#hello', 'Hello again')
+  await a.page.waitForSelector(tid('artifact-error'), { timeout: 15000 })
+  assert((await a.page.textContent(tid('artifact-error'))).includes('Something broke on purpose'), 'the error on the page is shown')
+  await shot(a.page, '26-artifact-version-error')
+  await a.page.click(tid('artifact-prev'))
+  await until(async () => (await a.page.textContent(tid('artifact-version'))) === '1 of 2', 'the first version')
+  await frameText('#hello', 'Hello from an artifact')
+  await a.page.click(tid('artifact-next'))
+  await a.page.waitForSelector(tid('artifact-fix'), { timeout: 15000 })
+  await a.page.click(tid('artifact-fix'))
+  await waitForReply(a.page, 'claude', 'Please fix it and write the artifact again in full with the same title.')
+  ok('writing an artifact again makes a new version, and a broken preview can be sent back to be fixed')
+
+  // A document is shown formatted, and the code inside it stays code.
+  await a.page.click(`${tid('artifact-card')}:has-text("Read me")`)
+  await a.page.waitForSelector(`${tid('artifact-document')} h1`)
+  assert((await a.page.textContent(`${tid('artifact-document')} h1`)) === 'Shopping list', 'the document is formatted')
+  assert((await a.page.$$(`${tid('artifact-document')} .code-block`)).length === 1 && (await a.page.$$(`${tid('artifact-document')} ${tid('artifact-card')}`)).length === 0, 'code in a document stays a code block')
+  await a.page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 })
+  await shot(a.page, '27-artifact-document')
+
+  // A React component. It loads React from esm.sh, so its preview is only checked with E2E_NET=1.
+  await a.page.click(`${tid('artifact-card')}:has-text("Counter")`)
+  await until(async () => (await panelTitle()) === 'Counter', 'the component to open')
+  if (process.env.E2E_NET === '1') {
+    await frameText('#count', 'Clicked 0 times', 45000)
+    await (await previewFrame()).click('#count')
+    await frameText('#count', 'Clicked 1 times')
+    await a.page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 })
+    await shot(a.page, '28-artifact-react')
+    await a.page.click(`${tid('artifact-card')}:has-text("Diagram")`)
+    await until(async () => (await (await previewFrame()).$('.mermaid svg')) !== null, 'the diagram to be drawn', 45000)
+    assert((await (await previewFrame()).textContent('.mermaid svg')).includes('Draft'), 'the diagram shows its steps')
+    await a.page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 })
+    await shot(a.page, '29-artifact-diagram')
+    await a.page.click(`${tid('artifact-card')}:has-text("Counter")`)
+    console.log('       the React component and the Mermaid diagram loaded their libraries from the internet')
+  }
+  await a.page.click(tid('artifact-tab-code'))
+  assert((await a.page.textContent(tid('artifact-code'))).includes('useState'), 'the component source is shown')
+
+  // The panel can fill the window, and closes.
+  await a.page.click(tid('artifact-wide'))
+  await until(async () => (await a.page.$eval('.chat-pane', (el) => getComputedStyle(el).display)) === 'none', 'the panel to fill the window')
+  await a.page.click(tid('artifact-wide'))
+  await a.page.click(tid('artifact-close'))
+  await until(async () => !(await a.page.$(tid('artifact-panel'))), 'the panel to close')
+  await a.page.click(tid('new-chat'))
+  ok('documents and components open too, and the panel fills the window or closes')
 
   // Dark appearance.
   await b.page.evaluate(() => window.api.updateSettings({ theme: 'dark' }))

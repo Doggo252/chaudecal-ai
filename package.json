@@ -1,7 +1,7 @@
 {
   "name": "chaudecal-ai",
   "productName": "Chaudecal AI",
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "One desktop app for Claude, ChatGPT and local AI, with shared context, usage tracking and Mac/PC sync.",
   "main": "out/main/index.js",
   "author": "Doggo252",
@@ -36,6 +36,7 @@
     "playwright-core": "^1.50.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
+    "sucrase": "^3.35.1",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"

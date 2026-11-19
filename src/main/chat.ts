@@ -34,6 +34,7 @@ import {
   planTurn,
   providerBudget,
   sharedSystemText,
+  ARTIFACT_GUIDE,
   threadMessages,
   titleFromText,
   type HandoffResult,
@@ -182,7 +183,8 @@ export class ChatEngine {
       .list<MemoryNote>('note')
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((n) => n.text)
-    return sharedSystemText(this.profileText(), notes)
+    const shared = sharedSystemText(this.profileText(), notes)
+    return this.settings().artifacts === false ? shared : [shared, ARTIFACT_GUIDE].filter(Boolean).join('\n\n')
   }
 
   // ----- context files -----

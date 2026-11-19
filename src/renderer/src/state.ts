@@ -53,6 +53,19 @@ export interface UiState {
   dismissed: Record<string, true>
   dialog: null | { kind: 'search' } | { kind: 'switch'; conversationId: string; target?: ProviderId }
   toast: string
+  /** The artifact open in the side panel: the one written at that place in that message. */
+  artifact: OpenArtifact | null
+}
+
+export interface OpenArtifact {
+  conversationId: string
+  messageId: string
+  index: number
+  /** Keep showing the newest version while a reply is being written. */
+  follow?: boolean
+  /** The panel fills the whole window. */
+  wide?: boolean
+  tab?: 'preview' | 'code'
 }
 
 let state: UiState = {
@@ -68,7 +81,8 @@ let state: UiState = {
   variants: {},
   dismissed: {},
   dialog: null,
-  toast: ''
+  toast: '',
+  artifact: null
 }
 
 const listeners = new Set<() => void>()
@@ -229,6 +243,7 @@ export async function loadMessages(conversationId: string): Promise<void> {
 export function openChat(conversationId: string | undefined, focusMessageId?: string): void {
   const app = state.app
   const patch: Partial<UiState> = { view: { kind: 'chat', conversationId, focusMessageId }, dialog: null }
+  if (state.artifact && state.artifact.conversationId !== conversationId) patch.artifact = null
   if (!conversationId && app) patch.draft = newDraft(app)
   setState(patch)
   if (conversationId) void loadMessages(conversationId)

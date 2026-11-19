@@ -183,6 +183,11 @@ export interface Api {
   /** Connect to a tool server from this device and list its tools. */
   testMcpServer(server: McpInput): Promise<McpTestResult>
 
+  /** Keeps a preview page for an artifact and gives back the address its frame loads. */
+  artifactView(html: string): Promise<string>
+  /** Saves an artifact to a file the user picks. Gives back the path, or an empty string when cancelled. */
+  saveArtifact(name: string, content: string): Promise<string>
+
   hubDiscover(): Promise<DiscoveredHub[]>
   hubNewToken(): Promise<string>
   hubSyncNow(): Promise<void>
@@ -236,6 +241,8 @@ export const API_METHODS = [
   'saveMcpServer',
   'deleteMcpServer',
   'testMcpServer',
+  'artifactView',
+  'saveArtifact',
   'hubDiscover',
   'hubNewToken',
   'hubSyncNow',

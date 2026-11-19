@@ -171,3 +171,19 @@ export const IconComputer = (p: P) => (
     <path d="M8 20h8M12 16v4" />
   </Svg>
 )
+export const IconExpand = (p: P) => (
+  <Svg {...p}>
+    <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />
+  </Svg>
+)
+export const IconShrink = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" />
+  </Svg>
+)
+export const IconPanel = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M14 4v16" />
+  </Svg>
+)

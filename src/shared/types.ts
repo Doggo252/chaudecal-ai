@@ -240,6 +240,8 @@ export interface Settings {
   accent: string
   /** How large the text is drawn. */
   textSize: 'small' | 'default' | 'large' | 'larger'
+  /** Ask the assistants to put pages, components, diagrams and documents in artifacts, which open in a side panel. */
+  artifacts: boolean
   /** Context budget for the running context file, in tokens. */
   contextBudgetTokens: number
   /** Percent of a limit used at which the app offers to switch. */
@@ -291,6 +293,7 @@ export function defaultSettings(deviceName: string): Settings {
     theme: 'system',
     accent: 'default',
     textSize: 'default',
+    artifacts: true,
     contextBudgetTokens: 400_000,
     warnThresholdPct: 80,
     defaultProvider: 'auto',

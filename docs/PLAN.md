@@ -146,6 +146,12 @@ SQLite through Node's built-in driver, with full text search for the search box.
 - API key variables are removed from the command line tools' environment so a stray key cannot cause surprise charges.
 - The website tabs use separate storage from the rest of the app.
 
+## Artifacts
+
+Artifacts are found in the text of a reply, not in anything a provider sends separately, so they work the same for Claude, ChatGPT and local models, and they sync with the messages without any new record kind. A fenced code block is an artifact when its opening line has a title (```` ```html title="Pricing page" ````), or without a title when it is a full web page, an SVG, a Mermaid diagram or a React component with a default export. The same title later in the conversation is a new version of the same artifact. While artifacts are on (the default), every assistant gets a short guide to this in its system text.
+
+The preview runs in a frame with `sandbox="allow-scripts"` and no same-origin access, so it cannot reach the app or the bridge to the main process. The window's own content policy would block a preview's scripts, and a page written straight into a frame inherits that policy, so the main process serves each preview page under a private `chaudecal-artifact:` scheme with its own strict policy: no requests anywhere except scripts, styles and fonts from a few public code hosts, images only from inside the page, no forms, no frames. Frames in the window may not go anywhere else (`will-frame-navigate`), and a preview's links are stopped inside the page. React components are compiled in the window with sucrase (loaded only when a preview first opens) and load React from esm.sh through an import map, so packages from esm.sh share one copy of React. The page reports errors to the panel as one short line of text, which "Ask to fix" sends back to the assistant.
+
 ## What is built and tested
 
 | Area | State |
@@ -175,6 +181,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Choosing the hub's working folder from another device by browsing its folders | Built, tested with two app instances on a Mac. Drive letters and Windows paths are in code only. |
 | Notifications for a finished reply or a waiting question, with a Dock count and a sidebar marker | Built. When and what to announce is tested, including across two app instances. A real notification was shown by the packaged Mac app. Not yet seen on Windows. |
 | Light and dark themes, an accent color (seven presets or any color), and four text sizes | Built, tested |
+| Artifacts: web pages, React components, SVG, Mermaid, documents and code in a side panel with live previews and versions | Built, tested against a stand-in assistant in the real window, including the sealed-off preview. React and Mermaid previews checked with the real libraries from the internet. Not yet checked with real Claude or ChatGPT replies. |
 | Mac installer | Built and launched |
 | Windows installer | Built by GitHub Actions. Not yet run on a real PC. |
 

@@ -82,10 +82,11 @@ describe.skipIf(!canRunFakes)('conversation engine', () => {
     engine.switchProvider(conv.id, 'local')
     await engine.send({ conversationId: conv.id, text: 'Local, your turn.' })
     expect(last(conv.id)).toMatchObject({ provider: 'local', model: 'ollama/mock-llama:8b' })
-    expect(last(conv.id).text).toContain('I can see 8 earlier messages')
+    // Eight earlier messages, plus the system message that explains artifacts.
+    expect(last(conv.id).text).toContain('I can see 9 earlier messages')
     const sent = runtime.requests[runtime.requests.length - 1].messages
-    expect(sent.map((m: { role: string }) => m.role)).toEqual(['user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user'])
-    expect(sent[0].content).toBe('My cat is called Biscuit.')
+    expect(sent.map((m: { role: string }) => m.role)).toEqual(['system', 'user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user'])
+    expect(sent[1].content).toBe('My cat is called Biscuit.')
 
     // The switches are marked in the transcript but are not part of what assistants see.
     const notes = store.messages(conv.id).filter((m) => m.role === 'note').map((m) => m.text)

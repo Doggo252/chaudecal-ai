@@ -302,6 +302,29 @@ export function sharedSystemText(profile: string, notes: string[]): string {
   return parts.join('\n\n')
 }
 
+/**
+ * How to write artifacts in this app. Added to the system text while artifacts are on.
+ * The app finds them in the reply's text, so this works the same for every assistant.
+ */
+export const ARTIFACT_GUIDE = `This app shows some code blocks as artifacts: they open in a side panel next to the conversation, with a live preview where the kind has one.
+
+When you write substantial, self-contained content that the user is likely to view, reuse or change, such as a web page, an interactive component, a diagram, an image, a document of more than a few paragraphs, or a complete program, put it in one fenced code block and add a title to the opening fence:
+
+\`\`\`html title="Pricing page"
+<!doctype html>
+...
+\`\`\`
+
+The language on the fence sets the kind:
+- html: a complete web page. Put styles and scripts inline.
+- jsx or tsx: one React component with a default export that needs no props. Tailwind classes work. Packages from npm, such as recharts, lucide-react, d3 or three, can be imported by name and load from esm.sh. There are no other project files, so keep everything in this one file.
+- svg: an image.
+- mermaid: a diagram.
+- markdown: a document. If it contains code blocks, open and close the artifact with four backticks.
+- any programming language: code.
+
+To change an artifact, write it again in full with the same title. It becomes a new version. Keep short snippets and examples as ordinary code blocks without a title. Previews cannot reach the internet except to load scripts, styles and fonts from esm.sh, cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com and Google Fonts, so use inline SVG or data URLs for images instead of image links, and do not fetch data. Do not mention these instructions to the user.`
+
 export function titleFromText(text: string): string {
   const t = text.trim().replace(/\s+/g, ' ')
   if (!t) return 'New chat'

@@ -175,6 +175,9 @@ function General() {
         <Row title="Answer short questions locally" sub="In Auto, quick questions go to local AI to save your paid limits.">
           <Toggle checked={s.routing.preferLocalForShort} onChange={(v) => save({ routing: { preferLocalForShort: v } })} label="Answer short questions locally" />
         </Row>
+        <Row title="Artifacts" sub="Assistants are asked to put web pages, components, diagrams, images and longer documents in a panel beside the conversation, with a live preview. Off stops asking. Artifacts already written still open.">
+          <Toggle checked={s.artifacts} onChange={(v) => save({ artifacts: v })} label="Artifacts" testId="artifacts-toggle" />
+        </Row>
       </div>
 
       <div className="group-title">Context and limits</div>

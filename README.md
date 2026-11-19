@@ -20,7 +20,8 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Second opinion and branching.** One click asks another assistant to review an answer. Any answer can be branched into a separate conversation to try a different direction.
 - **Notifications.** Send a long task, switch to another app, and get a notification when the reply is ready or when the assistant has stopped to ask you something. Clicking it opens that conversation.
 - **Your own look.** Light, dark or matching the system, an accent color (seven presets or any color you pick), and four text sizes.
-- **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, artifacts, account settings). A web chat can be brought into the unified chat.
+- **Artifacts.** Web pages, React components, SVG images, Mermaid diagrams, documents and programs that an assistant writes open in a panel beside the conversation, with a live preview, versions, copy and download. They work with Claude, ChatGPT and local models alike.
+- **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, account settings). A web chat can be brought into the unified chat.
 - **Tools for both assistants (MCP).** Add a tool server once, for example for GitHub, your notes or a database, and Claude and ChatGPT can both use it. The list syncs between your machines.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
 
@@ -43,6 +44,10 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 | Asking before a tool is used | Theme, accent color and text size |
 | --- | --- |
 | ![Claude asking whether it may use a tool from a tool server](docs/screenshots/tool-ask.png) | ![The appearance settings: theme, accent color and text size](docs/screenshots/theme.png) |
+
+| Artifacts | Versions, and a preview that ran into an error |
+| --- | --- |
+| ![A Mermaid diagram open in the artifact panel beside the conversation](docs/screenshots/artifacts.png) | ![The second version of a web page, with "Ask to fix" for an error on the page](docs/screenshots/artifact-versions.png) |
 
 The screenshots come from the automated test, which uses stand-in assistants, so the replies and numbers in them are not real.
 
@@ -163,6 +168,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - **Branching.** Hover over any answer and click the branch icon. The conversation up to that answer is copied into a new one, and the original is left as it was.
 - **Notifications.** They appear only while the app is not the window in front, and only on the computer the message was sent from, so the hub PC stays quiet about work you started on the Mac. The Dock icon also shows a count (on Windows the taskbar button flashes) until you look at the app. A conversation that is waiting for your answer has an amber dot in the sidebar. Private chats never show their contents in a notification. Turn it all off under Settings, "General".
 - **Theme.** Under Settings, "General", choose Light, Dark or Match system, and an accent color. The accent is used for the main buttons, the send button, the switches, the text selection and a tint on your own messages. The last swatch opens a color picker for any color, and the text on it turns dark or white to stay readable. Text size has four steps, from Small to Extra large, and changes every piece of text in the app at once. The look is a setting of each machine, so the Mac and the PC can differ.
+- **Artifacts.** When an assistant writes something you will want to look at or reuse, it appears in the reply as a card, and the panel beside the conversation opens by itself while it is written. Click any card to open it again. The kinds are web pages (HTML), React components (JSX or TSX, with Tailwind and npm packages), SVG images, Mermaid diagrams, Markdown documents and code in any language. Preview and Code switch between the running result and its source. When the assistant writes the same title again, it becomes a new version, and the arrows step between versions. If a preview hits an error, "Ask to fix" sends the error back to the assistant. Copy, download, and a button to let the panel fill the window are at the top. The app tells every assistant how to write artifacts; turn that off under Settings, "General", "Artifacts".
 - **At a limit.** By default the app asks before switching. Turn on "Switch automatically at a limit" under Settings, "General" to have it carry on with another assistant by itself when a limit is hit in the middle of a reply.
 - **Private chats.** A private conversation only ever uses local AI.
 - **Shortcuts.** New chat is Cmd or Ctrl+N. Search is Cmd or Ctrl+K. Settings is Cmd or Ctrl+comma.
@@ -181,6 +187,10 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - Tool servers that sign in through a browser page (many hosted ones do) are not supported yet. Use one that takes a token, or the version of it that runs as a program. Tool servers you added to Claude Code or Codex yourself keep working, each in its own assistant only.
 - Tokens typed into a tool server are stored and synced the way conversations are: unencrypted on your disks and on your home network, encrypted over Tailscale. Give a server a token with only the access it needs.
 - On Windows, a tool server started with `npx`, `npm`, `pnpm` or `yarn` is run through `cmd` automatically. This has not been tried on a real PC yet.
+- Previews of React components and Mermaid diagrams load React, Tailwind and Mermaid from public code hosts (esm.sh and jsDelivr), so they need an internet connection. Web pages, images, documents and code work offline.
+- A preview is sealed off: it cannot reach the app, your files or the internet. It may load scripts, styles and fonts only from esm.sh, jsDelivr, unpkg, cdnjs and Google Fonts. Images must be inside the artifact (inline SVG or data URLs), links in a preview do not open, and forms do not send. A page that needs to fetch data will not work in the preview; download it and open it in a browser instead.
+- A React component must be a single file. Imports of project files such as `@/components/ui/...` (the shadcn/ui components that claude.ai offers) cannot be shown, and the panel says so.
+- Artifacts are found in the text of replies, so an assistant that ignores the instructions writes ordinary code blocks instead. Real Claude and ChatGPT replies have not been checked with artifacts yet; the tests use a stand-in assistant.
 - Updates are not installed for you. The sidebar shows "Update available" when a newer build is published, and clicking it opens the download page.
 - Sign-ins inside the website tabs are separate from the command line sign-ins and stay on each machine.
 - The Windows build is produced and tested automatically, but it has not been used day to day yet. The tray icon, closing to the tray and starting at sign-in in particular have only been checked in code, not on a real PC. Please report anything odd.
@@ -202,7 +212,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 28 checks |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 31 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

@@ -154,7 +154,7 @@ function CompareGroup({ variants }: { variants: Message[] }) {
   const settled = variants.every((v) => v.status !== 'streaming')
   if (chosen && !showOthers) {
     return (
-      <div className="msg msg-assistant" data-testid="assistant-message" data-provider={chosen.provider}>
+      <div className="msg msg-assistant" data-testid="assistant-message" data-provider={chosen.provider} data-message-id={chosen.id}>
         <Who m={chosen} />
         <AssistantBody m={chosen} />
         <div className="compare-others">
@@ -170,7 +170,7 @@ function CompareGroup({ variants }: { variants: Message[] }) {
     <>
       <div className="compare" data-testid="compare-group">
         {variants.map((v) => (
-          <div className="compare-card" key={v.id} data-provider={v.provider} data-testid="compare-card">
+          <div className="compare-card" key={v.id} data-provider={v.provider} data-testid="compare-card" data-message-id={v.id}>
             <Who m={v} />
             <AssistantBody m={v} />
             {v.status === 'error' && (

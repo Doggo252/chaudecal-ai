@@ -240,7 +240,90 @@ if (prompt.includes('[mcp]') || prompt.includes('[mcp-echo]')) {
   }
 }
 
-const reply = `Claude here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
+let reply = `Claude here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
+
+// "[artifact]" writes a web page, an image and a program as artifacts. "[artifact-v2]" writes
+// the page again (a new version, whose script fails on purpose), a document and a component.
+if (prompt.includes('[artifact]') || prompt.includes('[artifact-v2]')) {
+  const knows = system.includes('This app shows some code blocks as artifacts') ? 'I know how to write artifacts.' : 'Nobody told me about artifacts.'
+  const fence = '```'
+  reply = prompt.includes('[artifact-v2]')
+    ? [
+        `Claude here. ${knows} Here is the page again.`,
+        '',
+        `${fence}html title="Greeting page"`,
+        '<!doctype html>',
+        '<html><head><title>Greeting</title></head>',
+        '<body><h1 id="hello">Hello again</h1>',
+        "<script>throw new Error('Something broke on purpose')</script>",
+        '</body></html>',
+        fence,
+        '',
+        'And the notes:',
+        '',
+        `${fence}${fence.slice(0, 1)}markdown title="Read me"`,
+        '# Shopping list',
+        '',
+        'Buy **milk** before Friday.',
+        '',
+        `${fence}js`,
+        'console.log("not an artifact of its own")',
+        fence,
+        `${fence}${fence.slice(0, 1)}`,
+        '',
+        `${fence}jsx title="Counter"`,
+        "import { useState } from 'react'",
+        'export default function Counter() {',
+        '  const [n, setN] = useState(0)',
+        '  return <button id="count" className="px-3 py-1 rounded bg-blue-600 text-white" onClick={() => setN(n + 1)}>Clicked {n} times</button>',
+        '}',
+        fence,
+        '',
+        `${fence}mermaid`,
+        'graph LR',
+        '  Idea --> Draft --> Done',
+        fence
+      ].join('\n')
+    : [
+        `Claude here. ${knows} Here is the page.`,
+        '',
+        `${fence}html title="Greeting page"`,
+        '<!doctype html>',
+        '<html><head><title>Greeting</title><style>body { font-family: sans-serif; background: #fffbe8; }</style></head>',
+        '<body><h1 id="hello">Hello from an artifact</h1>',
+        '<p id="ran">Scripts have not run.</p>',
+        '<p id="reach">Not tried.</p>',
+        '<p id="net">Not tried.</p>',
+        '<img id="pic" src="https://example.com/leak.png" alt="">',
+        '<p><a id="out" href="https://example.com/">Leave</a> <a id="top" href="#hello">Back to the top</a></p>',
+        '<script>',
+        "document.getElementById('ran').textContent = 'Scripts ran.'",
+        "try { parent.document.title; document.getElementById('reach').textContent = 'The app was reached.' } catch (e) { document.getElementById('reach').textContent = 'The app is out of reach.' }",
+        "fetch('https://example.com/?leak=1').then(() => 'The request got out.', () => 'The request was blocked.').then((t) => { document.getElementById('net').textContent = t })",
+        '</script>',
+        '</body></html>',
+        fence,
+        '',
+        'A picture:',
+        '',
+        `${fence}svg`,
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 60"><title>Two shapes</title><rect x="5" y="5" width="50" height="50" fill="#2f7fe6"/><circle cx="90" cy="30" r="25" fill="#e8772e"/></svg>',
+        fence,
+        '',
+        'And a program:',
+        '',
+        `${fence}python title="Count words"`,
+        'import sys',
+        'print(len(sys.stdin.read().split()))',
+        fence,
+        '',
+        'A small example stays in the reply:',
+        '',
+        `${fence}python`,
+        'x = 1',
+        fence
+      ].join('\n')
+}
 
 stream({ type: 'content_block_start', content_block: { type: 'text' } })
 const delay = Number(process.env.FAKE_DELAY_MS ?? '8')
