@@ -4,6 +4,7 @@ import { PROVIDER_LABEL } from '@shared/types'
 import { openChat, setState, toast, useUi } from '../state'
 import { IconDownload, IconFolder, IconGlobe, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
 import { Meter, ProviderDot } from './ui'
+import { isWeb } from '../webApi'
 
 function groupLabel(ts: number, now: number): string {
   const day = 24 * 60 * 60 * 1000
@@ -69,7 +70,7 @@ export function Sidebar() {
           </button>
         </div>
         {app.projects.map((p) => (
-          <button type="button" key={p.id} className={`conv ${view.kind === 'project' && view.projectId === p.id ? 'active' : ''}`} data-testid="project" onClick={() => setState({ view: { kind: 'project', projectId: p.id } })} title={p.name}>
+          <button type="button" key={p.id} className={`conv ${view.kind === 'project' && view.projectId === p.id ? 'active' : ''}`} data-testid="project" onClick={() => setState({ view: { kind: 'project', projectId: p.id }, sideOpen: false })} title={p.name}>
             <IconFolder size={14} />
             <span className="conv-title">{p.name}</span>
           </button>
@@ -103,10 +104,10 @@ export function Sidebar() {
       </nav>
 
       <div className="side-bottom">
-        <button type="button" className={`side-btn ${view.kind === 'web' && view.service === 'claude' ? 'active' : ''}`} data-testid="web-claude" onClick={() => setState({ view: { kind: 'web', service: 'claude' } })}>
+        <button type="button" className={`side-btn ${view.kind === 'web' && view.service === 'claude' ? 'active' : ''}`} data-testid="web-claude" onClick={() => (isWeb() ? void window.open('https://claude.ai', '_blank', 'noopener') : setState({ view: { kind: 'web', service: 'claude' } }))}>
           <IconGlobe /> claude.ai
         </button>
-        <button type="button" className={`side-btn ${view.kind === 'web' && view.service === 'chatgpt' ? 'active' : ''}`} data-testid="web-chatgpt" onClick={() => setState({ view: { kind: 'web', service: 'chatgpt' } })}>
+        <button type="button" className={`side-btn ${view.kind === 'web' && view.service === 'chatgpt' ? 'active' : ''}`} data-testid="web-chatgpt" onClick={() => (isWeb() ? void window.open('https://chatgpt.com', '_blank', 'noopener') : setState({ view: { kind: 'web', service: 'chatgpt' } }))}>
           <IconGlobe /> chatgpt.com
         </button>
 

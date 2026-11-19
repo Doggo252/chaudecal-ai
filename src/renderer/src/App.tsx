@@ -8,6 +8,8 @@ import { SettingsView } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
 import { WebView } from './components/WebView'
 import { ProjectView } from './components/ProjectView'
+import { isWeb } from './webApi'
+import { IconMenu } from './icons'
 
 installCopyHandler()
 
@@ -17,6 +19,7 @@ export function App() {
   const view = useUi((s) => s.view)
   const dialog = useUi((s) => s.dialog)
   const toast = useUi((s) => s.toast)
+  const sideOpen = useUi((s) => s.sideOpen)
   const accent = useUi((s) => s.app?.settings.accent)
 
   // Before the first paint, so the window never flashes in the default colors.
@@ -44,7 +47,11 @@ export function App() {
   if (!ready) return <div className="app" />
 
   return (
-    <div className={`app ${platform === 'darwin' ? 'mac' : 'win'}`}>
+    <div className={`app ${isWeb() ? 'web' : platform === 'darwin' ? 'mac' : 'win'} ${sideOpen ? 'side-open' : ''}`}>
+      <button type="button" className="side-toggle" title="Chats" data-testid="side-toggle" onClick={() => setState((s) => ({ sideOpen: !s.sideOpen }))}>
+        <IconMenu />
+      </button>
+      <div className="side-scrim" onClick={() => setState({ sideOpen: false })} />
       <Sidebar />
       <main className="main">
         {view.kind === 'chat' && <ChatView key={view.conversationId ?? 'new'} conversationId={view.conversationId} focusMessageId={view.focusMessageId} />}

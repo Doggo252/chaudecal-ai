@@ -2506,3 +2506,127 @@ html.quick-window #root {
   background: var(--bg-code);
   border-radius: 5px;
 }
+
+/* ---------- In a browser, and on a phone ---------- */
+
+.side-toggle,
+.side-scrim {
+  display: none;
+}
+.pairing {
+  max-width: 420px;
+  margin: 18vh auto 0;
+  padding: 0 24px;
+  text-align: center;
+}
+.pairing h1 {
+  font-family: var(--serif);
+  font-weight: 500;
+}
+.pairing p {
+  color: var(--text-soft);
+}
+.pairing form {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+.pairing .input {
+  flex: 1;
+  font-size: 16px;
+}
+.pairing-wrong {
+  color: var(--bad) !important;
+}
+
+@media (max-width: 760px) {
+  .app {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: fixed;
+    z-index: 40;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(300px, 86vw);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+  .app.side-open .sidebar {
+    transform: none;
+  }
+  .side-scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, 0.32);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .app.side-open .side-scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .side-toggle {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    z-index: 20;
+    top: 6px;
+    left: 8px;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 9px;
+    background: var(--bg);
+    color: var(--text-soft);
+  }
+  .topbar {
+    padding-left: 52px;
+  }
+  .ctx-meter,
+  .topbar .chip:not([data-testid='open-switch']) {
+    display: none;
+  }
+  .column,
+  .composer-wrap {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .bubble {
+    max-width: 92%;
+  }
+  .settings {
+    grid-template-columns: 1fr;
+  }
+  .empty h1 {
+    font-size: calc(24px * var(--text-scale));
+    text-align: center;
+  }
+  .starter-row {
+    display: none;
+  }
+  .composer-row {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .composer-row .spacer {
+    flex-basis: 100%;
+    height: 0;
+  }
+  .composer-foot {
+    display: none;
+  }
+  .composer-row .send {
+    margin-left: auto;
+  }
+  /* Phones zoom into text boxes under 16 pixels. */
+  textarea,
+  input {
+    font-size: max(16px, 1em);
+  }
+}

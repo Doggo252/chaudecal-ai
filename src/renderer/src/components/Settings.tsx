@@ -23,7 +23,7 @@ const TABS = [
 ]
 
 function save(patch: DeepPartial<Settings>): void {
-  void window.api.updateSettings(patch)
+  window.api.updateSettings(patch).catch((e: unknown) => toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e)))
 }
 
 /** Text input that saves when the user leaves it or presses Enter. */
@@ -499,6 +499,21 @@ function Sync() {
             >
               <Toggle checked={s.allowRemoteRuns} label="Let my other devices run assistants on this machine" testId="allow-remote-runs" onChange={(v) => save({ hub: { allowRemoteRuns: v } })} />
             </Row>
+            <Row
+              title="Use Chaude from a phone or a browser"
+              sub="Open one of the addresses below on your phone, in any browser, and enter the pairing code once. It is the same app, running its assistants on this machine. In Safari or Chrome, 'Add to Home Screen' makes it open like an app. Anyone with the pairing code who can reach this machine could then use it fully, including file edits and commands in Edit and Auto modes."
+            >
+              <Toggle checked={!!s.webApp} label="Use Chaude from a phone or a browser" testId="web-app" onChange={(v) => save({ hub: { webApp: v } })} />
+            </Row>
+            {s.webApp && (
+              <Row title="Addresses for your phone" sub="Use the Tailscale one (starting 100.) when you are away from home." stack>
+                <div className="mono" data-testid="web-app-addresses">
+                  {(hub.addresses ?? []).map((a) => (
+                    <div key={a}>{`${a}/app/`}</div>
+                  ))}
+                </div>
+              </Row>
+            )}
           </div>
         </>
       ) : (

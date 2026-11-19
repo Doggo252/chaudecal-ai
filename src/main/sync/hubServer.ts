@@ -8,6 +8,8 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { timingSafeEqual } from 'node:crypto'
+import { readFileSync, statSync } from 'node:fs'
+import { extname, join, normalize, sep } from 'node:path'
 import { cpus, hostname, networkInterfaces, totalmem } from 'node:os'
 import type { RunWireEvent, Settings, SyncRecord } from '@shared/types'
 import type { Store } from '../store'
@@ -15,6 +17,33 @@ import { cleanSendInput, type RunHost } from './remoteRuns'
 import { directModels } from '../providers/local'
 
 const MAX_BODY = 64 * 1024 * 1024
+
+/**
+ * The app itself, offered to a phone or a browser at /app. The page is the same
+ * one the desktop window shows; its calls arrive here and run on this machine.
+ */
+export interface WebAppHost {
+  /** The user switched it on, on this machine. */
+  enabled(): boolean
+  /** The built window files (index.html and its assets). */
+  staticDir(): string
+  /** Runs one of the app's calls, if a browser may make it. */
+  call(method: string, args: unknown[]): Promise<unknown>
+  /** An artifact preview page, by its id. */
+  preview(id: string): string | undefined
+  previewCsp(): string
+}
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.woff2': 'font/woff2',
+  '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json'
+}
 const STREAM_INTERVAL_MS = 120
 
 function readBody(req: IncomingMessage): Promise<any> {
@@ -62,6 +91,8 @@ export function localAddresses(port: number): string[] {
 export class HubServer {
   private server?: Server
   private subscribers = new Set<ServerResponse>()
+  /** Browsers showing the app, listening for its events. */
+  private appSubscribers = new Set<ServerResponse>()
   private unsubscribe?: () => void
   port = 0
 
@@ -70,8 +101,17 @@ export class HubServer {
     private settings: () => Settings,
     private appVersion: string,
     /** Lets paired devices run assistants on this machine. Absent in setups that only sync. */
-    private runs?: RunHost
+    private runs?: RunHost,
+    /** The app in a browser. Absent in setups that only sync. */
+    private web?: WebAppHost
   ) {}
+
+  /** Sends one of the app's events to every browser showing it. */
+  broadcastApp(channel: string, payload: unknown): void {
+    if (!this.appSubscribers.size) return
+    const block = `event: ${channel}\ndata: ${JSON.stringify(payload ?? null)}\n\n`
+    for (const s of this.appSubscribers) s.write(block)
+  }
 
   private pendingStream = new Map<string, { conversationId: string; timer?: ReturnType<typeof setTimeout>; sentAt: number; latest?: RunWireEvent }>()
 
@@ -154,6 +194,8 @@ export class HubServer {
     this.unsubscribe = undefined
     for (const s of this.subscribers) s.end()
     this.subscribers.clear()
+    for (const s of this.appSubscribers) s.end()
+    this.appSubscribers.clear()
     const server = this.server
     this.server = undefined
     this.store.isHub = false
@@ -168,11 +210,12 @@ export class HubServer {
     for (const s of this.subscribers) s.write(line)
   }
 
-  private authorized(req: IncomingMessage): boolean {
+  private authorized(req: IncomingMessage, fromQuery?: string | null): boolean {
     const token = this.settings().hub.token
     if (!token) return false
     const header = req.headers.authorization ?? ''
-    const given = header.startsWith('Bearer ') ? header.slice(7) : ''
+    // A browser's event stream cannot send a header, so it gives the code in the address instead.
+    const given = header.startsWith('Bearer ') ? header.slice(7) : (fromQuery ?? '')
     const a = Buffer.from(given)
     const b = Buffer.from(token)
     return a.length === b.length && timingSafeEqual(a, b)
@@ -182,6 +225,10 @@ export class HubServer {
     const url = new URL(req.url ?? '/', 'http://hub')
     const path = url.pathname
 
+    if (path === '/app' || path.startsWith('/app/')) {
+      await this.handleApp(path, url, req, res)
+      return
+    }
     if (path === '/api/health') {
       json(res, 200, { app: 'chaudecal', hubId: this.hubId(), name: this.settings().deviceName || hostname(), version: this.appVersion })
       return
@@ -268,6 +315,68 @@ export class HubServer {
     }
 
     json(res, 404, { error: 'not found' })
+  }
+
+  private async handleApp(path: string, url: URL, req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const web = this.web
+    if (!web?.enabled()) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+      res.end('Using Chaude from a browser is turned off. Turn it on under Settings, Sync and hub, on the hub machine.')
+      return
+    }
+    // Files next to the page are found relative to it, so the page's address ends in a slash.
+    if (path === '/app') {
+      res.writeHead(302, { location: '/app/' })
+      res.end()
+      return
+    }
+    // An artifact preview: its id is long and random, and a frame cannot send the code.
+    const preview = /^\/app\/preview\/([a-f0-9]{32})$/.exec(path)
+    if (preview) {
+      const html = web.preview(preview[1])
+      if (html === undefined) return json(res, 404, { error: 'This preview is no longer available.' })
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-security-policy': web.previewCsp(), 'x-content-type-options': 'nosniff', 'cache-control': 'no-store' })
+      res.end(html)
+      return
+    }
+    if (path.startsWith('/app/api/')) {
+      if (!this.authorized(req)) return json(res, 401, { error: 'unauthorized' })
+      if (req.method !== 'POST') return json(res, 405, { error: 'POST only' })
+      const method = path.slice('/app/api/'.length)
+      const body = await readBody(req)
+      try {
+        const result = await web.call(method, Array.isArray(body.args) ? body.args : [])
+        json(res, 200, { result: result === undefined ? null : result })
+      } catch (e) {
+        json(res, 400, { error: e instanceof Error ? e.message.replace(/^Error: /, '') : String(e) })
+      }
+      return
+    }
+    if (path === '/app/events') {
+      if (!this.authorized(req, url.searchParams.get('code'))) return json(res, 401, { error: 'unauthorized' })
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' })
+      res.write(': hello\n\n')
+      this.appSubscribers.add(res)
+      const beat = setInterval(() => res.write(': keep-alive\n\n'), 20000)
+      req.on('close', () => {
+        clearInterval(beat)
+        this.appSubscribers.delete(res)
+      })
+      return
+    }
+    // The page and its files. They hold nothing private: everything else needs the pairing code.
+    const root = web.staticDir()
+    const rel = path === '/app' || path === '/app/' ? 'index.html' : decodeURIComponent(path.slice('/app/'.length))
+    const file = normalize(join(root, rel))
+    if (!file.startsWith(normalize(root) + sep) && file !== normalize(join(root, 'index.html'))) return json(res, 404, { error: 'not found' })
+    try {
+      if (!statSync(file).isFile()) throw new Error('not a file')
+      const body = readFileSync(file)
+      res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', 'cache-control': rel === 'index.html' ? 'no-cache' : 'public, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' })
+      res.end(body)
+    } catch {
+      json(res, 404, { error: 'not found' })
+    }
   }
 
   private async handleRun(path: string, req: IncomingMessage, res: ServerResponse): Promise<void> {

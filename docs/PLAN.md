@@ -185,6 +185,7 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Projects with their own instructions and files, synced | Built, tested |
 | Scheduled tasks that run on one machine into their own chat | Built, tested. The timing rules are tested with fixed dates. |
 | Export a chat as Markdown or as a web page | Built, tested |
+| The app in a phone or browser, served by the hub at /app with the pairing code, with a phone layout and home-screen support | Built, tested in a phone-sized browser window against the hub. Not yet tried on a real phone. |
 | Quick ask box from a global shortcut, and screenshots of the screen or a window | Built, tested with a pretend screen. The real shortcut and capture are unchecked. |
 | Editing an earlier question and asking it again | Built, tested |
 | Read aloud with the system voices, and dictation through a speech-to-text server | Built, tested with a pretend microphone and a stand-in server. Not tried with a real Whisper server. |

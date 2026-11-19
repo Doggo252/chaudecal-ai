@@ -38,6 +38,11 @@ export function servePreviews(): void {
   })
 }
 
+/** A kept preview page, for the app in a browser. */
+export function previewPage(id: string): string | undefined {
+  return pages.get(id)
+}
+
 /** Keeps a preview page and gives back the address a frame loads it from. */
 export function previewUrl(html: string): string {
   if (typeof html !== 'string' || html.length > MAX_PAGE) throw new Error('This preview is too large to show.')

@@ -28,6 +28,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 - **See what the assistant did.** Its plan shows as a checklist that ticks itself off, its steps are grouped ("Ran 3 commands", "Edited 2 files +12 −3"), and every file edit opens to show the lines it changed.
 - **Projects.** Give a group of chats their own instructions and files (text files, documents and PDFs). Every chat in the project gets them, whichever assistant answers.
 - **Scheduled tasks.** A prompt that runs by itself every hour, day, weekday or week, or once, into its own chat. Run it on the hub PC and it keeps going while the Mac is closed.
+- **On your phone.** The hub PC can serve Chaude to any browser on your home network or over Tailscale. Open it on your phone, enter the pairing code once, and add it to your home screen: it is the same app, with a phone layout, running its assistants on the PC.
 - **Quick ask and screenshots.** Option+Space (Alt+Space on Windows) opens a small box over whatever you are doing; type a question and it starts a new chat. The screen button in the message box attaches a screenshot of your screen or of one window.
 - **Export.** Save any chat as Markdown or as one web page that opens in any browser.
 - **Math, editing and voice.** Formulas are drawn properly. Any earlier question can be edited and asked again. Answers can be read aloud, and you can dictate a message.
@@ -60,9 +61,13 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 | --- | --- |
 | ![The second version of a web page, with "Ask to fix" for an error on the page](docs/screenshots/artifact-versions.png) | |
 
-| A project | A scheduled task |
+| On a phone | A project |
 | --- | --- |
-| ![A project with its instructions, two files and its chats](docs/screenshots/project.png) | ![A scheduled task that runs every weekday at 9:00](docs/screenshots/scheduled-task.png) |
+| ![Chaude in a phone browser, served by the hub](docs/screenshots/phone.png) | ![A project with its instructions, two files and its chats](docs/screenshots/project.png) |
+
+| A scheduled task | |
+| --- | --- |
+| ![A scheduled task that runs every weekday at 9:00](docs/screenshots/scheduled-task.png) | |
 
 | A chat brought in from claude.ai | Bringing in your chats |
 | --- | --- |
@@ -175,7 +180,16 @@ You only need to do this on one machine. The chats sync to your other devices li
 
 An imported chat can be continued here with any assistant: the app sends it the conversation so far, the same way it does when you switch assistants. "Open on claude.ai" (or chatgpt.com) in the conversation's menu goes back to the original.
 
-### 7. Add tool servers (optional)
+### 7. Use it on your phone (optional)
+
+1. On the hub PC, open Settings, "Sync and hub", and turn on "Use Chaude from a phone or a browser".
+2. The page lists the addresses to open, ending in `/app/`. On your phone, open one in Safari or Chrome: the one with your home network address at home, or the Tailscale one (starting `100.`) anywhere, with Tailscale on the phone.
+3. Enter the pairing code shown on the same page. The phone remembers it.
+4. In Safari, tap Share, then "Add to Home Screen" (in Chrome, the menu, then "Add to Home screen"), so it opens like an app.
+
+On the phone it is the same app: your chats, projects and artifacts, with the sidebar behind the menu button. Messages run on the PC, so the PC has to be on. Settings belong to each machine and are changed on the PC itself. Dictation in a phone browser needs a secure (https) address, which a plain home network address is not; use the phone keyboard's own microphone instead.
+
+### 8. Add tool servers (optional)
 
 A tool server gives the assistants a new ability: reading your GitHub issues, searching your notes, querying a database. Tool servers speak the Model Context Protocol (MCP), and there are ready-made ones for many services.
 
@@ -229,6 +243,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - Tool servers that sign in through a browser page (many hosted ones do) are not supported yet. Use one that takes a token, or the version of it that runs as a program. Tool servers you added to Claude Code or Codex yourself keep working, each in its own assistant only.
 - Tokens typed into a tool server are stored and synced the way conversations are: unencrypted on your disks and on your home network, encrypted over Tailscale. Give a server a token with only the access it needs.
 - On Windows, a tool server started with `npx`, `npm`, `pnpm` or `yarn` is run through `cmd` automatically. This has not been tried on a real PC yet.
+- The phone version is served over plain http on your home network, like sync. Over Tailscale the connection is encrypted. Anyone with the pairing code who can reach the PC can use it fully, so keep the code to yourself. It has been tested in a phone-sized browser window, not yet on a real phone.
 - Quick ask and screenshots have been tested with a pretend screen; the real keyboard shortcut and a real screen capture have not been tried yet. If another app already uses Option+Space (or Alt+Space), the shortcut does not register.
 - Dictation needs a speech-to-text server. Neither plan offers speech to text through the tools this app uses, and a live voice conversation like the ones on the websites is not possible here; use the claude.ai or chatgpt.com tab for that.
 - Bringing in chats relies on how claude.ai and chatgpt.com load your chats in their own pages. Neither site documents this, so a change on their side can stop it working until the app is updated; the settings row then says what went wrong. The app goes slowly on purpose (a short pause between chats) so as not to strain the sites.
@@ -260,7 +275,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 40 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 41 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

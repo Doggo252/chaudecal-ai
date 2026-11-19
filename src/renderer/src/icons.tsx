@@ -211,3 +211,8 @@ export const IconScreen = (p: P) => (
     <path d="M8 20h8M12 16v4" />
   </Svg>
 )
+export const IconMenu = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </Svg>
+)

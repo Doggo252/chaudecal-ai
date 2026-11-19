@@ -23,7 +23,8 @@ import { Summarizer } from './summarizer'
 import { siteOrigin, WebTabs } from './webtabs'
 import { readAttachment } from './attachments'
 import { normalizeMcpServer, testMcpServer } from './mcp'
-import { guardFrames, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
+import { guardFrames, previewPage, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
+import { artifactCsp } from '@shared/artifactPolicy'
 import { WebImporter } from './webImport'
 import { TaskRunner } from './tasks'
 import { captureSource, captureSources, hideQuick, setQuickShortcut, toggleQuick } from './quick'
@@ -227,6 +228,45 @@ function showWindow(): void {
 
 function send<K extends keyof AppEvents>(channel: K, payload: AppEvents[K]): void {
   if (win && !win.isDestroyed()) win.webContents.send(`event:${channel}`, payload)
+  // A phone or browser showing the app gets the same events.
+  hubServer?.broadcastApp(channel, payload)
+}
+
+/**
+ * Calls a phone or browser may not make: they would act on this machine's own
+ * screen (file dialogs, its browser, the quick ask box, screen capture), change
+ * how this machine is set up, or replace the pairing code.
+ */
+const NOT_FROM_BROWSER = new Set([
+  'pickAttachments',
+  'revealContext',
+  'copyContext',
+  'updateSettings',
+  'providerLogin',
+  'pickWorkspace',
+  'saveArtifact',
+  'hubDiscover',
+  'hubNewToken',
+  'hubSyncNow',
+  'openExternal',
+  'applyUpdate',
+  'toggleQuick',
+  'quickAsk',
+  'hideQuick',
+  'captureSources',
+  'captureSource',
+  'openConfig',
+  'webShow',
+  'webHide',
+  'webNavigate',
+  'webAction',
+  'webCapture'
+])
+
+/** Turns bytes that a browser sent as base64 back into bytes. */
+function revive(value: unknown): unknown {
+  if (value && typeof value === 'object' && typeof (value as { __bytes?: unknown }).__bytes === 'string') return new Uint8Array(Buffer.from((value as { __bytes: string }).__bytes, 'base64'))
+  return value
 }
 
 function merge<T>(base: T, patch: DeepPartial<T> | undefined): T {
@@ -842,7 +882,17 @@ app.whenReady().then(async () => {
       () => settings,
       () => statuses,
       () => store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id)).map((c) => c.id)
-    )
+    ),
+    {
+      enabled: () => settings.hub.hostEnabled && settings.hub.webApp,
+      staticDir: () => join(__dirname, '../renderer'),
+      async call(method, args) {
+        if (!(API_METHODS as readonly string[]).includes(method) || NOT_FROM_BROWSER.has(method)) throw new Error('That cannot be done from a browser. Do it on the hub machine itself.')
+        return (api as unknown as Record<string, (...a: unknown[]) => unknown>)[method](...args.map(revive))
+      },
+      preview: (id) => previewPage(id),
+      previewCsp: () => artifactCsp()
+    }
   )
   let wasConnected = false
   hubClient = new HubClient(store, () => settings, () => {

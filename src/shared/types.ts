@@ -336,6 +336,8 @@ export interface Settings {
     remoteToken: string
     /** On the hub: paired devices may run Claude and ChatGPT here, including file edits and commands. */
     allowRemoteRuns: boolean
+    /** On the hub: the app can be used from a phone or a browser at this machine's address, /app. */
+    webApp: boolean
   }
   /** On a client: new conversations run on the hub when it allows that. */
   runOnHubByDefault: boolean
@@ -380,7 +382,7 @@ export function defaultSettings(deviceName: string): Settings {
       summarize: true,
       speechUrl: ''
     },
-    hub: { hostEnabled: false, port: DEFAULT_HUB_PORT, token: '', remoteUrl: '', remoteToken: '', allowRemoteRuns: false },
+    hub: { hostEnabled: false, port: DEFAULT_HUB_PORT, token: '', remoteUrl: '', remoteToken: '', allowRemoteRuns: false, webApp: false },
     runOnHubByDefault: false,
     routing: { preferLocalForShort: false },
     autoFailover: false,

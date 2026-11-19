@@ -148,7 +148,7 @@ try {
       claude: { cliPath: fakeClaude },
       chatgpt: { cliPath: fakeCodex },
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false, speechUrl },
-      hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true }
+      hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true, webApp: true }
     },
     { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir, CHAUDECAL_E2E_WEB_ORIGINS: webOrigins, CHAUDECAL_E2E_FAKE_MIC: '1', CHAUDECAL_E2E_CAPTURE: readFileSync(join(root, 'build/icon.png')).toString('base64') }
   )
@@ -612,6 +612,41 @@ try {
   await b.page.waitForFunction(async () => (await window.api.state()).projects.some((p) => p.name === 'Garden plans' && p.files.length === 2), null, { timeout: 15000 })
   await a.page.click(tid('new-chat'))
   ok('a project gives its chats instructions and files, and syncs to the other device')
+
+  // The app on a phone: the hub serves it at /app. A plain browser window (no desktop bridge) stands in for the phone.
+  const phoneOpened = a.app.waitForEvent('window')
+  await a.app.evaluate(({ BrowserWindow }, url) => {
+    const w = new BrowserWindow({ width: 390, height: 844, webPreferences: { contextIsolation: true, sandbox: true } })
+    void w.loadURL(url)
+  }, `http://127.0.0.1:${hubPort}/app`)
+  const phone = await phoneOpened
+  await phone.waitForSelector(tid('pairing-code'))
+  await phone.fill(tid('pairing-code'), 'not the code')
+  await phone.click(tid('pairing-go'))
+  await phone.waitForSelector('.pairing-wrong')
+  await phone.fill(tid('pairing-code'), token)
+  await phone.click(tid('pairing-go'))
+  await phone.waitForSelector(tid('side-toggle'), { timeout: 15000 })
+  assert(await phone.evaluate(() => getComputedStyle(document.querySelector('.sidebar')).transform !== 'none'), 'on a phone the sidebar should start tucked away')
+  await phone.click(tid('side-toggle'))
+  await phone.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
+  await phone.waitForSelector(`${tid('assistant-message')}:has-text("Claude here")`)
+  await phone.waitForFunction(() => getComputedStyle(document.querySelector('.sidebar')).transform !== 'none' && getComputedStyle(document.querySelector('.side-scrim')).opacity === '0')
+  assert(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), 'nothing should stick out sideways on a phone')
+  const composerFits = await phone.evaluate(() => [...document.querySelectorAll('.composer-row > *')].every((el) => el.getBoundingClientRect().right <= document.querySelector('.composer').getBoundingClientRect().right + 1))
+  assert(composerFits, 'every button of the message box should fit on a phone')
+  await shot(phone, '41-phone-chat')
+  await phone.fill(tid('composer-input'), 'Sent from my phone.')
+  await phone.click(tid('send'))
+  await phone.waitForFunction(() => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((el) => el.textContent.includes('Sent from my phone.')), null, { timeout: 15000 })
+  // The desktop window on the hub sees it too.
+  await a.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
+  await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="user-message"]')].some((el) => el.textContent.includes('Sent from my phone.')), null, { timeout: 15000 })
+  const refused = await phone.evaluate(async () => window.api.updateSettings({ theme: 'dark' }).then(() => 'changed', (e) => e.message))
+  assert(/on the hub machine itself/.test(refused), `a phone should not change the hub's settings, got ${refused}`)
+  await phone.close()
+  await a.page.click(tid('new-chat'))
+  ok('the app works from a phone browser through the hub, with the pairing code')
 
   // Scheduled tasks: a prompt that runs by itself into its own chat. "Run now" runs it straight away.
   await a.page.click(tid('open-settings'))

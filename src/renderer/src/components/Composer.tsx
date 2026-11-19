@@ -6,6 +6,7 @@ import type { AttachResult } from '@shared/ipc'
 import { createFromDraft, getState, setState, toast, useUi, type Draft } from '../state'
 import { DictationButton } from './Speech'
 import { CaptureButton } from './Capture'
+import { isWeb } from '../webApi'
 import { IconBook, IconChevron, IconClip, IconColumns, IconComputer, IconFolder, IconLock, IconSend, IconStop } from '../icons'
 import { AttachmentList, fileToBase64 } from './Attachments'
 import { HubFolder } from './HubFolder'
@@ -385,7 +386,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
 
             <DictationButton onText={(t) => setText((prev) => (prev.trim() ? `${prev.trimEnd()} ${t}` : t))} />
 
-            <CaptureButton onAttached={addAttached} />
+            {!isWeb() && <CaptureButton onAttached={addAttached} />}
 
             <button type="button" className="icon-btn" title="Attach images or text files" data-testid="attach" onClick={() => void window.api.pickAttachments().then(addAttached)}>
               <IconClip />

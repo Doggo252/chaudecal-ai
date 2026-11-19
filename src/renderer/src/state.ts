@@ -57,6 +57,8 @@ export interface UiState {
   dismissed: Record<string, true>
   dialog: null | { kind: 'search' } | { kind: 'switch'; conversationId: string; target?: ProviderId }
   toast: string
+  /** On a narrow screen the sidebar slides over the page; this says whether it is out. */
+  sideOpen?: boolean
   /** The artifact open in the side panel: the one written at that place in that message. */
   artifact: OpenArtifact | null
 }
@@ -256,7 +258,7 @@ export async function loadMessages(conversationId: string): Promise<void> {
 
 export function openChat(conversationId: string | undefined, focusMessageId?: string): void {
   const app = state.app
-  const patch: Partial<UiState> = { view: { kind: 'chat', conversationId, focusMessageId }, dialog: null }
+  const patch: Partial<UiState> = { view: { kind: 'chat', conversationId, focusMessageId }, dialog: null, sideOpen: false }
   if (state.artifact && state.artifact.conversationId !== conversationId) patch.artifact = null
   if (!conversationId && app) patch.draft = newDraft(app)
   setState(patch)
