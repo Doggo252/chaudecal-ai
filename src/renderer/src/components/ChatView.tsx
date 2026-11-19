@@ -10,6 +10,7 @@ import { IconColumns, IconFolder, IconLock, IconMore, IconSwitch } from '../icon
 import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList } from './Messages'
 import { ArtifactPanel, closeArtifact, declined, PANEL_COVERS } from './ArtifactPanel'
+import { conversationHtml, conversationMarkdown } from '../export'
 import { artifactBlocks } from '@shared/artifacts'
 import { MenuItem, Popover, ProviderDot } from './ui'
 
@@ -291,6 +292,28 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                     }}
                   >
                     Copy full transcript
+                  </MenuItem>
+                  <div className="menu-sep" />
+                  <MenuItem
+                    hint="One page that opens in any browser"
+                    testId="export-html"
+                    onClick={() => {
+                      close()
+                      const file = conversationHtml(conversation, stored)
+                      void window.api.saveArtifact(file.name, file.text).then((path) => path && toast(`Saved ${path.split(/[\\/]/).pop()}`))
+                    }}
+                  >
+                    Export as a web page
+                  </MenuItem>
+                  <MenuItem
+                    testId="export-markdown"
+                    onClick={() => {
+                      close()
+                      const file = conversationMarkdown(conversation, stored)
+                      void window.api.saveArtifact(file.name, file.text).then((path) => path && toast(`Saved ${path.split(/[\\/]/).pop()}`))
+                    }}
+                  >
+                    Export as Markdown
                   </MenuItem>
                   <div className="menu-sep" />
                   <MenuItem

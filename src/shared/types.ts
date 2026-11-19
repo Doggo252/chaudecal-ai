@@ -1,4 +1,5 @@
 import type { FileDiff } from './diff'
+import type { TaskSchedule } from './schedule'
 
 // Types shared by the main process, the renderer and the hub.
 
@@ -167,6 +168,24 @@ export interface SavedPrompt {
 }
 
 /** Personal instructions applied to every provider. Single record with id "profile". */
+/** A prompt that runs by itself on a schedule, into its own chat. Synced; runs on one machine. */
+export interface ScheduledTask {
+  id: string
+  title: string
+  prompt: string
+  provider: ProviderChoice
+  schedule: TaskSchedule
+  /** The device that runs it: a device id, or "hub" for whichever machine is the hub. */
+  runOn: string
+  enabled: boolean
+  /** The chat its runs go into. Made on the first run. */
+  conversationId?: string
+  lastRun?: number
+  nextRun?: number
+  createdAt: number
+  updatedAt: number
+}
+
 /** A project: its own instructions and files, given to every assistant in its chats. Synced. */
 export interface Project {
   id: string
@@ -209,7 +228,7 @@ export interface ProviderUsage {
 
 // ---------- Sync records ----------
 
-export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage' | 'blob' | 'mcp' | 'project'
+export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage' | 'blob' | 'mcp' | 'project' | 'task'
 
 export interface SyncRecord<T = unknown> {
   kind: RecordKind

@@ -182,6 +182,9 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Second opinion and branching | Built, tested |
 | The assistant's plan as a checklist, steps grouped by sort, and diffs of file edits, for Claude and ChatGPT | Built, tested against stand-ins. The shapes follow Claude Code's tool calls and the real Codex's `turn/plan/updated` and file changes. |
 | Math formulas (KaTeX, drawn as MathML) | Built, tested |
+| Projects with their own instructions and files, synced | Built, tested |
+| Scheduled tasks that run on one machine into their own chat | Built, tested. The timing rules are tested with fixed dates. |
+| Export a chat as Markdown or as a web page | Built, tested |
 | Editing an earlier question and asking it again | Built, tested |
 | Read aloud with the system voices, and dictation through a speech-to-text server | Built, tested with a pretend microphone and a stand-in server. Not tried with a real Whisper server. |
 | Automatic failover at a limit (off by default) | Built, tested |

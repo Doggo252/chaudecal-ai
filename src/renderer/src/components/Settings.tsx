@@ -8,6 +8,7 @@ import { formatReset } from '@shared/usage'
 import { setState, toast, useUi } from '../state'
 import { applyAccent } from '../theme'
 import { McpSettings } from './McpSettings'
+import { TaskSettings } from './TaskSettings'
 import { limitText, Meter, ProviderDot, Toggle } from './ui'
 
 const TABS = [
@@ -17,6 +18,7 @@ const TABS = [
   { id: 'sync', label: 'Sync and hub' },
   { id: 'memory', label: 'Memory and prompts' },
   { id: 'tools', label: 'Tools' },
+  { id: 'tasks', label: 'Scheduled tasks' },
   { id: 'usage', label: 'Usage' }
 ]
 
@@ -732,6 +734,7 @@ export function SettingsView({ tab }: { tab?: string }) {
             {active === 'sync' && <Sync />}
             {active === 'memory' && <Memory />}
             {active === 'tools' && <McpSettings />}
+            {active === 'tasks' && <TaskSettings />}
             {active === 'usage' && <Usage />}
           </div>
         </div>

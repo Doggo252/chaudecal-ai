@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
-import type { Attachment, Blob, Conversation, Project, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
+import type { Attachment, Blob, Conversation, Project, ScheduledTask, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
 import { defaultSettings, MAX_FILE_BYTES, newId } from '@shared/types'
 import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo, type McpInput } from '@shared/ipc'
 import { cleanMcpName, mcpProblem } from '@shared/mcp'
@@ -25,6 +25,8 @@ import { readAttachment } from './attachments'
 import { normalizeMcpServer, testMcpServer } from './mcp'
 import { guardFrames, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { WebImporter } from './webImport'
+import { TaskRunner } from './tasks'
+import { cleanSchedule, nextRun } from '@shared/schedule'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
 import { checkForUpdate, RELEASE_DOWNLOADS } from './updates'
 import { Updater } from './updater'
@@ -58,6 +60,7 @@ let hubClient: HubClient
 let remote: RemoteRuns
 let webTabs: WebTabs
 let webImporter: WebImporter
+let tasks: TaskRunner
 let local: LocalProvider
 let codex: CodexProvider
 let claude: ClaudeProvider
@@ -340,6 +343,7 @@ function appState(): AppState {
     notes: store.list<MemoryNote>('note'),
     prompts: store.list<SavedPrompt>('prompt'),
     projects: store.list<Project>('project').sort((a, b) => a.name.localeCompare(b.name)),
+    tasks: store.list<ScheduledTask>('task').sort((a, b) => a.createdAt - b.createdAt),
     mcp: mcpServers(),
     profile: store.get<Profile>('profile', 'profile') ?? { id: 'profile', instructions: '', updatedAt: 0 },
     usage: engine.allUsage(),
@@ -553,6 +557,40 @@ const api: Omit<Api, 'on'> = {
   async deleteProject(id) {
     for (const c of store.list<Conversation>('conversation')) if (c.projectId === id) engine.updateConversation(c.id, { projectId: undefined })
     store.remove('project', id)
+  },
+  async saveTask(input) {
+    const now = Date.now()
+    const id = typeof input.id === 'string' && input.id ? input.id : newId()
+    const existing = store.get<ScheduledTask>('task', id)
+    const schedule = input.schedule ? cleanSchedule(input.schedule) : (existing?.schedule ?? cleanSchedule(undefined))
+    const providers = ['auto', 'claude', 'chatgpt', 'local']
+    const task: ScheduledTask = {
+      id,
+      title: typeof input.title === 'string' ? input.title.trim().slice(0, 120) || 'Scheduled task' : (existing?.title ?? 'Scheduled task'),
+      prompt: typeof input.prompt === 'string' ? input.prompt.slice(0, 20_000) : (existing?.prompt ?? ''),
+      provider: typeof input.provider === 'string' && providers.includes(input.provider) ? input.provider : (existing?.provider ?? 'auto'),
+      schedule,
+      runOn: typeof input.runOn === 'string' && input.runOn ? input.runOn : (existing?.runOn ?? store.deviceId),
+      enabled: typeof input.enabled === 'boolean' ? input.enabled : (existing?.enabled ?? true),
+      conversationId: existing?.conversationId,
+      lastRun: existing?.lastRun,
+      // A changed schedule counts from now.
+      nextRun: input.schedule || !existing ? nextRun(schedule, now) : existing.nextRun,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    }
+    if (task.enabled && task.nextRun === undefined) task.nextRun = nextRun(schedule, now)
+    store.put('task', id, task)
+    return id
+  },
+  async deleteTask(id) {
+    store.remove('task', id)
+  },
+  async runTaskNow(id) {
+    const task = store.get<ScheduledTask>('task', id)
+    if (!task) return undefined
+    await tasks.run(task)
+    return store.get<ScheduledTask>('task', id)?.conversationId
   },
   async deletePrompt(id) {
     store.remove('prompt', id)
@@ -855,6 +893,10 @@ app.whenReady().then(async () => {
   setInterval(() => void refreshProviders(), 60_000)
   void lookForUpdate()
   setInterval(() => void lookForUpdate(), 6 * 60 * 60 * 1000)
+  tasks = new TaskRunner(store, { createConversation: (p) => engine.createConversation(p), send: (input) => engine.send(input), isBusy: (id) => engine.isBusy(id) }, () => settings.hub.hostEnabled)
+  // Scheduled tasks are checked every half minute. One missed while the app was closed runs once now.
+  setInterval(() => void tasks.tick(), 30_000)
+  setTimeout(() => void tasks.tick(), 5_000)
   // Bringing in chats from the websites waits a little, so starting up stays quick.
   setTimeout(importFromWebs, process.env.CHAUDECAL_USER_DATA ? 3_600_000 : 90_000)
   setInterval(importFromWebs, WEB_IMPORT_EVERY)

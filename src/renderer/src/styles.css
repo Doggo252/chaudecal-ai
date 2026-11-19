@@ -2406,3 +2406,27 @@ a {
   color: var(--text-soft);
   font-size: calc(13px * var(--text-scale));
 }
+
+/* ---------- Scheduled tasks ---------- */
+
+.task-card {
+  margin-bottom: 16px;
+}
+.task-card .row-stack {
+  display: grid;
+  gap: 8px;
+}
+.task-title {
+  font-weight: 600;
+}
+.task-when {
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+}
+.task-actions {
+  gap: 8px;
+}
+.task-actions .spacer {
+  flex: 1;
+}

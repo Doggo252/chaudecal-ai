@@ -2,6 +2,7 @@
 
 import type {
   Project,
+  ScheduledTask,
   ApprovalDecision,
   ApprovalRequest,
   Attachment,
@@ -114,6 +115,7 @@ export interface AppState {
   /** Tool servers (MCP) that Claude and ChatGPT share. */
   mcp: McpServer[]
   projects: Project[]
+  tasks: ScheduledTask[]
   profile: Profile
   usage: Record<ProviderId, ProviderUsage>
   providers: Partial<Record<ProviderId, ProviderStatus>>
@@ -200,6 +202,11 @@ export interface Api {
   saveProject(project: { id?: string; name?: string; instructions?: string; files?: Attachment[] }): Promise<string>
   /** Deletes a project. Its chats stay, outside any project. */
   deleteProject(id: string): Promise<void>
+  /** Adds a scheduled task, or changes the given parts of one. Gives back its id. */
+  saveTask(task: Partial<Pick<ScheduledTask, 'id' | 'title' | 'prompt' | 'provider' | 'schedule' | 'runOn' | 'enabled'>>): Promise<string>
+  deleteTask(id: string): Promise<void>
+  /** Runs a task now. Gives back the chat it ran in. */
+  runTaskNow(id: string): Promise<string | undefined>
   deletePrompt(id: string): Promise<void>
   saveProfile(instructions: string): Promise<void>
 
@@ -270,6 +277,9 @@ export const API_METHODS = [
   'savePrompt',
   'saveProject',
   'deleteProject',
+  'saveTask',
+  'deleteTask',
+  'runTaskNow',
   'deletePrompt',
   'saveProfile',
   'saveMcpServer',

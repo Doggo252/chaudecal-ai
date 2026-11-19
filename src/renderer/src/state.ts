@@ -18,6 +18,7 @@ import type {
   RunMode,
   SavedPrompt,
   Project,
+  ScheduledTask,
   SyncRecord
 } from '@shared/types'
 
@@ -136,6 +137,7 @@ function applyRecords(records: SyncRecord[]): void {
   let notes = app.notes
   let prompts = app.prompts
   let projects = app.projects ?? []
+  let tasks = app.tasks ?? []
   let mcp = app.mcp
   let profile = app.profile
   let usage = app.usage
@@ -154,6 +156,9 @@ function applyRecords(records: SyncRecord[]): void {
         break
       case 'prompt':
         prompts = r.deleted ? prompts.filter((x) => x.id !== r.id) : upsert(prompts, r.data as SavedPrompt)
+        break
+      case 'task':
+        tasks = r.deleted ? tasks.filter((x) => x.id !== r.id) : upsert(tasks, r.data as ScheduledTask)
         break
       case 'project':
         projects = r.deleted ? projects.filter((x) => x.id !== r.id) : upsert(projects, r.data as Project).sort((a, b) => a.name.localeCompare(b.name))
@@ -188,7 +193,7 @@ function applyRecords(records: SyncRecord[]): void {
   const openId = view.kind === 'chat' ? view.conversationId : undefined
   if (openId && !conversations.some((c) => c.id === openId)) view = { kind: 'chat' }
   if (view.kind === 'project' && !projects.some((p) => p.id === (view as { projectId: string }).projectId)) view = { kind: 'chat' }
-  setState({ app: { ...app, conversations, notes, prompts, projects, mcp, profile, usage }, messages, streaming, view })
+  setState({ app: { ...app, conversations, notes, prompts, projects, tasks, mcp, profile, usage }, messages, streaming, view })
 }
 
 export async function boot(): Promise<void> {

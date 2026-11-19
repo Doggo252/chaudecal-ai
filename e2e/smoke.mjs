@@ -580,6 +580,15 @@ try {
   await b.page.click(tid('new-chat'))
   ok('the text size can be made smaller or larger')
 
+  const until = async (fn, what, timeout = 15000) => {
+    const end = Date.now() + timeout
+    for (;;) {
+      const value = await fn().catch(() => undefined)
+      if (value) return value
+      if (Date.now() > end) throw new Error(`timed out waiting: ${what}`)
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
   // Projects: instructions and files that every chat in the project gets, synced to the other device.
   await a.page.click(tid('new-project'))
   await a.page.waitForSelector(tid('project-page'))
@@ -603,6 +612,39 @@ try {
   await b.page.waitForFunction(async () => (await window.api.state()).projects.some((p) => p.name === 'Garden plans' && p.files.length === 2), null, { timeout: 15000 })
   await a.page.click(tid('new-chat'))
   ok('a project gives its chats instructions and files, and syncs to the other device')
+
+  // Scheduled tasks: a prompt that runs by itself into its own chat. "Run now" runs it straight away.
+  await a.page.click(tid('open-settings'))
+  await a.page.click(tid('settings-tab-tasks'))
+  await a.page.click(tid('new-task'))
+  await a.page.waitForSelector(tid('task'))
+  await a.page.fill(tid('task-title'), 'Morning news')
+  await a.page.fill(tid('task-prompt'), 'Summarise the news for me.')
+  await a.page.click('h2')
+  await a.page.selectOption(tid('task-every'), 'weekday')
+  await a.page.waitForFunction(async () => (await window.api.state()).tasks.some((t) => t.title === 'Morning news' && t.prompt === 'Summarise the news for me.' && t.schedule.every === 'weekday' && t.nextRun > Date.now()))
+  assert((await a.page.textContent(tid('task-status'))).includes('Every weekday at 09:00. Next run:'), 'the task should say when it runs next')
+  await shot(a.page, '38-scheduled-task')
+  await a.page.click(tid('task-run-now'))
+  await a.page.waitForFunction(() => document.querySelector('.topbar-title')?.textContent === 'Morning news')
+  await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((el) => el.textContent.includes('Summarise the news for me.')), null, { timeout: 15000 })
+  await a.page.waitForSelector(tid('send'))
+  assert(await a.page.evaluate(async () => (await window.api.state()).tasks.find((t) => t.title === 'Morning news').lastRun > 0), 'the run should be recorded')
+
+  // Export: the chat as Markdown, and as one web page.
+  await a.page.click(tid('conversation-menu'))
+  await a.page.click(tid('export-markdown'))
+  const md = join(saveDir, 'Morning-news.md')
+  await until(async () => existsSync(md), 'the Markdown export')
+  const mdText = readFileSync(md, 'utf8')
+  assert(mdText.startsWith('# Morning news') && mdText.includes('## You\n\nSummarise the news for me.'), `the Markdown should hold the chat, got ${mdText.slice(0, 200)}`)
+  await a.page.click(tid('conversation-menu'))
+  await a.page.click(tid('export-html'))
+  const html = join(saveDir, 'Morning-news.html')
+  await until(async () => existsSync(html), 'the web page export')
+  assert(/^<!doctype html>/.test(readFileSync(html, 'utf8')) && readFileSync(html, 'utf8').includes('Summarise the news for me.'), 'the web page should hold the chat')
+  await a.page.click(tid('new-chat'))
+  ok('a scheduled task runs into its own chat, and a chat exports as Markdown or a web page')
 
   // Chats from claude.ai and chatgpt.com come in through the website tabs' sign-ins, and sync to the other device.
   await a.page.click(tid('open-settings'))
@@ -651,15 +693,6 @@ try {
   ok('chats from claude.ai and chatgpt.com come in through the website tabs and sync to the other device')
 
   // Artifacts: Claude writes a web page, an image and a program. They open in a panel beside the conversation.
-  const until = async (fn, what, timeout = 15000) => {
-    const end = Date.now() + timeout
-    for (;;) {
-      const value = await fn().catch(() => undefined)
-      if (value) return value
-      if (Date.now() > end) throw new Error(`timed out waiting: ${what}`)
-      await new Promise((r) => setTimeout(r, 100))
-    }
-  }
   const panelTitle = () => a.page.textContent(tid('artifact-title'))
   const previewFrame = () => until(async () => a.page.frames().find((f) => f.url().startsWith('chaudecal-artifact://')), 'a preview frame')
   const frameText = async (selector, want, timeout) => until(async () => (await (await previewFrame()).textContent(selector)) === want, `${selector} to read "${want}"`, timeout)
