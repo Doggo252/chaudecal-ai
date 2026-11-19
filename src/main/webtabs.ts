@@ -17,6 +17,24 @@ export const SERVICES: Record<WebService, ServiceInfo> = {
   chatgpt: { home: 'https://chatgpt.com/', hosts: ['chatgpt.com', 'openai.com'] }
 }
 
+// Tests point the tabs at stand-in sites on this machine, so no real site is contacted.
+const TEST_ORIGINS: Partial<Record<WebService, string>> = (() => {
+  try {
+    return JSON.parse(process.env.CHAUDECAL_E2E_WEB_ORIGINS ?? '{}') as Partial<Record<WebService, string>>
+  } catch {
+    return {}
+  }
+})()
+
+/** Where a site's own pages and data come from. */
+export function siteOrigin(service: WebService): string {
+  return TEST_ORIGINS[service] ?? (service === 'claude' ? 'https://claude.ai' : 'https://chatgpt.com')
+}
+
+function homeOf(service: WebService): string {
+  return TEST_ORIGINS[service] ? `${TEST_ORIGINS[service]}/` : SERVICES[service].home
+}
+
 /** Sign-in providers that may open in a popup. */
 const AUTH_HOSTS = ['accounts.google.com', 'appleid.apple.com', 'login.microsoftonline.com', 'login.live.com', 'auth0.com', 'auth.openai.com']
 
@@ -25,6 +43,8 @@ function hostMatches(host: string, list: string[]): boolean {
 }
 
 export function belongsTo(service: WebService, url: string): boolean {
+  const test = TEST_ORIGINS[service]
+  if (test) return url === test || url.startsWith(`${test}/`)
   try {
     const u = new URL(url)
     return u.protocol === 'https:' && hostMatches(u.hostname, SERVICES[service].hosts)
@@ -88,7 +108,7 @@ export class WebTabs {
     wc.on('did-start-loading', push)
     wc.on('did-stop-loading', push)
     this.views.set(service, view)
-    void wc.loadURL(SERVICES[service].home)
+    void wc.loadURL(homeOf(service))
     return view
   }
 
@@ -120,7 +140,37 @@ export class WebTabs {
     if (action === 'back') wc.navigationHistory.goBack()
     else if (action === 'forward') wc.navigationHistory.goForward()
     else if (action === 'reload') wc.reload()
-    else void wc.loadURL(SERVICES[service].home)
+    else void wc.loadURL(homeOf(service))
+  }
+
+  /** Waits until the tab has finished loading its page. */
+  private async settled(service: WebService): Promise<Electron.WebContents> {
+    const wc = this.ensure(service).webContents
+    if (wc.isLoading() || !wc.getURL()) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(done, 30000)
+        function done() {
+          clearTimeout(timer)
+          wc.off('did-stop-loading', done)
+          resolve()
+        }
+        wc.on('did-stop-loading', done)
+      })
+    }
+    return wc
+  }
+
+  /**
+   * Asks the site for some of the user's own data, from inside its tab, the way the
+   * site's own page does: with the tab's sign-in, and only from the site itself.
+   * A status of 0 means the tab is not on the site (a sign-in page elsewhere) or the request failed.
+   */
+  async request(service: WebService, path: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
+    if (!path.startsWith('/')) throw new Error('Only paths on the site itself can be requested.')
+    const wc = await this.settled(service)
+    if (!belongsTo(service, wc.getURL()) || new URL(wc.getURL()).origin !== siteOrigin(service)) return { status: 0, body: '' }
+    const script = `fetch(${JSON.stringify(path)}, { credentials: 'include', headers: ${JSON.stringify(headers)} }).then(async (r) => ({ status: r.status, body: await r.text() }), (e) => ({ status: 0, body: String(e) }))`
+    return (await wc.executeJavaScript(script, true)) as { status: number; body: string }
   }
 
   /**

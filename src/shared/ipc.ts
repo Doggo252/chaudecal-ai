@@ -75,6 +75,22 @@ export interface HandoffInfo {
 
 export type WebService = 'claude' | 'chatgpt'
 
+/** How bringing in chats from one of the websites is going, on this machine. */
+export interface WebImportStatus {
+  service: WebService
+  state: 'idle' | 'running' | 'done' | 'signed-out' | 'error'
+  /** While running: chats looked at so far, and how many the site has. */
+  done?: number
+  of?: number
+  /** Chats added or updated by the last run. */
+  changed?: number
+  /** Chats from this site in the app. */
+  count: number
+  /** When the last run finished. */
+  lastRun?: number
+  message?: string
+}
+
 export interface WebState {
   service: WebService
   url: string
@@ -105,6 +121,7 @@ export interface AppState {
   remote?: RemoteInfo
   /** A conversation to show straight away, because its notification was clicked while no window was open. */
   open?: string
+  webImport: Record<WebService, WebImportStatus>
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] }
@@ -126,6 +143,7 @@ export interface AppEvents {
   command: 'new-chat' | 'search' | 'settings'
   /** Show this conversation. Sent when its notification is clicked. */
   open: string
+  webImport: WebImportStatus
 }
 
 export interface Api {
@@ -198,6 +216,8 @@ export interface Api {
   webShow(service: WebService, bounds: { x: number; y: number; width: number; height: number }): Promise<void>
   webHide(): Promise<void>
   webNavigate(service: WebService, url: string): Promise<void>
+  /** Bring in this site's chats now, through its website tab's sign-in. */
+  webImport(service: WebService): Promise<WebImportStatus>
   webAction(service: WebService, action: 'back' | 'forward' | 'reload' | 'home'): Promise<void>
   /** Copy the chat currently open in a web tab into a new conversation in this app. */
   webCapture(service: WebService): Promise<{ conversationId?: string; error?: string }>
@@ -251,8 +271,9 @@ export const API_METHODS = [
   'webShow',
   'webHide',
   'webNavigate',
+  'webImport',
   'webAction',
   'webCapture'
 ] as const satisfies readonly Exclude<keyof Api, 'on'>[]
 
-export const EVENT_CHANNELS = ['records', 'stream', 'busy', 'route', 'approval', 'denials', 'providers', 'hub', 'settings', 'web', 'update', 'remote', 'command', 'open'] as const satisfies readonly (keyof AppEvents)[]
+export const EVENT_CHANNELS = ['records', 'stream', 'busy', 'route', 'approval', 'denials', 'providers', 'hub', 'settings', 'web', 'update', 'remote', 'command', 'open', 'webImport'] as const satisfies readonly (keyof AppEvents)[]

@@ -152,6 +152,12 @@ Artifacts are found in the text of a reply, not in anything a provider sends sep
 
 The preview runs in a frame with `sandbox="allow-scripts"` and no same-origin access, so it cannot reach the app or the bridge to the main process. The window's own content policy would block a preview's scripts, and a page written straight into a frame inherits that policy, so the main process serves each preview page under a private `chaudecal-artifact:` scheme with its own strict policy: no requests anywhere except scripts, styles and fonts from a few public code hosts, images only from inside the page, no forms, no frames. Frames in the window may not go anywhere else (`will-frame-navigate`), and a preview's links are stopped inside the page. React components are compiled in the window with sucrase (loaded only when a preview first opens) and load React from esm.sh through an import map, so packages from esm.sh share one copy of React. The page reports errors to the panel as one short line of text, which "Ask to fix" sends back to the assistant.
 
+## Bringing in chats from the websites
+
+The app reads the user's chats the way the sites' own pages do: the request runs inside the hidden claude.ai or chatgpt.com tab (`WebTabs.request`), so it carries that tab's sign-in, and only paths on the site itself can be asked for. ChatGPT: the session's access token, then the conversation list (ordinary, archived, and each project's), then each chat's message tree, following the branch the user last saw. Claude: the organization that can chat, the paged chat list (falling back to the older single list), then each chat with its message tree. Thinking, tool steps, hidden and system messages are left out. Claude's artifacts (the artifacts tool, and the newer file tools) become artifact blocks with their titles, so they open in the panel with their versions.
+
+Imported chats and messages get ids made from their ids on the site, so two devices that both import never duplicate anything, and sync treats them like any other records. Each conversation keeps the site's update time, and later runs fetch only chats whose time changed. A deleted chat is never brought back, a title changed in the app is kept, and messages that left the site's chat (an edited question starts a new branch) are removed, while messages written in the app stay. The sites are asked one chat at a time with a short pause, and a "slow down" answer is waited out.
+
 ## What is built and tested
 
 | Area | State |
@@ -181,6 +187,7 @@ The preview runs in a frame with `sandbox="allow-scripts"` and no same-origin ac
 | Choosing the hub's working folder from another device by browsing its folders | Built, tested with two app instances on a Mac. Drive letters and Windows paths are in code only. |
 | Notifications for a finished reply or a waiting question, with a Dock count and a sidebar marker | Built. When and what to announce is tested, including across two app instances. A real notification was shown by the packaged Mac app. Not yet seen on Windows. |
 | Light and dark themes, an accent color (seven presets or any color), and four text sizes | Built, tested |
+| Bringing in chats from claude.ai and chatgpt.com through the website tabs' sign-ins, with archived and project chats, Claude artifacts and attached text, and an optional refresh every 30 minutes | Built, tested against stand-in sites that serve the shapes open-source exporters read (November 2026), in the real window and across two devices. Not yet run against the real sites. |
 | Artifacts: web pages, React components, SVG, Mermaid, documents and code in a side panel with live previews and versions | Built, tested against a stand-in assistant in the real window, including the sealed-off preview. React and Mermaid previews checked with the real libraries from the internet. Not yet checked with real Claude or ChatGPT replies. |
 | Mac installer | Built and launched |
 | Windows installer | Built by GitHub Actions. Not yet run on a real PC. |

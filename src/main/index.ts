@@ -20,10 +20,11 @@ import { checkFolder, createRunHost, RemoteRuns } from './sync/remoteRuns'
 import { announceHub, discoverHubs, shutdownDiscovery, stopAnnouncing } from './sync/discovery'
 import { ChatEngine } from './chat'
 import { Summarizer } from './summarizer'
-import { WebTabs } from './webtabs'
+import { siteOrigin, WebTabs } from './webtabs'
 import { readAttachment } from './attachments'
 import { normalizeMcpServer, testMcpServer } from './mcp'
 import { guardFrames, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
+import { WebImporter } from './webImport'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
 import { checkForUpdate } from './updates'
 import { finishedNotice, questionNotice, shouldNotify, type Notice } from './notify'
@@ -46,6 +47,7 @@ let hubServer: HubServer
 let hubClient: HubClient
 let remote: RemoteRuns
 let webTabs: WebTabs
+let webImporter: WebImporter
 let local: LocalProvider
 let codex: CodexProvider
 let claude: ClaudeProvider
@@ -337,8 +339,16 @@ function appState(): AppState {
     hub: hubStatus(),
     busy: store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id) || remote.isBusy(c.id)).map((c) => c.id),
     update,
-    remote: settings.hub.hostEnabled ? undefined : remote.info()
+    remote: settings.hub.hostEnabled ? undefined : remote.info(),
+    webImport: { claude: webImporter.status('claude'), chatgpt: webImporter.status('chatgpt') }
   }
+}
+
+/** How often chats are brought in from the websites, for the sites where that is switched on. */
+const WEB_IMPORT_EVERY = 30 * 60 * 1000
+
+function importFromWebs(): void {
+  for (const service of ['claude', 'chatgpt'] as const) if (settings.webImport?.[service]) void webImporter.run(service)
 }
 
 const api: Omit<Api, 'on'> = {
@@ -442,6 +452,7 @@ const api: Omit<Api, 'on'> = {
     if (hubChanged) await applyHub()
     if (before.startAtLogin !== settings.startAtLogin && !dataOverride) applyStartAtLogin(settings.startAtLogin)
     if (!before.checkForUpdates && settings.checkForUpdates) void lookForUpdate()
+    for (const service of ['claude', 'chatgpt'] as const) if (!before.webImport?.[service] && settings.webImport?.[service]) void webImporter.run(service)
     const providersChanged = JSON.stringify([before.claude, before.chatgpt, before.local]) !== JSON.stringify([settings.claude, settings.chatgpt, settings.local])
     if (providersChanged || hubChanged) void refreshProviders()
     return settings
@@ -576,6 +587,10 @@ const api: Omit<Api, 'on'> = {
   },
   async webNavigate(service, url) {
     webTabs.navigate(service, url)
+  },
+  async webImport(service) {
+    if (service !== 'claude' && service !== 'chatgpt') throw new Error('Unknown site.')
+    return webImporter.run(service)
   },
   async webAction(service, action) {
     webTabs.action(service, action)
@@ -756,6 +771,7 @@ app.whenReady().then(async () => {
     summarizer
   )
   webTabs = new WebTabs(() => win, (state) => send('web', state))
+  webImporter = new WebImporter(store, (service, path, headers) => webTabs.request(service, path, headers), (status) => send('webImport', status), { pauseMs: 300, backoffMs: 20000, origin: siteOrigin })
   // Image bytes stay in the backend. The window asks for one when it needs to show it.
   store.onChange((records) => send('records', records.filter((r) => r.kind !== 'blob')))
   // Codex keeps open conversations in one process, with the tool servers they were opened with.
@@ -781,6 +797,9 @@ app.whenReady().then(async () => {
   setInterval(() => void refreshProviders(), 60_000)
   void lookForUpdate()
   setInterval(() => void lookForUpdate(), 6 * 60 * 60 * 1000)
+  // Bringing in chats from the websites waits a little, so starting up stays quick.
+  setTimeout(importFromWebs, process.env.CHAUDECAL_USER_DATA ? 3_600_000 : 90_000)
+  setInterval(importFromWebs, WEB_IMPORT_EVERY)
 
   app.on('activate', showWindow)
 })

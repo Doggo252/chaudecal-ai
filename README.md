@@ -21,7 +21,8 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Notifications.** Send a long task, switch to another app, and get a notification when the reply is ready or when the assistant has stopped to ask you something. Clicking it opens that conversation.
 - **Your own look.** Light, dark or matching the system, an accent color (seven presets or any color you pick), and four text sizes.
 - **Artifacts.** Web pages, React components, SVG images, Mermaid diagrams, documents and programs that an assistant writes open in a panel beside the conversation, with a live preview, versions, copy and download. They work with Claude, ChatGPT and local models alike.
-- **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, account settings). A web chat can be brought into the unified chat.
+- **Your existing chats.** Your history on claude.ai and chatgpt.com comes into the app, including archived chats, ChatGPT project chats and Claude artifacts, and can stay up to date. It uses the sign-ins in the app's website tabs, so there is nothing else to set up.
+- **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, account settings).
 - **Tools for both assistants (MCP).** Add a tool server once, for example for GitHub, your notes or a database, and Claude and ChatGPT can both use it. The list syncs between your machines.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
 
@@ -48,6 +49,10 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 | Artifacts | Versions, and a preview that ran into an error |
 | --- | --- |
 | ![A Mermaid diagram open in the artifact panel beside the conversation](docs/screenshots/artifacts.png) | ![The second version of a web page, with "Ask to fix" for an error on the page](docs/screenshots/artifact-versions.png) |
+
+| A chat brought in from claude.ai | Bringing in your chats |
+| --- | --- |
+| ![A Claude chat imported from claude.ai, with its artifact in two versions](docs/screenshots/imported-chat.png) | ![The settings for bringing in chats from claude.ai](docs/screenshots/web-import.png) |
 
 The screenshots come from the automated test, which uses stand-in assistants, so the replies and numbers in them are not real.
 
@@ -142,7 +147,17 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 
 **Read this before turning it on.** With this setting on, anyone who has the pairing code and can reach the PC can see the names of its folders, edit files and run commands on it. Keep the hub on your home network and Tailscale, never forward its port to the internet, and make a new pairing code if the old one may have leaked. The setting is off by default.
 
-### 6. Add tool servers (optional)
+### 6. Bring in your existing chats (optional)
+
+1. Click claude.ai in the sidebar and sign in on that page, the same way you would in a browser. Do the same for chatgpt.com.
+2. Open Settings, then "Claude and ChatGPT". Under each one, click "Import now" next to "Your chats on claude.ai" (or chatgpt.com). The first run can take a few minutes if you have many chats; the row shows how far it has got.
+3. Turn on "Keep up to date" to have the app check for new and changed chats every 30 minutes while it is open.
+
+You only need to do this on one machine. The chats sync to your other devices like any other conversation. If you do it on both, nothing is duplicated.
+
+An imported chat can be continued here with any assistant: the app sends it the conversation so far, the same way it does when you switch assistants. "Open on claude.ai" (or chatgpt.com) in the conversation's menu goes back to the original.
+
+### 7. Add tool servers (optional)
 
 A tool server gives the assistants a new ability: reading your GitHub issues, searching your notes, querying a database. Tool servers speak the Model Context Protocol (MCP), and there are ready-made ones for many services.
 
@@ -187,6 +202,9 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - Tool servers that sign in through a browser page (many hosted ones do) are not supported yet. Use one that takes a token, or the version of it that runs as a program. Tool servers you added to Claude Code or Codex yourself keep working, each in its own assistant only.
 - Tokens typed into a tool server are stored and synced the way conversations are: unencrypted on your disks and on your home network, encrypted over Tailscale. Give a server a token with only the access it needs.
 - On Windows, a tool server started with `npx`, `npm`, `pnpm` or `yarn` is run through `cmd` automatically. This has not been tried on a real PC yet.
+- Bringing in chats relies on how claude.ai and chatgpt.com load your chats in their own pages. Neither site documents this, so a change on their side can stop it working until the app is updated; the settings row then says what went wrong. The app goes slowly on purpose (a short pause between chats) so as not to strain the sites.
+- Pictures in imported chats are not brought in; a note such as "[Image]" or "[Attached: file name]" marks where they were. Text files attached on claude.ai do come in. ChatGPT chats in a Team or Enterprise workspace are not brought in yet, only those in your personal account. Thinking, web searches and other tool steps are left out; the questions and answers are kept.
+- A chat you delete in the app stays deleted, even though it is still on the website. A title you change in the app is kept. A message written in the app stays in the app; it is not sent to the website.
 - Previews of React components and Mermaid diagrams load React, Tailwind and Mermaid from public code hosts (esm.sh and jsDelivr), so they need an internet connection. Web pages, images, documents and code work offline.
 - A preview is sealed off: it cannot reach the app, your files or the internet. It may load scripts, styles and fonts only from esm.sh, jsDelivr, unpkg, cdnjs and Google Fonts. Images must be inside the artifact (inline SVG or data URLs), links in a preview do not open, and forms do not send. A page that needs to fetch data will not work in the preview; download it and open it in a browser instead.
 - A React component must be a single file. Imports of project files such as `@/components/ui/...` (the shadcn/ui components that claude.ai offers) cannot be shown, and the panel says so.
@@ -212,7 +230,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 31 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 32 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

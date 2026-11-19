@@ -14,6 +14,7 @@ import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startMockOpenAI } from '../tests/fakes/mock-openai.mjs'
 import { makePdf } from '../tests/fakes/pdf.mjs'
+import { makeSites, serveSite } from '../tests/fakes/fake-sites.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const shots = join(root, 'e2e', 'artifacts')
@@ -114,6 +115,12 @@ const releases = createHttpServer((_req, res) => {
 })
 await new Promise((r) => releases.listen(0, '127.0.0.1', r))
 const releasesUrl = `http://127.0.0.1:${releases.address().port}/latest`
+
+// Stand-ins for claude.ai and chatgpt.com, for bringing in chats through the website tabs.
+const sites = makeSites()
+const claudeSite = await serveSite(sites, 'claude')
+const chatgptSite = await serveSite(sites, 'chatgpt')
+const webOrigins = JSON.stringify({ claude: claudeSite.origin, chatgpt: chatgptSite.origin })
 let a
 let b
 try {
@@ -128,7 +135,7 @@ try {
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false },
       hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true }
     },
-    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir }
+    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir, CHAUDECAL_E2E_WEB_ORIGINS: webOrigins }
   )
   await a.page.waitForFunction(async () => {
     const s = await window.api.state()
@@ -500,6 +507,52 @@ try {
   await b.page.click(tid('new-chat'))
   ok('the text size can be made smaller or larger')
 
+  // Chats from claude.ai and chatgpt.com come in through the website tabs' sign-ins, and sync to the other device.
+  await a.page.click(tid('open-settings'))
+  await a.page.click(tid('settings-tab-accounts'))
+  sites.state.signedIn.chatgpt = false
+  await a.page.click(tid('web-import-now-chatgpt'))
+  await a.page.waitForSelector(`${tid('web-import-chatgpt')}[data-state="signed-out"]`, { timeout: 30000 })
+  assert((await a.page.content()).includes('Not signed in to chatgpt.com in the app'), 'a missing sign-in should be explained')
+  sites.state.signedIn.chatgpt = true
+  await a.page.click(tid('web-import-now-chatgpt'))
+  await a.page.waitForSelector(`${tid('web-import-chatgpt')}[data-state="done"]`, { timeout: 30000 })
+  await a.page.click(tid('web-import-now-claude'))
+  await a.page.waitForSelector(`${tid('web-import-claude')}[data-state="done"]`, { timeout: 30000 })
+  const imported = await a.page.evaluate(async () => (await window.api.state()).conversations.filter((c) => c.source).map((c) => c.title).sort())
+  assert(JSON.stringify(imported) === JSON.stringify(['An archived chat', 'Garden plan', 'Hello Claude', 'Project notes', 'Trip to Lisbon', 'What is in this photo?']), `six chats should come in, got ${JSON.stringify(imported)}`)
+  assert(sites.state.requests.every((r) => !r.includes('org-api')), 'only the chat organization should be read')
+  await a.page.click(tid('web-import-auto-claude'))
+  await a.page.waitForFunction(async () => (await window.api.state()).settings.webImport.claude === true)
+  await a.page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 })
+  // Only the two rows, so no folder path of the machine running the test shows up.
+  await a.page.evaluate(() => document.querySelector('[data-testid="web-import-claude"]').closest('.row').scrollIntoView({ block: 'center' }))
+  await new Promise((r) => setTimeout(r, 400))
+  const box = await a.page.evaluate(() => {
+    const first = document.querySelector('[data-testid="web-import-claude"]').closest('.row').getBoundingClientRect()
+    const last = document.querySelector('[data-testid="web-import-auto-claude"]').closest('.row').getBoundingClientRect()
+    return { x: first.x, y: first.y, width: first.width, height: last.bottom - first.y }
+  })
+  await a.page.screenshot({ path: join(shots, '31-web-import.png'), clip: box })
+  // An imported Claude chat, with its artifact in two versions and the attached file.
+  await a.page.click(`${tid('conversation')}:has-text("Garden plan")`)
+  await a.page.waitForSelector(`${tid('artifact-card')}:has-text("Garden 'layout'")`)
+  assert((await a.page.$$(tid('artifact-card'))).length === 3, 'the artifact appears twice (two versions) and the file once')
+  assert((await a.page.textContent(`${tid('user-message')}:first-of-type`)).includes('beds.txt'), 'the attached file comes along')
+  await a.page.click(`${tid('assistant-message')}:last-of-type ${tid('artifact-card')}:has-text("Garden")`)
+  await a.page.waitForFunction(() => document.querySelector('[data-testid="artifact-version"]')?.textContent === '2 of 2')
+  await a.page.click(tid('artifact-close'))
+  await shot(a.page, '32-imported-chat')
+  // Back to the original on the site.
+  const opened = a.page.evaluate(() => new Promise((res) => window.api.on('web', (w) => w.url.includes('/chat/c-garden') && !w.loading && res(w.url))))
+  await a.page.click(tid('conversation-menu'))
+  await a.page.click(tid('open-source'))
+  await Promise.race([opened, new Promise((_, rej) => setTimeout(() => rej(new Error('the original chat did not open')), 15000))])
+  await a.page.click(tid('new-chat'))
+  // The other device gets them through sync, without signing in to anything.
+  await b.page.waitForFunction(async () => (await window.api.state()).conversations.filter((c) => c.source).length === 6, null, { timeout: 15000 })
+  ok('chats from claude.ai and chatgpt.com come in through the website tabs and sync to the other device')
+
   // Artifacts: Claude writes a web page, an image and a program. They open in a panel beside the conversation.
   const until = async (fn, what, timeout = 15000) => {
     const end = Date.now() + timeout
@@ -668,6 +721,8 @@ try {
   for (const d of [b, a]) if (d) await d.app.close().catch(() => {})
   await runtime.close()
   releases.close()
+  await claudeSite.close()
+  await chatgptSite.close()
   rmSync(attachDir, { recursive: true, force: true })
   rmSync(noticeDir, { recursive: true, force: true })
   rmSync(homeDir, { recursive: true, force: true })

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DeepPartial } from '@shared/ipc'
+import type { DeepPartial, WebImportStatus } from '@shared/ipc'
 import type { DiscoveredHub, LocalEndpoint, ProviderChoice, ProviderId, RunMode, Settings } from '@shared/types'
 import { PROVIDER_LABEL, newId } from '@shared/types'
 import { formatTokens } from '@shared/tokens'
@@ -212,6 +212,49 @@ function General() {
   )
 }
 
+function ago(at: number): string {
+  const min = Math.round((Date.now() - at) / 60000)
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min} min ago`
+  const h = Math.round(min / 60)
+  return h < 24 ? `${h} h ago` : new Date(at).toLocaleDateString()
+}
+
+function importText(st: WebImportStatus | undefined, web: string): string {
+  if (!st) return ''
+  const chats = (n: number) => `${n} ${n === 1 ? 'chat' : 'chats'}`
+  if (st.state === 'running') return st.of ? `Bringing in chats: ${st.done ?? 0} of ${st.of} checked, ${st.changed ?? 0} new or changed.` : 'Looking for your chats.'
+  if (st.state === 'signed-out' || st.state === 'error') return st.message ?? 'Something went wrong.'
+  if (st.state === 'done') return `${chats(st.count)} from ${web} in the app. ${st.changed ? `${chats(st.changed)} new or changed` : 'Nothing new'} when checked ${ago(st.lastRun ?? Date.now())}.`
+  return st.count ? `${chats(st.count)} from ${web} in the app.` : `Brings in your chats from ${web} with the sign-in in its tab in this app. Sign in there first.`
+}
+
+function WebHistory({ provider }: { provider: 'claude' | 'chatgpt' }) {
+  const app = useUi((x) => x.app!)
+  const st = app.webImport?.[provider]
+  const web = provider === 'claude' ? 'claude.ai' : 'chatgpt.com'
+  const running = st?.state === 'running'
+  return (
+    <>
+      <Row title={`Your chats on ${web}`} sub={importText(st, web)}>
+        <div className="inline" data-testid={`web-import-${provider}`} data-state={st?.state ?? 'idle'}>
+          {st?.state === 'signed-out' && (
+            <button type="button" className="btn btn-small" onClick={() => setState({ view: { kind: 'web', service: provider } })}>
+              Open {web}
+            </button>
+          )}
+          <button type="button" className="btn btn-small btn-primary" disabled={running} data-testid={`web-import-now-${provider}`} onClick={() => void window.api.webImport(provider)}>
+            {running ? 'Importing' : 'Import now'}
+          </button>
+        </div>
+      </Row>
+      <Row title="Keep up to date" sub={`Checks ${web} every 30 minutes while the app is open and brings in new and changed chats. Your other devices get them through sync.`}>
+        <Toggle checked={!!app.settings.webImport?.[provider]} onChange={(v) => save({ webImport: { [provider]: v } })} label={`Keep chats from ${web} up to date`} testId={`web-import-auto-${provider}`} />
+      </Row>
+    </>
+  )
+}
+
 function Account({ provider }: { provider: 'claude' | 'chatgpt' }) {
   const app = useUi((x) => x.app!)
   const s = app.settings[provider]
@@ -255,6 +298,7 @@ function Account({ provider }: { provider: 'claude' | 'chatgpt' }) {
         <Row title="Command line tool location" sub="Leave empty to find it automatically." stack>
           <Field className="input wide" value={s.cliPath} placeholder="Found automatically" onCommit={(v) => save({ [provider]: { cliPath: v.trim() } })} />
         </Row>
+        <WebHistory provider={provider} />
         <Row title={provider === 'claude' ? 'Plugins, MCP servers and settings' : 'Configuration'} sub={provider === 'claude' ? 'Your Claude Code plugins, MCP servers, skills and settings apply to Claude here automatically.' : 'Your Codex configuration applies to ChatGPT here automatically.'}>
           <div className="inline">
             <button type="button" className="btn btn-small" onClick={() => void window.api.openConfig(provider)}>

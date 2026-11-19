@@ -44,6 +44,19 @@ export interface Conversation {
   /** Run this conversation's assistants on the hub machine, whichever device the message is typed on. */
   runOnHub?: boolean
   summary?: ConversationSummary
+  /** Brought in from the user's history on claude.ai or chatgpt.com. */
+  source?: ConversationSource
+}
+
+export interface ConversationSource {
+  service: 'claude' | 'chatgpt'
+  /** The chat's id on the site. */
+  remoteId: string
+  url: string
+  /** When the site last changed the chat, as of the last import. Unchanged chats are not fetched again. */
+  remoteUpdatedAt: number
+  /** The title on the site at the last import. A title changed in the app is kept. */
+  remoteTitle: string
 }
 
 export interface ToolCall {
@@ -242,6 +255,8 @@ export interface Settings {
   textSize: 'small' | 'default' | 'large' | 'larger'
   /** Ask the assistants to put pages, components, diagrams and documents in artifacts, which open in a side panel. */
   artifacts: boolean
+  /** Keep bringing in chats from claude.ai and chatgpt.com, through the sign-ins in the website tabs on this machine. */
+  webImport: { claude: boolean; chatgpt: boolean }
   /** Context budget for the running context file, in tokens. */
   contextBudgetTokens: number
   /** Percent of a limit used at which the app offers to switch. */
@@ -294,6 +309,7 @@ export function defaultSettings(deviceName: string): Settings {
     accent: 'default',
     textSize: 'default',
     artifacts: true,
+    webImport: { claude: false, chatgpt: false },
     contextBudgetTokens: 400_000,
     warnThresholdPct: 80,
     defaultProvider: 'auto',

@@ -207,6 +207,20 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                   >
                     {conversation.pinned ? 'Unpin' : 'Pin to top'}
                   </MenuItem>
+                  {conversation.source && (
+                    <MenuItem
+                      hint="The original chat on the website"
+                      testId="open-source"
+                      onClick={() => {
+                        const source = conversation.source!
+                        close()
+                        setState({ view: { kind: 'web', service: source.service } })
+                        void window.api.webNavigate(source.service, source.url)
+                      }}
+                    >
+                      Open on {conversation.source.service === 'claude' ? 'claude.ai' : 'chatgpt.com'}
+                    </MenuItem>
+                  )}
                   <div className="menu-sep" />
                   <MenuItem
                     hint="Summary and full transcript, always up to date"

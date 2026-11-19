@@ -219,6 +219,7 @@ export async function boot(): Promise<void> {
   api.on('update', (update) => setState((s) => (s.app ? { app: { ...s.app, update } } : {})))
   api.on('remote', (remote) => setState((s) => (s.app ? { app: { ...s.app, remote } } : {})))
   api.on('web', (web) => setState((s) => ({ web: { ...s.web, [web.service]: web } })))
+  api.on('webImport', (status) => setState((s) => (s.app ? { app: { ...s.app, webImport: { ...s.app.webImport, [status.service]: status } } } : {})))
   api.on('command', (command) => {
     if (command === 'new-chat') openChat(undefined)
     else if (command === 'search') setState({ dialog: { kind: 'search' } })

@@ -155,6 +155,30 @@ export class Store {
     return record
   }
 
+  /** Several changes at once, in one transaction, announced together. Each item is skipped when its data is unchanged. */
+  putMany(items: { kind: RecordKind; id: string; data: unknown }[]): number {
+    const written: SyncRecord[] = []
+    this.db.exec('begin')
+    try {
+      for (const item of items) {
+        const existing = this.getRaw(item.kind, item.id)
+        if (existing && !existing.deleted && JSON.stringify(existing.data) === JSON.stringify(item.data)) continue
+        written.push(this.put(item.kind, item.id, item.data, { silent: true }))
+      }
+      this.db.exec('commit')
+    } catch (e) {
+      this.db.exec('rollback')
+      throw e
+    }
+    this.emit(written, 'local')
+    return written.length
+  }
+
+  /** The record was deleted, here or on another device. */
+  isDeleted(kind: RecordKind, id: string): boolean {
+    return !!this.getRaw(kind, id)?.deleted
+  }
+
   remove(kind: RecordKind, id: string): void {
     const existing = this.getRaw(kind, id)
     if (!existing) return
