@@ -5,6 +5,7 @@
 import { appendFileSync, existsSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { createInterface } from 'node:readline'
+import { connectMcp } from './mcp-client.mjs'
 
 const args = process.argv.slice(2)
 const log = process.env.FAKE_LOG
@@ -35,6 +36,67 @@ const threads = new Map()
 const pendingApprovals = new Map()
 let rpcId = 1000
 
+/** Starts the tool servers a conversation was opened with, and reports each one's state like the real app server. */
+function startMcp(threadId, thread, servers) {
+  thread.mcp = {}
+  thread.mcpConfig = servers ?? {}
+  thread.remembered = new Set()
+  thread.mcpReady = Promise.all(
+    Object.entries(thread.mcpConfig).map(async ([name, server]) => {
+      send({ method: 'mcpServer/startupStatus/updated', params: { threadId, name, status: 'starting', error: null, failureReason: null } })
+      try {
+        thread.mcp[name] = await connectMcp(server)
+        send({ method: 'mcpServer/startupStatus/updated', params: { threadId, name, status: 'ready', error: null, failureReason: null } })
+      } catch (e) {
+        send({ method: 'mcpServer/startupStatus/updated', params: { threadId, name, status: 'failed', error: `MCP client for \`${name}\` failed to start: ${e.message}`, failureReason: null } })
+      }
+    })
+  )
+}
+
+/** Uses a tool of the conversation's first tool server, asking first the way the real Codex does. */
+async function useMcpTool(threadId, turnId, thread, tool) {
+  const server = Object.keys(thread.mcp)[0]
+  if (!server) return 'I have no tool server to use'
+  const args = { text: tool === 'echo' ? 'hello' : 'milk' }
+  const readOnly = tool === 'echo'
+  const itemId = `exec-${randomUUID().slice(0, 8)}`
+  const item = { type: 'mcpToolCall', id: itemId, server, tool, arguments: args, readOnlyHint: readOnly, result: null, error: null }
+  send({ method: 'item/started', params: { threadId, turnId, item: { ...item, status: 'inProgress' } } })
+  const fail = (message) => {
+    send({ method: 'item/completed', params: { threadId, turnId, item: { ...item, status: 'failed', error: { message } } } })
+    return 'I was not allowed to use the tool'
+  }
+  const trusted = thread.mcpConfig[server].default_tools_approval_mode === 'approve'
+  if (!readOnly && !trusted && !thread.remembered.has(`${server}/${tool}`)) {
+    if (thread.approvalPolicy === 'never') return fail('MCP tool call requires approval, but approval policy is never')
+    const id = rpcId++
+    const answer = await new Promise((resolve) => {
+      pendingApprovals.set(id, resolve)
+      send({
+        method: 'mcpServer/elicitation/request',
+        id,
+        params: {
+          threadId,
+          turnId,
+          serverName: server,
+          mode: 'form',
+          _meta: { codex_approval_kind: 'mcp_tool_call', persist: ['session', 'always'], tool_name: tool, tool_description: 'Saves a note.', tool_params: args },
+          message: `Allow the ${server} MCP server to run tool "${tool}"?`,
+          requestedSchema: { type: 'object', properties: {} }
+        }
+      })
+    })
+    record({ mcpApproval: answer })
+    send({ method: 'serverRequest/resolved', params: { threadId, requestId: id } })
+    if (answer?.action !== 'accept') return fail('user rejected MCP tool call')
+    if (answer._meta?.persist === 'session') thread.remembered.add(`${server}/${tool}`)
+  }
+  const said = await thread.mcp[server].call(tool, args)
+  send({ method: 'item/completed', params: { threadId, turnId, item: { ...item, status: 'completed', result: { content: [{ type: 'text', text: said }] } } } })
+  return `The ${server} tool answered: ${said}`
+}
+
 async function runTurn(threadId, text, imageCount = 0) {
   const turnId = randomUUID()
   const thread = threads.get(threadId)
@@ -51,7 +113,7 @@ async function runTurn(threadId, text, imageCount = 0) {
     const itemId = `item_${randomUUID().slice(0, 6)}`
     const id = rpcId++
     const decision = await new Promise((resolve) => {
-      pendingApprovals.set(id, resolve)
+      pendingApprovals.set(id, (result) => resolve(result?.decision))
       send({ method: 'item/commandExecution/requestApproval', id, params: { threadId, turnId, itemId, command: 'npm install', reason: 'Needs network access', startedAtMs: Date.now() } })
     })
     record({ approval: decision })
@@ -60,6 +122,16 @@ async function runTurn(threadId, text, imageCount = 0) {
 
   const lastLine = text.trim().split('\n').filter(Boolean).pop() ?? ''
   const notes = []
+  await thread.mcpReady
+  // "[mcp]" saves a note with the first tool server, "[mcp-echo]" uses its read-only tool.
+  if (text.includes('[mcp]') || text.includes('[mcp-echo]')) {
+    const rounds = text.includes('[twice]') ? 2 : 1
+    for (let round = 0; round < rounds; round++) {
+      const note = await useMcpTool(threadId, turnId, thread, text.includes('[mcp-echo]') ? 'echo' : 'add_note')
+      notes.push(note)
+      if (/not allowed|no tool server/.test(note)) break
+    }
+  }
   if (text.includes('<context_file>')) notes.push('I received the context file')
   if (text.includes('<conversation_since_your_last_reply>')) notes.push('I was caught up on what happened in between')
   if (thread.resumed) notes.push('I resumed my earlier session')
@@ -98,7 +170,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   }
   const { id, method, params = {} } = msg
   if (method === undefined && id !== undefined) {
-    pendingApprovals.get(id)?.(msg.result?.decision)
+    pendingApprovals.get(id)?.(msg.result)
     pendingApprovals.delete(id)
     return
   }
@@ -124,12 +196,19 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       return reply({ rateLimits: limits(), rateLimitsByLimitId: null })
     case 'thread/start': {
       const threadId = randomUUID()
-      threads.set(threadId, { developerInstructions: params.developerInstructions, resumed: false })
-      return reply({ thread: { id: threadId }, model: params.model ?? 'gpt-fake-large' })
+      const thread = { developerInstructions: params.developerInstructions, approvalPolicy: params.approvalPolicy, resumed: false }
+      threads.set(threadId, thread)
+      reply({ thread: { id: threadId }, model: params.model ?? 'gpt-fake-large' })
+      startMcp(threadId, thread, params.config?.mcp_servers)
+      return
     }
     case 'thread/resume': {
-      threads.set(params.threadId, { developerInstructions: params.developerInstructions, resumed: true })
-      return reply({ thread: { id: params.threadId }, model: params.model ?? 'gpt-fake-large' })
+      const thread = { developerInstructions: params.developerInstructions, approvalPolicy: params.approvalPolicy, resumed: true }
+      for (const client of Object.values(threads.get(params.threadId)?.mcp ?? {})) client.close()
+      threads.set(params.threadId, thread)
+      reply({ thread: { id: params.threadId }, model: params.model ?? 'gpt-fake-large' })
+      startMcp(params.threadId, thread, params.config?.mcp_servers)
+      return
     }
     case 'turn/start': {
       const text = (params.input ?? []).map((i) => i.text ?? '').join('\n')

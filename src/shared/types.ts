@@ -167,7 +167,7 @@ export interface ProviderUsage {
 
 // ---------- Sync records ----------
 
-export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage' | 'blob'
+export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage' | 'blob' | 'mcp'
 
 export interface SyncRecord<T = unknown> {
   kind: RecordKind
@@ -178,6 +178,49 @@ export interface SyncRecord<T = unknown> {
   data: T
   /** Assigned by the hub. Missing on records that have not reached the hub yet. */
   seq?: number
+}
+
+// ---------- Tool servers (MCP), synced ----------
+
+/**
+ * A tool server that speaks the Model Context Protocol. Claude and ChatGPT both use the same list.
+ * The server is started (or called) by the machine that runs the assistant.
+ */
+export interface McpServer {
+  id: string
+  /** Short name the assistants see, for example "github". Letters, digits, "_" and "-". */
+  name: string
+  /** 'command': a program started on the machine. 'url': a server reached over HTTP. */
+  kind: 'command' | 'url'
+  command: string
+  args: string[]
+  /** Environment variables for a command. */
+  env: Record<string, string>
+  url: string
+  /** Request headers for a URL, for example Authorization. */
+  headers: Record<string, string>
+  enabled: boolean
+  /** Its tools run without asking first. */
+  trusted: boolean
+  /** Ids of the devices on which this server is switched off. */
+  offOn: string[]
+  createdAt: number
+}
+
+export interface McpTool {
+  name: string
+  description: string
+  /** The server says this tool only reads. */
+  readOnly: boolean
+}
+
+/** What came back when the app tried to reach a tool server itself. */
+export interface McpTestResult {
+  ok: boolean
+  /** What the server calls itself. */
+  serverName?: string
+  tools: McpTool[]
+  error?: string
 }
 
 // ---------- Settings (per machine, not synced) ----------

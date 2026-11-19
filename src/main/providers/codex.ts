@@ -5,9 +5,11 @@
 
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { homedir } from 'node:os'
+import { codexMcpConfig, mcpToolLabel } from '@shared/mcp'
 import type { ApprovalDecision, LimitWindow, ProviderStatus, RunEvent, RunMode, Settings, ToolCall } from '@shared/types'
 import { limitsFromCodex, type CodexRateLimitSnapshot } from '@shared/usage'
 import { findBinary, lineReader, runCli, spawnCli } from '../env'
+import { describeTool } from './claudeParser'
 import type { Provider, RunHandle, RunRequest } from './types'
 import { truncate } from './types'
 
@@ -25,9 +27,22 @@ interface ActiveRun {
   emit: (event: RunEvent) => void
   finish: () => void
   /** Approval requests waiting for the user, by the id shown in the UI. */
-  approvals: Map<string, number | string>
+  approvals: Map<string, PendingApproval>
   sawText: boolean
   failed: boolean
+  /**
+   * Requests to run a command or change files outside the sandbox are refused without asking.
+   * Set in the modes that normally never ask, when asking was only switched on for tool servers.
+   */
+  refuseSandbox: boolean
+  /** Names of the tool servers this app added to the run. */
+  mcp: string[]
+}
+
+interface PendingApproval {
+  rpcId: number | string
+  /** A tool server's tool, which is answered in a different shape than a command. */
+  mcp?: { canRemember: boolean }
 }
 
 function sandboxFor(mode: RunMode): { sandbox: string; approvalPolicy: string } {
@@ -55,14 +70,43 @@ export function codexItemToTool(item: Json): ToolCall | undefined {
       const paths = (item.changes ?? []).map((c: Json) => c.path).filter(Boolean)
       return { id: item.id, name: 'Edit', summary: paths.join(', ').slice(0, 200) || 'file changes', status: status(item.status) }
     }
-    case 'mcpToolCall':
-      return { id: item.id, name: `${item.server}.${item.tool}`, summary: JSON.stringify(item.arguments ?? {}).slice(0, 160), status: status(item.status) }
+    case 'mcpToolCall': {
+      const refused = /rejected|requires approval/i.test(String(item.error?.message ?? ''))
+      return {
+        id: item.id,
+        name: mcpToolLabel(String(item.server), String(item.tool)),
+        summary: describeTool('', item.arguments),
+        status: refused ? 'denied' : status(item.status),
+        output: item.error?.message ? truncate(String(item.error.message)) : mcpResultText(item.result)
+      }
+    }
     case 'webSearch':
       return { id: item.id, name: 'Web search', summary: String(item.query ?? '').slice(0, 200), status: 'done' }
     case 'imageGeneration':
       return { id: item.id, name: 'Image', summary: 'generated an image', status: 'done' }
     default:
       return undefined
+  }
+}
+
+function mcpResultText(result: Json | null | undefined): string | undefined {
+  const text = (Array.isArray(result?.content) ? result!.content : [])
+    .filter((c: Json) => c?.type === 'text' && typeof c.text === 'string')
+    .map((c: Json) => c.text)
+    .join('\n')
+  return text ? truncate(text) : undefined
+}
+
+/** Reads Codex's question about a tool server's tool. Undefined when the request is some other kind of form. */
+export function readMcpAsk(params: Json): { tool: string; summary: string; reason?: string; canRemember: boolean } | undefined {
+  const meta = params?._meta
+  if (meta?.codex_approval_kind !== 'mcp_tool_call' || typeof meta.tool_name !== 'string') return undefined
+  const tool = mcpToolLabel(String(params.serverName ?? 'tool server'), meta.tool_name)
+  return {
+    tool,
+    summary: describeTool('', meta.tool_params && typeof meta.tool_params === 'object' ? meta.tool_params : {}) || tool,
+    reason: typeof meta.tool_description === 'string' && meta.tool_description.trim() ? meta.tool_description.trim().slice(0, 300) : undefined,
+    canRemember: Array.isArray(meta.persist) && meta.persist.includes('session')
   }
 }
 
@@ -82,6 +126,12 @@ export class CodexProvider implements Provider {
   private runs = new Map<string, ActiveRun>()
   private modelCache: string[] = []
   private defaultModel = ''
+  /** Tool servers that failed to start before their run was registered, by thread id. */
+  private earlyMcpFailures = new Map<string, { name: string; error: string }[]>()
+  /** The list of tool servers changed, so the process should be replaced once it is idle. */
+  private stale = false
+  /** Runs that have been asked for but whose conversation is not open yet. */
+  private opening = 0
 
   constructor(
     private settings: () => Settings,
@@ -94,7 +144,18 @@ export class CodexProvider implements Provider {
     return findBinary('codex', this.settings().chatgpt.cliPath, FALLBACK_BINARIES)
   }
 
+  /**
+   * Start afresh the next time Codex is needed. A conversation that is already open in the
+   * running process would otherwise keep the tool servers it was opened with.
+   */
+  restartWhenIdle(): void {
+    if (!this.child) return
+    if (this.runs.size || this.opening) this.stale = true
+    else this.dispose()
+  }
+
   dispose(): void {
+    this.stale = false
     const child = this.child
     this.child = undefined
     this.abandon('Codex was restarted.')
@@ -192,14 +253,26 @@ export class CodexProvider implements Provider {
     const run = this.runs.get(params.threadId)
     const isCommand = method === 'item/commandExecution/requestApproval'
     const isFile = method === 'item/fileChange/requestApproval'
-    if (!run || (!isCommand && !isFile)) {
+    if (method === 'mcpServer/elicitation/request') {
+      const ask = run ? readMcpAsk(params) : undefined
+      if (!run || !ask) {
+        // A form from a tool server, which this app cannot show.
+        this.send({ id, result: { action: 'decline', content: null } })
+        return
+      }
+      const key = `mcp-${id}`
+      run.approvals.set(key, { rpcId: id, mcp: { canRemember: ask.canRemember } })
+      run.emit({ type: 'approval', request: { id: key, kind: 'other', tool: ask.tool, summary: ask.summary, reason: ask.reason } })
+      return
+    }
+    if (!run || run.refuseSandbox || (!isCommand && !isFile)) {
       // Anything this app cannot show is declined so the turn never hangs.
       if (isCommand || isFile || method === 'item/permissions/requestApproval') this.send({ id, result: { decision: 'decline' } })
       else this.send({ id, error: { code: -32601, message: 'Not supported by this client.' } })
       return
     }
     const key = String(params.approvalId ?? params.itemId ?? id)
-    run.approvals.set(key, id)
+    run.approvals.set(key, { rpcId: id })
     run.emit({
       type: 'approval',
       request: {
@@ -217,8 +290,28 @@ export class CodexProvider implements Provider {
       return
     }
     const run = this.runs.get(params.threadId)
+    if (method === 'mcpServer/startupStatus/updated') {
+      if (params.status !== 'failed' || typeof params.name !== 'string' || typeof params.threadId !== 'string') return
+      const failure = { name: params.name, error: String(params.error ?? '') }
+      if (run) this.reportMcpFailure(run, failure)
+      else {
+        // The conversation is still being opened. Kept until its run is known.
+        if (this.earlyMcpFailures.size > 50) this.earlyMcpFailures.clear()
+        this.earlyMcpFailures.set(params.threadId, [...(this.earlyMcpFailures.get(params.threadId) ?? []), failure])
+      }
+      return
+    }
     if (!run) return
     switch (method) {
+      case 'serverRequest/resolved': {
+        // Codex settled a question itself, for example because the turn was stopped.
+        for (const [key, pending] of run.approvals) {
+          if (pending.rpcId !== params.requestId) continue
+          run.approvals.delete(key)
+          run.emit({ type: 'approval', request: { id: key, kind: 'other', summary: '' }, settled: true })
+        }
+        return
+      }
       case 'turn/started':
         run.turnId = params.turn?.id ?? run.turnId
         return
@@ -268,6 +361,13 @@ export class CodexProvider implements Provider {
         return
       }
     }
+  }
+
+  /** Says in the chat that one of the app's tool servers did not come up. Codex's own servers are not this app's business. */
+  private reportMcpFailure(run: ActiveRun, failure: { name: string; error: string }): void {
+    if (!run.mcp.includes(failure.name)) return
+    const why = failure.error.trim().split('\n')[0].slice(0, 160)
+    run.emit({ type: 'tool', tool: { id: `mcp-${failure.name}`, name: failure.name, summary: `This tool server could not be started or reached on this device.${why ? ` ${why}` : ''}`, status: 'error' } })
   }
 
   private failRun(run: ActiveRun, error: Json): void {
@@ -326,35 +426,57 @@ export class CodexProvider implements Provider {
     let resolveDone!: () => void
     const done = new Promise<void>((r) => (resolveDone = r))
     let finished = false
+    // Until the conversation is open this run is in no list, but the process is still in use.
+    this.opening++
+    let counted = true
+    const opened = () => {
+      if (counted) this.opening--
+      counted = false
+    }
     const finish = () => {
       if (finished) return
       finished = true
+      opened()
       if (run) this.runs.delete(run.threadId)
       emit({ type: 'done' })
       resolveDone()
-      this.refreshLimits().catch(() => {})
+      if (this.stale && !this.runs.size && !this.opening) this.dispose()
+      else this.refreshLimits().catch(() => {})
     }
 
     ;(async () => {
       await this.ensureStarted()
-      const { sandbox, approvalPolicy } = sandboxFor(request.mode)
+      const base = sandboxFor(request.mode)
+      const mcp = request.mcp ?? []
+      // A tool that changes something asks first, unless its server is trusted. Codex can only ask
+      // when asking is switched on, so it is switched on here and everything else is still refused.
+      const askForTools = base.approvalPolicy === 'never' && mcp.some((m) => !m.trusted)
+      const sandbox = base.sandbox
+      const approvalPolicy = askForTools ? 'on-request' : base.approvalPolicy
       const developerInstructions = [request.mode === 'chat' ? CHAT_ONLY : '', request.system].filter((s) => s.trim()).join('\n\n') || null
-      const common = { model: request.model || null, cwd: request.cwd, approvalPolicy, sandbox, developerInstructions }
+      const config = mcp.length ? { mcp_servers: codexMcpConfig(mcp, process.platform, homedir()) } : null
+      const common = { model: request.model || null, cwd: request.cwd, approvalPolicy, sandbox, developerInstructions, config }
       const started = request.sessionId
         ? await this.request<Json>('thread/resume', { threadId: request.sessionId, excludeTurns: true, ...common })
         : await this.request<Json>('thread/start', { ...common, ephemeral: request.ephemeral ?? false })
       const threadId: string = started.thread.id
       emit({ type: 'session', sessionId: threadId })
       emit({ type: 'model', model: started.model ?? request.model ?? this.defaultModel })
-      run = { threadId, emit, finish, approvals: new Map(), sawText: false, failed: false }
+      run = { threadId, emit, finish, approvals: new Map(), sawText: false, failed: false, refuseSandbox: askForTools, mcp: mcp.map((m) => m.name) }
       this.runs.set(threadId, run)
+      opened()
+      for (const failure of this.earlyMcpFailures.get(threadId) ?? []) this.reportMcpFailure(run, failure)
+      this.earlyMcpFailures.delete(threadId)
       if (stopRequested) {
         emit({ type: 'error', code: 'aborted', message: 'Stopped.' })
         finish()
         return
       }
       const input = [{ type: 'text', text: request.prompt, text_elements: [] }, ...(request.images ?? []).map((i) => ({ type: 'localImage', path: i.path }))]
-      const turn = await this.request<Json>('turn/start', { threadId, input })
+      // The mode is repeated here because a conversation that is already open in the process
+      // keeps the settings it was opened with, whatever thread/resume is given.
+      const sandboxPolicy = { type: sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite' }
+      const turn = await this.request<Json>('turn/start', { threadId, input, approvalPolicy, sandboxPolicy })
       run.turnId = turn.turn?.id ?? run.turnId
       if (stopRequested && run.turnId) this.request('turn/interrupt', { threadId, turnId: run.turnId }).catch(() => finish())
     })().catch((e) => {
@@ -371,10 +493,17 @@ export class CodexProvider implements Provider {
         if (run?.turnId) this.request('turn/interrupt', { threadId: run.threadId, turnId: run.turnId }).catch(() => finish())
       },
       respondApproval: (id: string, decision: ApprovalDecision) => {
-        const rpcId = run?.approvals.get(id)
-        if (rpcId === undefined) return
+        const pending = run?.approvals.get(id)
+        if (!pending) return
         run!.approvals.delete(id)
-        this.send({ id: rpcId, result: { decision } })
+        if (!pending.mcp) {
+          this.send({ id: pending.rpcId, result: { decision } })
+        } else if (decision === 'decline') {
+          this.send({ id: pending.rpcId, result: { action: 'decline', content: null } })
+        } else {
+          const remember = decision === 'acceptForSession' && pending.mcp.canRemember
+          this.send({ id: pending.rpcId, result: { action: 'accept', content: null, ...(remember ? { _meta: { persist: 'session' } } : {}) } })
+        }
       }
     }
   }

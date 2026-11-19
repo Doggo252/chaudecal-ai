@@ -11,6 +11,7 @@ import type {
   Blob,
   Conversation,
   HandoffVariant,
+  McpServer,
   MemoryNote,
   Message,
   PermissionDenial,
@@ -39,6 +40,7 @@ import {
   type SessionState,
   type TurnPlan
 } from '@shared/context'
+import { activeMcpServers } from '@shared/mcp'
 import { estimateTokens } from '@shared/tokens'
 import { route, switchTarget } from '@shared/router'
 import { addTokens, applyLimits, emptyUsage, expireWindows } from '@shared/usage'
@@ -46,6 +48,7 @@ import type { SendInput } from '@shared/ipc'
 import type { Store } from './store'
 import type { Provider, RunHandle, RunImage } from './providers/types'
 import { imageFile } from './attachments'
+import { normalizeMcpServer } from './mcp'
 import type { Summarizer } from './summarizer'
 
 export interface ChatEvents {
@@ -83,6 +86,14 @@ export class ChatEngine {
   ) {
     mkdirSync(dirs.context, { recursive: true })
     mkdirSync(dirs.scratch, { recursive: true })
+  }
+
+  /** The tool servers that are switched on for this device. */
+  mcpServers(): McpServer[] {
+    return activeMcpServers(
+      this.store.list<Partial<McpServer> & { id: string }>('mcp').map(normalizeMcpServer),
+      this.store.deviceId
+    )
   }
 
   // ----- conversations -----
@@ -415,8 +426,10 @@ export class ChatEngine {
     }
 
     const allow = compare ? args.allow : [...(args.allow ?? []), ...this.grants(conv.id)]
+    // Local models cannot call tools, so the tool servers only go to Claude and ChatGPT.
+    const mcp = provider === 'local' ? [] : this.mcpServers()
     const handle = this.providers[provider].run(
-      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images },
+      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images, mcp },
       onEvent
     )
     args.active.handles.push(handle)

@@ -1755,3 +1755,62 @@ a {
   color: var(--bad);
   line-height: 1.4;
 }
+
+/* Tool servers (MCP) in Settings */
+.mono {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.mcp-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.mcp-what {
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.mcp-test {
+  margin-top: 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.mcp-test.ok {
+  color: var(--ok);
+}
+.mcp-test.bad {
+  color: var(--bad);
+}
+.mcp-editor {
+  background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
+}
+.mcp-editor > * + * {
+  margin-top: 12px;
+}
+.mcp-field label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text-soft);
+  margin-bottom: 4px;
+}
+.mcp-field .row-sub {
+  margin-top: 4px;
+}
+.mcp-field .textarea {
+  min-height: 62px;
+}
+.mcp-field .mcp-json {
+  min-height: 150px;
+}
+.mcp-trust {
+  align-items: flex-start;
+  flex-wrap: nowrap;
+  gap: 12px;
+}
+.mcp-trust .toggle {
+  flex: none;
+  margin-top: 2px;
+}

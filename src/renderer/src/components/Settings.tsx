@@ -5,6 +5,7 @@ import { PROVIDER_LABEL, newId } from '@shared/types'
 import { formatTokens } from '@shared/tokens'
 import { formatReset } from '@shared/usage'
 import { setState, toast, useUi } from '../state'
+import { McpSettings } from './McpSettings'
 import { limitText, Meter, ProviderDot, Toggle } from './ui'
 
 const TABS = [
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'local', label: 'Local AI' },
   { id: 'sync', label: 'Sync and hub' },
   { id: 'memory', label: 'Memory and prompts' },
+  { id: 'tools', label: 'Tools' },
   { id: 'usage', label: 'Usage' }
 ]
 
@@ -607,6 +609,7 @@ export function SettingsView({ tab }: { tab?: string }) {
             {active === 'local' && <LocalAi />}
             {active === 'sync' && <Sync />}
             {active === 'memory' && <Memory />}
+            {active === 'tools' && <McpSettings />}
             {active === 'usage' && <Usage />}
           </div>
         </div>

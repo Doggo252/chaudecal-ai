@@ -6,6 +6,7 @@ import type {
   ApprovalRequest,
   Conversation,
   HandoffVariant,
+  McpServer,
   MemoryNote,
   Message,
   PermissionDenial,
@@ -117,6 +118,7 @@ function applyRecords(records: SyncRecord[]): void {
   let conversations = app.conversations
   let notes = app.notes
   let prompts = app.prompts
+  let mcp = app.mcp
   let profile = app.profile
   let usage = app.usage
   let messages = state.messages
@@ -134,6 +136,9 @@ function applyRecords(records: SyncRecord[]): void {
         break
       case 'prompt':
         prompts = r.deleted ? prompts.filter((x) => x.id !== r.id) : upsert(prompts, r.data as SavedPrompt)
+        break
+      case 'mcp':
+        mcp = r.deleted ? mcp.filter((x) => x.id !== r.id) : upsert(mcp, r.data as McpServer).sort((a, b) => a.name.localeCompare(b.name))
         break
       case 'profile':
         profile = r.data as Profile
@@ -161,7 +166,7 @@ function applyRecords(records: SyncRecord[]): void {
   let view = state.view
   const openId = view.kind === 'chat' ? view.conversationId : undefined
   if (openId && !conversations.some((c) => c.id === openId)) view = { kind: 'chat' }
-  setState({ app: { ...app, conversations, notes, prompts, profile, usage }, messages, streaming, view })
+  setState({ app: { ...app, conversations, notes, prompts, mcp, profile, usage }, messages, streaming, view })
 }
 
 export async function boot(): Promise<void> {

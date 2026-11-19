@@ -5,6 +5,7 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { claudeMcpAllow, claudeMcpConfig } from '@shared/mcp'
 import type { ApprovalDecision, ProviderStatus, RunEvent, Settings } from '@shared/types'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { findBinary, lineReader, runCli, spawnCli } from '../env'
@@ -114,6 +115,16 @@ export class ClaudeProvider implements Provider {
         allow.push('Bash', 'WebSearch', 'WebFetch')
         break
     }
+    // Tool servers from the app's shared list. The file can hold tokens, so only this user may read it.
+    const mcp = request.mcp ?? []
+    let mcpFile: string | undefined
+    if (mcp.length) {
+      mcpFile = join(this.tmpDir, `mcp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
+      writeFileSync(mcpFile, JSON.stringify(claudeMcpConfig(mcp, process.platform, homedir())), { encoding: 'utf8', mode: 0o600 })
+      // The option takes any number of values, so it goes where another option follows it.
+      args.splice(1, 0, '--mcp-config', mcpFile)
+      allow.push(...claudeMcpAllow(mcp))
+    }
     if (allow.length) args.push('--allowedTools', [...new Set(allow)].join(','))
 
     let systemFile: string | undefined
@@ -144,6 +155,7 @@ export class ClaudeProvider implements Provider {
       if (finished) return
       finished = true
       if (systemFile) rmSync(systemFile, { force: true })
+      if (mcpFile) rmSync(mcpFile, { force: true })
       if (stopped) emit({ type: 'error', code: 'aborted', message: 'Stopped.' })
       else if (problem && !parser?.sawError()) emit({ type: 'error', code: 'unknown', message: problem })
       emit({ type: 'done' })
@@ -205,7 +217,10 @@ export class ClaudeProvider implements Provider {
       if (structured) runArgs.push('--input-format', 'stream-json')
       if (live) runArgs.push('--permission-prompt-tool', 'stdio')
 
-      const lines = createClaudeParser(emit)
+      const lines = createClaudeParser(
+        emit,
+        mcp.map((m) => m.name)
+      )
       parser = lines
       let stderr = ''
       let sawOutput = false

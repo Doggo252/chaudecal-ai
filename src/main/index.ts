@@ -3,9 +3,10 @@ import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
-import type { Attachment, Blob, Conversation, HubStatus, LocalModel, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
+import type { Attachment, Blob, Conversation, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
 import { defaultSettings, MAX_FILE_BYTES, newId } from '@shared/types'
-import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo } from '@shared/ipc'
+import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo, type McpInput } from '@shared/ipc'
+import { cleanMcpName, mcpProblem } from '@shared/mcp'
 import { Store } from './store'
 import { findBinary, loadShellPath, spawnCli } from './env'
 import { ClaudeProvider } from './providers/claude'
@@ -20,6 +21,7 @@ import { ChatEngine } from './chat'
 import { Summarizer } from './summarizer'
 import { WebTabs } from './webtabs'
 import { readAttachment } from './attachments'
+import { normalizeMcpServer, testMcpServer } from './mcp'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
 import { checkForUpdate } from './updates'
 import { finishedNotice, questionNotice, shouldNotify, type Notice } from './notify'
@@ -285,6 +287,33 @@ function refreshProviders(): Promise<void> {
   return refreshing
 }
 
+function mcpServers(): McpServer[] {
+  return store
+    .list<Partial<McpServer> & { id: string }>('mcp')
+    .map(normalizeMcpServer)
+    .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** A tool server built from what the settings page sent, on top of the saved one if there is one. */
+function mcpFromInput(input: McpInput): McpServer {
+  const existing = input.id ? mcpServers().find((m) => m.id === input.id) : undefined
+  const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+  return normalizeMcpServer({
+    id: existing?.id ?? newId(),
+    name: cleanMcpName(text(input.name)),
+    kind: input.kind,
+    command: text(input.command),
+    args: Array.isArray(input.args) ? input.args.filter((a) => typeof a === 'string') : [],
+    env: input.kind === 'command' ? input.env : {},
+    url: text(input.url),
+    headers: input.kind === 'url' ? input.headers : {},
+    enabled: input.enabled ?? existing?.enabled ?? true,
+    trusted: input.trusted ?? existing?.trusted ?? false,
+    offOn: input.offOn ?? existing?.offOn ?? [],
+    createdAt: existing?.createdAt ?? Date.now()
+  })
+}
+
 function appState(): AppState {
   return {
     deviceId: store.deviceId,
@@ -294,6 +323,7 @@ function appState(): AppState {
     conversations: store.list<Conversation>('conversation'),
     notes: store.list<MemoryNote>('note'),
     prompts: store.list<SavedPrompt>('prompt'),
+    mcp: mcpServers(),
     profile: store.get<Profile>('profile', 'profile') ?? { id: 'profile', instructions: '', updatedAt: 0 },
     usage: engine.allUsage(),
     providers: statuses,
@@ -484,6 +514,25 @@ const api: Omit<Api, 'on'> = {
   },
   async saveProfile(instructions) {
     store.put('profile', 'profile', { id: 'profile', instructions, updatedAt: Date.now() } satisfies Profile)
+  },
+  async saveMcpServer(input) {
+    const server = mcpFromInput(input)
+    const problem = mcpProblem(
+      server,
+      mcpServers().filter((m) => m.id !== server.id)
+    )
+    if (problem) return { error: problem }
+    store.put('mcp', server.id, server)
+    return { id: server.id }
+  },
+  async deleteMcpServer(id) {
+    store.remove('mcp', id)
+  },
+  async testMcpServer(input) {
+    const server = mcpFromInput(input)
+    const problem = mcpProblem(server, [])
+    if (problem) return { ok: false, tools: [], error: problem }
+    return testMcpServer(server, app.getVersion())
   },
   async hubDiscover() {
     return discoverHubs()
@@ -693,6 +742,10 @@ app.whenReady().then(async () => {
   webTabs = new WebTabs(() => win, (state) => send('web', state))
   // Image bytes stay in the backend. The window asks for one when it needs to show it.
   store.onChange((records) => send('records', records.filter((r) => r.kind !== 'blob')))
+  // Codex keeps open conversations in one process, with the tool servers they were opened with.
+  store.onChange((records) => {
+    if (records.some((r) => r.kind === 'mcp')) codex.restartWhenIdle()
+  })
 
   for (const name of API_METHODS) {
     ipcMain.handle(`api:${name}`, (_event, ...args: unknown[]) => (api[name] as (...a: unknown[]) => unknown)(...args))

@@ -6,6 +6,7 @@
 
 import { appendFileSync, readFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { connectMcp } from './mcp-client.mjs'
 
 const args = process.argv.slice(2)
 const log = process.env.FAKE_LOG
@@ -79,7 +80,21 @@ const systemFile = arg('--append-system-prompt-file')
 const system = systemFile ? readFileSync(systemFile, 'utf8') : ''
 const base = { session_id: sessionId, uuid: randomUUID() }
 
-out({ type: 'system', subtype: 'init', ...base, model, cwd: process.cwd(), permissionMode: arg('--permission-mode') ?? 'default' })
+// Tool servers given with --mcp-config are started before the turn, like the real CLI does.
+const mcpFile = arg('--mcp-config')
+const mcpConfig = mcpFile ? (JSON.parse(readFileSync(mcpFile, 'utf8')).mcpServers ?? {}) : {}
+const mcp = {}
+for (const [name, server] of Object.entries(mcpConfig)) {
+  try {
+    mcp[name] = await connectMcp(server)
+  } catch {
+    // Reported as failed below.
+  }
+}
+if (log && mcpFile) appendFileSync(log, `${JSON.stringify({ tool: 'claude', mcp: mcpConfig })}\n`)
+const mcp_servers = Object.keys(mcpConfig).map((name) => ({ name, status: mcp[name] ? 'connected' : 'failed' }))
+
+out({ type: 'system', subtype: 'init', ...base, model, cwd: process.cwd(), permissionMode: arg('--permission-mode') ?? 'default', mcp_servers })
 
 if (process.env.FAKE_CLAUDE_LOGGED_OUT === '1') {
   out({ type: 'assistant', ...base, error: 'authentication_failed', parent_tool_use_id: null, message: { role: 'assistant', content: [{ type: 'text', text: 'Failed to authenticate.' }] } })
@@ -116,6 +131,7 @@ stream({ type: 'message_start' })
 
 /** Ends the turn. Like the real CLI, a live run only exits once its input has been closed. */
 async function end(result) {
+  for (const client of Object.values(mcp)) client.close()
   out(result)
   if (live) while ((await nextLine()) !== undefined);
   process.exit(result.is_error ? 1 : 0)
@@ -192,6 +208,35 @@ if (prompt.includes('[tool]') || prompt.includes('[deny]')) {
     }
     toolResult(toolId, command === 'ls' ? 'file-a.txt\nfile-b.txt' : 'All tests passed')
     if (!allowed) notes.push(round ? 'I ran them a second time' : 'I ran the tests')
+  }
+}
+
+// "[mcp]" saves a note with the first tool server, "[mcp-echo]" uses its read-only tool.
+// Claude Code asks before either one unless a permission rule covers the tool.
+if (prompt.includes('[mcp]') || prompt.includes('[mcp-echo]')) {
+  const name = Object.keys(mcp)[0]
+  if (!name) notes.push('I have no tool server to use')
+  else {
+    const tool = prompt.includes('[mcp-echo]') ? 'echo' : 'add_note'
+    const toolName = `mcp__${name}__${tool}`
+    const input = { text: tool === 'echo' ? 'hello' : 'milk' }
+    const rules = (arg('--allowedTools') ?? '').split(',')
+    const allowed = rules.includes(`mcp__${name}`) || rules.includes(toolName)
+    const rounds = prompt.includes('[twice]') ? 2 : 1
+    for (let round = 0; round < rounds; round++) {
+      const toolId = newToolId()
+      toolUse(toolId, toolName, input)
+      const answer = allowed ? { behavior: 'allow' } : live ? await ask(toolName, input, toolId) : { behavior: 'deny', message: 'Permission denied' }
+      if (answer.behavior !== 'allow') {
+        toolResult(toolId, answer.message, true)
+        denials.push({ tool_name: toolName, tool_use_id: toolId, tool_input: input })
+        notes.push('I was not allowed to use the tool')
+        break
+      }
+      const said = await mcp[name].call(tool, input)
+      toolResult(toolId, said)
+      notes.push(`The ${name} tool answered: ${said}`)
+    }
   }
 }
 

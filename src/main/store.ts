@@ -158,8 +158,8 @@ export class Store {
   remove(kind: RecordKind, id: string): void {
     const existing = this.getRaw(kind, id)
     if (!existing) return
-    // A deleted image keeps its record so the deletion syncs, but not its bytes.
-    const data = kind === 'blob' ? { ...(existing.data as Blob), base64: '' } : existing.data
+    // A deleted record stays so the deletion syncs, but an image loses its bytes and a tool server its tokens.
+    const data = kind === 'blob' ? { ...(existing.data as Blob), base64: '' } : kind === 'mcp' ? { ...(existing.data as object), env: {}, headers: {} } : existing.data
     this.put(kind, id, data, { deleted: true })
   }
 

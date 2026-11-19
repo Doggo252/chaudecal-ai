@@ -100,6 +100,20 @@ The app turns either kind into one approval card. Two requests are answered with
 
 If the installed Claude Code does not know the option, the first attempt fails before producing anything. The app then runs the turn the earlier way, remembers that for the session, and lists blocked actions after the turn.
 
+### Tool servers (MCP)
+
+The app keeps one list of tool servers and hands it to whichever assistant is answering. Each entry is a synced record: a name, either a command with its arguments and environment variables or a web address with its headers, whether its tools may run without asking, and the devices on which it is switched off.
+
+Neither command line tool is reconfigured on disk. Claude Code gets the list for one turn in a file named with `--mcp-config`, readable only by the user and deleted when the turn ends. Codex gets it as a `mcp_servers` configuration override when a conversation is opened or resumed. The servers a user added to either tool themselves are left alone and keep working.
+
+Permission uses the cards that already exist. Claude Code asks about a server's tool like about any other tool. Codex sends a form request marked as a tool approval, which the app shows as the same card and answers in Codex's own shape. Codex can only ask when asking is switched on, so in Chat, Plan and Auto mode (which normally never ask) the app switches it on whenever an untrusted server is present, and refuses requests to run commands outside the sandbox itself, as before. A trusted server is passed to Claude as a permission rule for the whole server and to Codex with its tools pre-approved.
+
+Codex keeps open conversations in one long-lived process, and a conversation that is open there keeps the settings it was opened with. Two things follow. When the list of servers changes, the app replaces that process as soon as no reply is being written. And the approval and sandbox settings are sent again with every turn. That also makes a change of mode in the middle of a ChatGPT conversation take effect at once. In a check against the real Codex it did not before: the conversation stayed read-only after a switch from Chat to Auto.
+
+The "Test" button uses a small client of the app's own that starts the program or calls the address, asks for the tool list and stops. It is not used during a chat.
+
+Tokens are synced with the rest of the record so that a server added on one machine works on the other, and on the hub for remote work. They are removed from the record when a server is deleted.
+
 ### Notifications
 
 A run is announced by the device that sent the message, and only while its window is not in front. That device remembers which conversations it started a run in, so the hub says nothing about work another device asked for. The one exception is a permission question on the hub with no other device connected: the run would wait unnoticed, so the hub announces it.
@@ -128,6 +142,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 - Rendered Markdown is sanitized.
 - Chat mode gives the assistants no access to files or the shell. File access is opt-in per conversation, inside one folder.
 - Outside Auto mode an assistant has to ask before it runs a command, and the question shows the exact command. Something allowed "for this chat" is stored as the narrowest rule that covers it (one exact command, not the whole shell), stays on the machine doing the work, and is dropped when the conversation's folder changes.
+- A tool server's tool asks before it is used unless the user marked that server as trusted. The card names the server and the tool and shows what is sent. A tool is named by its server and its own name, never by a title the server chooses for it.
 - API key variables are removed from the command line tools' environment so a stray key cannot cause surprise charges.
 - The website tabs use separate storage from the rest of the app.
 
@@ -151,6 +166,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Hub, client, offline changes, discovery | Built, tested with two app instances on one machine |
 | Website tabs and bringing a web chat in | Built. Loading is tested. Capture is best effort and depends on each site's page layout. |
 | Attachments: images, PDFs and text files, picked, pasted or dropped | Built, tested. Image input is checked against real ChatGPT. PDF reading is checked on real documents and in the packaged Mac app. |
+| Tool servers (MCP) shared by Claude and ChatGPT, with a settings page, a test button and sync | Built, tested against stand-in assistants with a real stand-in tool server. Checked against the real Codex: it started the server, asked before a tool that changes something, used it, and did not ask for a trusted server. Real Claude Code loads the servers and lists their tools. A real tool call by Claude is unchecked (see below). Not tried with a hosted server or on Windows. |
 | Second opinion and branching | Built, tested |
 | Automatic failover at a limit (off by default) | Built, tested |
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
@@ -162,7 +178,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Mac installer | Built and launched |
 | Windows installer | Built by GitHub Actions. Not yet run on a real PC. |
 
-Not verified yet: real answers from Claude on the development Mac (its command line sign-in had expired, so image input to real Claude and a real permission question from Claude are also unchecked), real Ollama and LM Studio, sync between two physical machines, and anything on Windows beyond the automated build.
+Not verified yet: real answers from Claude on the development Mac (its command line sign-in had expired, so image input to real Claude, a real permission question from Claude and a real tool server call by Claude are also unchecked), real Ollama and LM Studio, sync between two physical machines, and anything on Windows beyond the automated build.
 
 ### How attachments work
 
@@ -174,19 +190,20 @@ A PDF is read in the app, page by page, with a marker at the start of each page,
 
 ### Next
 
-1. **Scanned PDFs and pictures inside PDFs.** Today only the text of a PDF is read. Pages with no text could be sent as images.
-2. **Tell a device about replies that finished while it was away**, when it reconnects.
-3. **Create a new folder on the hub** from the folder browser.
-4. **Answer Claude's own questions in the app.** When Claude wants to ask a multiple choice question, it is told to ask in its reply. A proper form would be nicer.
-5. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
-6. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
+1. **Tool servers that sign in through a browser.** Many hosted tool servers use that kind of sign-in. Today only servers that take a token, or run as a program, can be added.
+2. **Scanned PDFs and pictures inside PDFs.** Today only the text of a PDF is read. Pages with no text could be sent as images.
+3. **Tell a device about replies that finished while it was away**, when it reconnects.
+4. **Create a new folder on the hub** from the folder browser.
+5. **Answer Claude's own questions in the app.** When Claude wants to ask a multiple choice question, it is told to ask in its reply. A proper form would be nicer.
+6. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
+7. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
 
 ### Suggested features
 
 - **Limit forecast.** Predict when the current window will run out at the present pace, and suggest saving the stronger model for harder questions.
 - **Voice.** Dictation with a local speech model on the PC, and spoken replies.
 - **Local image generation** on the 9070 XT through a ComfyUI connection.
-- **Local models with tools.** File reading and web search for local models through MCP.
+- **Local models with tools.** Let local models use the same tool servers as Claude and ChatGPT. This needs the app to run the tool loop itself, and a local model that can call tools.
 - **Projects.** Group conversations with shared files and instructions that every assistant receives.
 - **Scheduled prompts.** Run a saved prompt every morning on the PC and sync the result.
 - **Quick ask.** A global shortcut that opens a small window over whatever you are doing.

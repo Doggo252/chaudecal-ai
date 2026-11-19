@@ -10,6 +10,8 @@ import type {
   HandoffVariant,
   HubStatus,
   LocalModel,
+  McpServer,
+  McpTestResult,
   MemoryNote,
   Message,
   PermissionDenial,
@@ -42,6 +44,9 @@ export interface SendInput {
   /** Files to send with this message, as returned by pickAttachments or addAttachment. */
   attachments?: Attachment[]
 }
+
+/** A tool server as the settings page sends it. Without an id it is a new one. */
+export type McpInput = Pick<McpServer, 'name' | 'kind' | 'command' | 'args' | 'env' | 'url' | 'headers'> & Partial<Pick<McpServer, 'id' | 'enabled' | 'trusted' | 'offOn'>>
 
 export interface AttachResult {
   attachments: Attachment[]
@@ -87,6 +92,8 @@ export interface AppState {
   conversations: Conversation[]
   notes: MemoryNote[]
   prompts: SavedPrompt[]
+  /** Tool servers (MCP) that Claude and ChatGPT share. */
+  mcp: McpServer[]
   profile: Profile
   usage: Record<ProviderId, ProviderUsage>
   providers: Partial<Record<ProviderId, ProviderStatus>>
@@ -170,6 +177,12 @@ export interface Api {
   deletePrompt(id: string): Promise<void>
   saveProfile(instructions: string): Promise<void>
 
+  /** Add or change a tool server. Gives back why it could not be saved, if so. */
+  saveMcpServer(server: McpInput): Promise<{ id?: string; error?: string }>
+  deleteMcpServer(id: string): Promise<void>
+  /** Connect to a tool server from this device and list its tools. */
+  testMcpServer(server: McpInput): Promise<McpTestResult>
+
   hubDiscover(): Promise<DiscoveredHub[]>
   hubNewToken(): Promise<string>
   hubSyncNow(): Promise<void>
@@ -220,6 +233,9 @@ export const API_METHODS = [
   'savePrompt',
   'deletePrompt',
   'saveProfile',
+  'saveMcpServer',
+  'deleteMcpServer',
+  'testMcpServer',
   'hubDiscover',
   'hubNewToken',
   'hubSyncNow',

@@ -20,6 +20,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Second opinion and branching.** One click asks another assistant to review an answer. Any answer can be branched into a separate conversation to try a different direction.
 - **Notifications.** Send a long task, switch to another app, and get a notification when the reply is ready or when the assistant has stopped to ask you something. Clicking it opens that conversation.
 - **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, artifacts, account settings). A web chat can be brought into the unified chat.
+- **Tools for both assistants (MCP).** Add a tool server once, for example for GitHub, your notes or a database, and Claude and ChatGPT can both use it. The list syncs between your machines.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
 
 | Switching assistants | Comparing answers |
@@ -34,9 +35,13 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 | --- | --- |
 | ![A conversation on the Mac that runs on the hub PC, in a folder on the PC](docs/screenshots/remote.png) | ![Claude asking whether it may run a command](docs/screenshots/approval.png) |
 
-| Choosing a folder on the hub |
+| Choosing a folder on the hub | Tool servers |
+| --- | --- |
+| ![Browsing the hub PC's folders from the Mac](docs/screenshots/folders.png) | ![The list of tool servers in Settings](docs/screenshots/tools.png) |
+
+| Asking before a tool is used |
 | --- |
-| ![Browsing the hub PC's folders from the Mac](docs/screenshots/folders.png) |
+| ![Claude asking whether it may use a tool from a tool server](docs/screenshots/tool-ask.png) |
 
 The screenshots come from the automated test, which uses stand-in assistants, so the replies and numbers in them are not real.
 
@@ -44,7 +49,7 @@ The screenshots come from the automated test, which uses stand-in assistants, so
 
 Neither $20 plan includes a public API, so the app does not talk to Anthropic or OpenAI directly. It drives the official command line tools that your plans already include:
 
-- **Claude** runs through [Claude Code](https://claude.com/claude-code). Your Claude Code settings, plugins, MCP servers and skills all apply.
+- **Claude** runs through [Claude Code](https://claude.com/claude-code). Your Claude Code settings, plugins, MCP servers and skills all apply, in addition to the tool servers you add in this app.
 - **ChatGPT** runs through the [Codex CLI](https://developers.openai.com/codex/cli), which also ships inside the ChatGPT desktop app.
 
 Both tools sign in with your subscription and count against the same limits as the official apps. The app removes API key variables from their environment so they always use the subscription sign-in.
@@ -131,6 +136,20 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 
 **Read this before turning it on.** With this setting on, anyone who has the pairing code and can reach the PC can see the names of its folders, edit files and run commands on it. Keep the hub on your home network and Tailscale, never forward its port to the internet, and make a new pairing code if the old one may have leaked. The setting is off by default.
 
+### 6. Add tool servers (optional)
+
+A tool server gives the assistants a new ability: reading your GitHub issues, searching your notes, querying a database. Tool servers speak the Model Context Protocol (MCP), and there are ready-made ones for many services.
+
+Open Settings, then "Tools".
+
+- **Paste JSON.** Most tool servers come with a short piece of JSON in their instructions (it starts with `"mcpServers"`). Click "Paste JSON", paste it, and click "Add".
+- **Or fill in the form.** Click "Add a tool server", give it a short name, and either type the command that starts it (for example `npx -y @modelcontextprotocol/server-filesystem ~/Documents`) or the web address of a hosted one. Tokens go in the box below: `NAME=value` lines for a command, `Authorization: Bearer your-token` for a web address.
+- **Test it.** "Test on this device" starts the server (or calls the address) and lists the tools it offers, or says what went wrong.
+
+From then on both Claude and ChatGPT can use the server in every conversation, in every mode. Before a tool is used you get the same question card as for a command, naming the server and the tool and showing what is sent to it. Claude asks about every tool. ChatGPT asks about the tools that change something and uses read-only ones directly. Turn on "Let its tools run without asking" for a server you trust.
+
+The list syncs to your other devices, tokens included. A server runs on the machine that runs the assistant, so for a conversation that runs on the hub PC, the server's program has to be installed on the PC. Each device has its own switch per server, for a program that is only installed on one of them.
+
 ## Using it
 
 - **Choosing an assistant.** The picker in the message box sets the assistant and model. Auto keeps a conversation with the assistant it is already using, sends coding work to Claude and general questions to ChatGPT, answers short questions locally when you allow it, and steers away from an assistant that is close to its limit.
@@ -156,7 +175,10 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 - The folder browser for the hub shows folders only, never files, and leaves out hidden folders. To use a hidden folder, type its path.
 - If the Mac disconnects while the PC is working, the PC finishes anyway. A permission question raised in the meantime waits on the PC's own screen, and the PC shows a notification about it. The Mac is not told about a reply that finished while it was disconnected.
 - The first notification makes macOS ask whether to allow them. If you say no, only the Dock count is shown.
-- Local models chat only. They do not edit files or run commands.
+- Local models chat only. They do not edit files, run commands or use tool servers.
+- Tool servers that sign in through a browser page (many hosted ones do) are not supported yet. Use one that takes a token, or the version of it that runs as a program. Tool servers you added to Claude Code or Codex yourself keep working, each in its own assistant only.
+- Tokens typed into a tool server are stored and synced the way conversations are: unencrypted on your disks and on your home network, encrypted over Tailscale. Give a server a token with only the access it needs.
+- On Windows, a tool server started with `npx`, `npm`, `pnpm` or `yarn` is run through `cmd` automatically. This has not been tried on a real PC yet.
 - Updates are not installed for you. The sidebar shows "Update available" when a newer build is published, and clicking it opens the download page.
 - Sign-ins inside the website tabs are separate from the command line sign-ins and stay on each machine.
 - The Windows build is produced and tested automatically, but it has not been used day to day yet. The tray icon, closing to the tray and starting at sign-in in particular have only been checked in code, not on a real PC. Please report anything odd.
@@ -178,7 +200,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 23 checks |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 26 checks |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 
@@ -188,7 +210,7 @@ The tests never contact Claude or ChatGPT. They use small stand-in programs in [
 CHAUDECAL_LIVE=chatgpt,claude npm test
 ```
 
-Add `chatgpt-image` or `claude-image` to that list to check that an attached image is really seen. Add `claude-ask` to check that Claude really stops and asks before running a command.
+Add `chatgpt-image` or `claude-image` to that list to check that an attached image is really seen. Add `claude-ask` to check that Claude really stops and asks before running a command. Add `chatgpt-mcp` or `claude-mcp` to check that the assistant really uses a tool server, after asking.
 
 The design, the architecture and the roadmap are in [docs/PLAN.md](docs/PLAN.md).
 

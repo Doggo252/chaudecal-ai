@@ -2,15 +2,31 @@
 // into the app's provider-neutral run events. Pure: no process handling here.
 
 import type { ApprovalRequest, PermissionDenial, RunEvent, ToolCall } from '@shared/types'
+import { mcpToolLabel, mcpToolParts } from '@shared/mcp'
 import { limitsFromClaude, type ClaudeRateLimitInfo } from '@shared/usage'
 import { truncate } from './types'
 
 type Json = Record<string, any>
 
+/** The name shown for a tool. Tools of a tool server read "server: tool". */
+export function toolLabel(name: string): string {
+  const mcp = mcpToolParts(name)
+  return mcp ? mcpToolLabel(mcp.server, mcp.tool) : name
+}
+
 export function describeTool(name: string, input: Json | undefined): string {
   const i = input ?? {}
   const pick = i.command ?? i.file_path ?? i.path ?? i.pattern ?? i.query ?? i.url ?? i.description ?? i.prompt
   if (typeof pick === 'string' && pick.trim()) return pick.trim().split('\n')[0].slice(0, 200)
+  // A few plain values read better as "name: value" than as JSON.
+  const entries = Object.entries(i)
+  const plain = entries.every(([, v]) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')
+  if (entries.length && entries.length <= 4 && plain) {
+    return entries
+      .map(([k, v]) => `${k}: ${String(v).split('\n')[0]}`)
+      .join(', ')
+      .slice(0, 200)
+  }
   const raw = JSON.stringify(i)
   return raw === '{}' ? '' : raw.slice(0, 160)
 }
@@ -61,7 +77,7 @@ export function readPermissionAsk(msg: Json): PermissionAsk | undefined {
       kind: COMMAND_TOOLS.has(r.tool_name) ? 'command' : FILE_TOOLS.has(r.tool_name) ? 'file' : 'other',
       summary,
       reason: why ? String(why).trim().slice(0, 300) : undefined,
-      tool: typeof r.display_name === 'string' && r.display_name ? r.display_name : r.tool_name
+      tool: mcpToolParts(r.tool_name) ? toolLabel(r.tool_name) : typeof r.display_name === 'string' && r.display_name ? r.display_name : r.tool_name
     }
   }
 }
@@ -86,7 +102,8 @@ export interface ClaudeParser {
   refuse(toolUseId: string): void
 }
 
-export function createClaudeParser(emit: (event: RunEvent) => void): ClaudeParser {
+/** `mcpNames` are the tool servers this app added to the run. */
+export function createClaudeParser(emit: (event: RunEvent) => void, mcpNames: string[] = []): ClaudeParser {
   /** Text for the current block already arrived as deltas, so the full copy is skipped. */
   let streamedText = false
   let anyText = false
@@ -126,6 +143,12 @@ export function createClaudeParser(emit: (event: RunEvent) => void): ClaudeParse
           if (msg.subtype === 'init') {
             if (msg.session_id) emit({ type: 'session', sessionId: msg.session_id })
             if (msg.model) emit({ type: 'model', model: msg.model })
+            // A tool server from this app's list that did not come up is worth knowing about.
+            for (const server of Array.isArray(msg.mcp_servers) ? msg.mcp_servers : []) {
+              if (!mcpNames.includes(server?.name) || (server.status !== 'failed' && server.status !== 'needs-auth')) continue
+              const summary = server.status === 'needs-auth' ? 'This tool server needs a sign-in that the app cannot do yet.' : 'This tool server could not be started or reached on this device.'
+              emit({ type: 'tool', tool: { id: `mcp-${server.name}`, name: server.name, summary, status: 'error' } })
+            }
           }
           return
         }
@@ -165,7 +188,7 @@ export function createClaudeParser(emit: (event: RunEvent) => void): ClaudeParse
                 text(block.text ?? '')
               }
             } else if (block.type === 'tool_use') {
-              const tool: ToolCall = { id: block.id, name: block.name, summary: describeTool(block.name, block.input), status: 'running' }
+              const tool: ToolCall = { id: block.id, name: toolLabel(block.name), summary: describeTool(block.name, block.input), status: 'running' }
               tools.set(tool.id, tool)
               emit({ type: 'tool', tool })
             }

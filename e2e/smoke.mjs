@@ -6,7 +6,7 @@
 
 import { _electron as electron } from 'playwright-core'
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -97,6 +97,12 @@ writeFileSync(notesFile, '# Notes\nThe launch is on Friday.\n')
 const pdfFile = join(attachDir, 'handbook.pdf')
 writeFileSync(pdfFile, makePdf([['Staff handbook', 'Leave is twenty five days a year.'], ['Expenses are paid monthly.']]))
 const attachFiles = [join(root, 'build/icon.png'), notesFile, pdfFile].join(delimiter)
+
+// A tool server for the assistants: the stand-in MCP server, copied to a short neutral path so the screenshots show no real folder.
+const toolsDir = mkdtempSync(join(process.platform === 'win32' ? tmpdir() : '/tmp', 'chaudecal-tools-'))
+const toolServer = join(toolsDir, 'notes-server.mjs')
+copyFileSync(join(root, 'tests/fakes/fake-mcp.mjs'), toolServer)
+const savedNotes = join(toolsDir, 'saved-notes.txt')
 
 // Stand-in for the GitHub releases page, announcing a newer build.
 const releases = createHttpServer((_req, res) => {
@@ -237,6 +243,51 @@ try {
   await a.page.click(tid('note-add'))
   ok('settings show sign-in state, usage from both services, and save memory')
 
+  // Tool servers (MCP): add one in Settings, test it, and both assistants can use it after asking.
+  await a.page.click(tid('settings-tab-tools'))
+  await a.page.click(tid('mcp-add'))
+  await a.page.fill(tid('mcp-name'), 'Notes')
+  await a.page.fill(tid('mcp-command'), `node "${toolServer}"`)
+  await a.page.fill(tid('mcp-env'), `FAKE_MCP_LOG=${savedNotes}`)
+  await a.page.click(tid('mcp-test'))
+  await a.page.waitForFunction(() => /Connected to fake-mcp\. 2 tools: echo, add_note/.test(document.querySelector('[data-testid="mcp-test-result"]')?.textContent ?? ''), null, { timeout: 15000 })
+  await shot(a.page, '16-tool-server-editor')
+  await a.page.click(tid('mcp-save'))
+  await a.page.waitForSelector(`${tid('mcp-server')}[data-name="notes"]`)
+  // Pasted JSON adds a server too. This one cannot start, and its test says why.
+  await a.page.click(tid('mcp-add-json'))
+  await a.page.fill(tid('mcp-json'), '{"command": "node", "args": ["x.js"]}')
+  await a.page.click(tid('mcp-json-add'))
+  await a.page.waitForSelector(`${tid('mcp-server')}[data-name="server"]`)
+  await a.page.click(`${tid('mcp-server')}[data-name="server"] ${tid('mcp-row-test')}`)
+  await a.page.waitForFunction(() => /stopped before it answered/.test(document.querySelector('[data-testid="mcp-server"][data-name="server"] [data-testid="mcp-test-result"]')?.textContent ?? ''), null, { timeout: 15000 })
+  await a.page.click(`${tid('mcp-server')}[data-name="server"] ${tid('mcp-remove')}`)
+  await a.page.waitForFunction(() => document.querySelectorAll('[data-testid="mcp-server"]').length === 1)
+  await a.page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 })
+  await shot(a.page, '17-tool-servers')
+  ok('a tool server is added in Settings, tested from the app, and a broken one says why')
+
+  await a.page.click(tid('new-chat'))
+  await pickProvider(a.page, 'claude')
+  await sendMessage(a.page, 'Save a note: milk. [mcp]')
+  await a.page.waitForSelector(tid('approval-card'), { timeout: 15000 })
+  let toolQuestion = await a.page.textContent(tid('approval-card'))
+  assert(toolQuestion.includes('Claude wants to use notes: add_note') && toolQuestion.includes('milk'), `the card should name the tool, got: ${toolQuestion}`)
+  assert(!existsSync(savedNotes), 'nothing should be saved before the answer')
+  await shot(a.page, '18-tool-asks-first')
+  await a.page.click(tid('approve-once'))
+  await waitForReply(a.page, 'claude', 'The notes tool answered: saved')
+  await pickProvider(a.page, 'chatgpt')
+  await sendMessage(a.page, 'And once more. [mcp]')
+  await a.page.waitForSelector(tid('approval-card'), { timeout: 15000 })
+  toolQuestion = await a.page.textContent(tid('approval-card'))
+  assert(toolQuestion.includes('ChatGPT wants to use notes: add_note'), `the card should name the tool, got: ${toolQuestion}`)
+  await a.page.click(tid('approve-chat'))
+  await waitForReply(a.page, 'chatgpt', 'The notes tool answered: saved')
+  assert(readFileSync(savedNotes, 'utf8') === 'milk\nmilk\n', `both assistants should have saved the note, got ${JSON.stringify(readFileSync(savedNotes, 'utf8'))}`)
+  await shot(a.page, '19-tool-used')
+  ok('Claude and ChatGPT both use the tool server, each after asking')
+
   // ---------- Device B: a client of the hub ----------
   const token = await a.page.evaluate(async () => (await window.api.state()).settings.hub.token)
   assert(token && token.length >= 10, 'hub should have generated a pairing code')
@@ -248,13 +299,24 @@ try {
     local: { endpoints: [], summarize: false },
     hub: { remoteUrl: `127.0.0.1:${hubPort}`, remoteToken: token }
   }, { CHAUDECAL_E2E_NOTIFY: noticeFile.client })
-  await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 4, null, { timeout: 15000 })
+  await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 5, null, { timeout: 15000 })
   ok('a second device pairs with the hub and receives every conversation')
 
   await b.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
   await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="assistant-message"]').length === 3)
   await b.page.waitForFunction(async () => (await window.api.state()).notes.length === 1 && (await window.api.state()).profile.instructions === 'Be brief.')
   ok('messages, memory and instructions arrive on the second device')
+
+  // The tool server arrives too, and can be switched off for this device alone.
+  await b.page.waitForFunction(async () => (await window.api.state()).mcp.map((m) => m.name).join() === 'notes')
+  await b.page.click(tid('open-settings'))
+  await b.page.click(tid('settings-tab-tools'))
+  await b.page.click(`${tid('mcp-server')}[data-name="notes"] ${tid('mcp-toggle')}`)
+  const clientId = await b.page.evaluate(async () => (await window.api.state()).deviceId)
+  await a.page.waitForFunction(async (id) => (await window.api.state()).mcp[0]?.offOn.join() === id, clientId, { timeout: 15000 })
+  assert((await b.page.textContent(`${tid('mcp-server')}[data-name="notes"]`)).includes('Off on this device'), 'the second device should show the server as off here')
+  await b.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
+  ok('the tool server syncs to the second device, which can switch it off for itself')
 
   // The attached image was synced too, not just its name.
   await b.page.click(`${tid('conversation')}:has-text("What is in these?"):not(:has-text("(branch)"))`)
@@ -390,4 +452,5 @@ try {
   rmSync(attachDir, { recursive: true, force: true })
   rmSync(noticeDir, { recursive: true, force: true })
   rmSync(homeDir, { recursive: true, force: true })
+  rmSync(toolsDir, { recursive: true, force: true })
 }

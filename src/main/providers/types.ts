@@ -1,4 +1,4 @@
-import type { ApprovalDecision, ProviderStatus, RunEvent, RunMode } from '@shared/types'
+import type { ApprovalDecision, McpServer, ProviderStatus, RunEvent, RunMode } from '@shared/types'
 import type { ChatTurn } from '@shared/context'
 
 export interface RunRequest {
@@ -20,6 +20,8 @@ export interface RunRequest {
   allow?: string[]
   /** Images that go with this turn. */
   images?: RunImage[]
+  /** Tool servers the assistant may use in this run. */
+  mcp?: McpServer[]
 }
 
 export interface RunImage {

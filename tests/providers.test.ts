@@ -68,7 +68,9 @@ describe('Claude stream parser', () => {
       summary: '/etc/hosts',
       reason: 'Path is outside the working folder'
     })
-    expect(ask('mcp__notes__search', { query: 'cats' }, { display_name: 'Search notes' })?.request).toMatchObject({ kind: 'other', summary: 'cats', tool: 'Search notes' })
+    // A tool of a tool server is named by its server, whatever title the server gives it.
+    expect(ask('mcp__notes__search', { query: 'cats' }, { display_name: 'Search notes' })?.request).toMatchObject({ kind: 'other', summary: 'cats', tool: 'notes: search' })
+    expect(ask('WebFetch', { url: 'https://example.com' }, { display_name: 'Fetch' })?.request).toMatchObject({ kind: 'other', tool: 'Fetch' })
     expect(ask('Skill', {})?.request).toMatchObject({ kind: 'other', summary: 'Skill', reason: undefined })
     // Other kinds of request are not permission questions.
     expect(readPermissionAsk({ type: 'control_request', request_id: 'r2', request: { subtype: 'hook_callback' } })).toBeUndefined()
