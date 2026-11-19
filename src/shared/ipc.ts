@@ -39,6 +39,8 @@ export interface SendInput {
   compare?: ProviderId[]
   /** Answer the last user message again instead of adding a new one. */
   retry?: boolean
+  /** Change this earlier question of the user's to `text`, drop everything after it, and answer it again. */
+  edit?: string
   /** Extra permission rules the user just granted (Claude). */
   allow?: string[]
   /** Files to send with this message, as returned by pickAttachments or addAttachment. */
@@ -211,6 +213,8 @@ export interface Api {
   hubSyncNow(): Promise<void>
 
   openExternal(url: string): Promise<void>
+  /** Turns recorded speech into text with the speech-to-text server in the settings. */
+  transcribe(audio: Uint8Array, mime: string): Promise<{ text?: string; error?: string }>
   /** Downloads the newer version if needed, installs it, and restarts into it. */
   applyUpdate(): Promise<{ error?: string }>
   openConfig(which: 'claude' | 'chatgpt'): Promise<void>
@@ -270,6 +274,7 @@ export const API_METHODS = [
   'hubSyncNow',
   'openExternal',
   'applyUpdate',
+  'transcribe',
   'openConfig',
   'webShow',
   'webHide',

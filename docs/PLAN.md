@@ -180,6 +180,10 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Attachments: images, PDFs and text files, picked, pasted or dropped | Built, tested. Image input is checked against real ChatGPT. PDF reading is checked on real documents and in the packaged Mac app. |
 | Tool servers (MCP) shared by Claude and ChatGPT, with a settings page, a test button and sync | Built, tested against stand-in assistants with a real stand-in tool server. Checked against the real Codex: it started the server, asked before a tool that changes something, used it, and did not ask for a trusted server. Real Claude Code loads the servers and lists their tools. A real tool call by Claude is unchecked (see below). Not tried with a hosted server or on Windows. |
 | Second opinion and branching | Built, tested |
+| The assistant's plan as a checklist, steps grouped by sort, and diffs of file edits, for Claude and ChatGPT | Built, tested against stand-ins. The shapes follow Claude Code's tool calls and the real Codex's `turn/plan/updated` and file changes. |
+| Math formulas (KaTeX, drawn as MathML) | Built, tested |
+| Editing an earlier question and asking it again | Built, tested |
+| Read aloud with the system voices, and dictation through a speech-to-text server | Built, tested with a pretend microphone and a stand-in server. Not tried with a real Whisper server. |
 | Automatic failover at a limit (off by default) | Built, tested |
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
 | Updates that download in the background, are checked against the release's checksum, and install on "Restart to update" | Built, tested. The Mac path was run for real between two packaged versions (`node e2e/update-mac.mjs`). The Windows path runs the installer silently and is unchecked on a real PC. |

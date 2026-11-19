@@ -119,6 +119,12 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
     }
   }
 
+  const editQuestion = (messageId: string, text: string) => {
+    if (!conversation || busy) return
+    stick.current = true
+    void window.api.send({ conversationId: conversation.id, text, edit: messageId, variant: getState().variants[conversation.id] }).catch((e) => toast(String(e.message ?? e)))
+  }
+
   const retry = () => {
     if (!conversation || busy) return
     stick.current = true
@@ -304,7 +310,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
             }}
           >
             <div className="column">
-              <MessageList messages={messages} focusId={focusMessageId} onRetry={retry} onSwitch={() => openSwitch()} onBranch={(id) => void branch(id)} onSecondOpinion={opinionFrom ? secondOpinion : undefined} />
+              <MessageList messages={messages} focusId={focusMessageId} onRetry={retry} onSwitch={() => openSwitch()} onBranch={(id) => void branch(id)} onSecondOpinion={opinionFrom ? secondOpinion : undefined} onEdit={busy ? undefined : editQuestion} />
               {conversation &&
                 approvals?.map((a) => (
                   <ApprovalCard

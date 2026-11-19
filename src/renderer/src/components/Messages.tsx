@@ -1,11 +1,14 @@
 import { memo, useMemo, useState } from 'react'
-import type { ApprovalDecision, ApprovalRequest, Message, PermissionDenial, ProviderId, ToolCall } from '@shared/types'
+import type { ApprovalDecision, ApprovalRequest, Message, PermissionDenial, PlanStep, ProviderId, ToolCall } from '@shared/types'
+import type { FileDiff } from '@shared/diff'
+import { groupSteps, type StepGroup } from '@shared/steps'
 import { PROVIDER_LABEL } from '@shared/types'
 import { renderMarkdown } from '../markdown'
 import { setState, toast } from '../state'
-import { IconBranch, IconCopy, IconOpinion, IconRetry, IconSwitch } from '../icons'
+import { IconBranch, IconCheck, IconCopy, IconEdit, IconOpinion, IconRetry, IconSwitch } from '../icons'
 import { ProviderDot } from './ui'
 import { AttachmentList } from './Attachments'
+import { ReadAloudButton } from './Speech'
 
 function shortModel(model?: string): string {
   if (!model) return ''
@@ -18,19 +21,111 @@ const Prose = memo(function Prose({ text }: { text: string }) {
   return <div className="prose" dangerouslySetInnerHTML={{ __html: html }} />
 })
 
+function Counts({ added, removed }: { added: number; removed: number }) {
+  if (!added && !removed) return null
+  return (
+    <span className="diff-counts">
+      {added > 0 && <span className="diff-plus">+{added}</span>}
+      {removed > 0 && <span className="diff-minus">−{removed}</span>}
+    </span>
+  )
+}
+
+function DiffView({ diff, head }: { diff: FileDiff; head: boolean }) {
+  return (
+    <div className="diff" data-testid="diff">
+      {head && (
+      <div className="diff-head">
+        <span className="diff-path">{diff.path}</span>
+        {diff.created && <span className="badge">new file</span>}
+        {diff.deleted && <span className="badge">deleted</span>}
+        <Counts added={diff.added} removed={diff.removed} />
+      </div>
+      )}
+      <div className="diff-lines">
+        {diff.lines.map((l, i) =>
+          l.t === '@' ? (
+            <div className="diff-gap" key={i}>
+              ⋯
+            </div>
+          ) : (
+            <div className={`diff-line ${l.t === '+' ? 'add' : l.t === '-' ? 'del' : ''}`} key={i}>
+              <span className="diff-sign">{l.t === ' ' ? '' : l.t === '-' ? '−' : '+'}</span>
+              <span className="diff-text">{l.s || ' '}</span>
+            </div>
+          )
+        )}
+        {diff.added + diff.removed > diff.lines.filter((l) => l.t === '+' || l.t === '-').length && <div className="diff-gap">The rest of this change is not shown.</div>}
+      </div>
+    </div>
+  )
+}
+
+function ToolRow({ t }: { t: ToolCall }) {
+  const added = (t.diff ?? []).reduce((a, d) => a + d.added, 0)
+  const removed = (t.diff ?? []).reduce((a, d) => a + d.removed, 0)
+  return (
+    <details className="tool" data-testid="tool-row" data-kind={t.kind ?? 'other'}>
+      <summary>
+        <span className="tool-name">{t.name}</span>
+        <span className="tool-summary">{t.summary}</span>
+        <Counts added={added} removed={removed} />
+        {t.status === 'running' ? <span className="spinner" /> : <span className={`tool-state ${t.status}`}>{t.status === 'done' ? '' : t.status === 'denied' ? 'not allowed' : 'failed'}</span>}
+      </summary>
+      {t.diff?.map((d, i) => <DiffView diff={d} key={i} head={(t.diff?.length ?? 0) > 1 || !!d.created || !!d.deleted} />)}
+      {t.output && <pre>{t.output}</pre>}
+    </details>
+  )
+}
+
+function Group({ g }: { g: StepGroup }) {
+  if (g.tools.length === 1) return <ToolRow t={g.tools[0]} />
+  return (
+    <details className="tool tool-group" data-testid="step-group" data-kind={g.kind}>
+      <summary>
+        <span className="tool-name">{g.label}</span>
+        <span className="tool-summary" />
+        <Counts added={g.added} removed={g.removed} />
+        {g.running ? <span className="spinner" /> : g.problems > 0 ? <span className="tool-state error">{g.problems} not done</span> : null}
+      </summary>
+      <div className="tool-group-rows">
+        {g.tools.map((t) => (
+          <ToolRow t={t} key={t.id} />
+        ))}
+      </div>
+    </details>
+  )
+}
+
 function Tools({ tools }: { tools: ToolCall[] }) {
+  const groups = useMemo(() => groupSteps(tools), [tools])
   return (
     <div className="tools">
-      {tools.map((t) => (
-        <details className="tool" key={t.id}>
-          <summary>
-            <span className="tool-name">{t.name}</span>
-            <span className="tool-summary">{t.summary}</span>
-            {t.status === 'running' ? <span className="spinner" /> : <span className={`tool-state ${t.status}`}>{t.status === 'done' ? '' : t.status === 'denied' ? 'not allowed' : 'failed'}</span>}
-          </summary>
-          {t.output && <pre>{t.output}</pre>}
-        </details>
+      {groups.map((g) => (
+        <Group g={g} key={g.tools[0].id} />
       ))}
+    </div>
+  )
+}
+
+function Plan({ steps, live }: { steps: PlanStep[]; live: boolean }) {
+  const done = steps.filter((s) => s.status === 'done').length
+  return (
+    <div className="plan-card" data-testid="plan">
+      <div className="plan-head">
+        <span>Plan</span>
+        <span className="muted">
+          {done} of {steps.length} done
+        </span>
+      </div>
+      <ul>
+        {steps.map((s, i) => (
+          <li key={i} className={`plan-step ${s.status}`} data-status={s.status}>
+            <span className="plan-mark">{s.status === 'done' ? <IconCheck size={13} /> : s.status === 'active' && live ? <span className="spinner" /> : <span className="plan-dot" />}</span>
+            <span className="plan-text">{s.text}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
@@ -56,6 +151,7 @@ function AssistantBody({ m }: { m: Message }) {
           <div className="thinking-body">{m.thinking}</div>
         </details>
       )}
+      {!!m.plan?.length && <Plan steps={m.plan} live={m.status === 'streaming'} />}
       {!!m.tools?.length && <Tools tools={m.tools} />}
       {m.text && <Prose text={m.text} />}
       {waiting && (
@@ -103,6 +199,70 @@ interface Actions {
   onBranch: (messageId: string) => void
   /** Missing when no other assistant can be asked. */
   onSecondOpinion?: () => void
+  /** Change an earlier question and ask it again. Missing while the conversation is answering. */
+  onEdit?: (messageId: string, text: string) => void
+}
+
+function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?: (messageId: string, text: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(m.text)
+  const save = () => {
+    const text = draft.trim()
+    if (!text && !m.attachments?.length) return
+    setEditing(false)
+    if (text !== m.text.trim()) onEdit?.(m.id, text)
+  }
+  return (
+    <div className={`msg msg-user ${focus ? 'focus' : ''} ${editing ? 'editing' : ''}`} data-testid="user-message" data-message-id={m.id}>
+      {!!m.attachments?.length && <AttachmentList items={m.attachments} />}
+      {editing ? (
+        <div className="edit-box">
+          <textarea
+            autoFocus
+            className="edit-input"
+            data-testid="edit-input"
+            value={draft}
+            rows={Math.min(12, Math.max(2, draft.split('\n').length))}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                save()
+              }
+              if (e.key === 'Escape') setEditing(false)
+            }}
+          />
+          <div className="edit-actions">
+            <span className="muted tiny">The answers after this question are replaced.</span>
+            <button type="button" className="btn btn-small" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+            <button type="button" className="btn btn-small btn-primary" data-testid="edit-send" onClick={save}>
+              Send
+            </button>
+          </div>
+        </div>
+      ) : (
+        m.text && <div className="bubble">{m.text}</div>
+      )}
+      {!editing && onEdit && (
+        <div className="msg-actions user-actions">
+          <button
+            type="button"
+            className="icon-btn"
+            title="Edit this question and ask again"
+            data-testid="edit-question"
+            onClick={() => {
+              setDraft(m.text)
+              setEditing(true)
+            }}
+          >
+            <IconEdit size={15} />
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function AssistantMessage({ m, focus, onRetry, onSwitch, onBranch, onSecondOpinion, isLast }: { m: Message; focus: boolean; isLast: boolean } & Actions) {
@@ -124,6 +284,7 @@ function AssistantMessage({ m, focus, onRetry, onSwitch, onBranch, onSecondOpini
           >
             <IconCopy size={15} />
           </button>
+          <ReadAloudButton id={m.id} text={m.text} />
           {isLast && (
             <button type="button" className="icon-btn" title="Answer again" onClick={onRetry}>
               <IconRetry size={15} />
@@ -255,7 +416,7 @@ export function DenialCard({ denials, onAllow, onDismiss }: { denials: Permissio
 
 type Item = { kind: 'single'; m: Message } | { kind: 'group'; id: string; variants: Message[] }
 
-export function MessageList({ messages, focusId, onRetry, onSwitch, onBranch, onSecondOpinion }: { messages: Message[]; focusId?: string } & Actions) {
+export function MessageList({ messages, focusId, onRetry, onSwitch, onBranch, onSecondOpinion, onEdit }: { messages: Message[]; focusId?: string } & Actions) {
   const items = useMemo(() => {
     const out: Item[] = []
     const groups = new Map<string, Message[]>()
@@ -290,14 +451,7 @@ export function MessageList({ messages, focusId, onRetry, onSwitch, onBranch, on
             </div>
           )
         }
-        if (m.role === 'user') {
-          return (
-            <div className={`msg msg-user ${m.id === focusId ? 'focus' : ''}`} key={m.id} data-testid="user-message" data-message-id={m.id}>
-              {!!m.attachments?.length && <AttachmentList items={m.attachments} />}
-              {m.text && <div className="bubble">{m.text}</div>}
-            </div>
-          )
-        }
+        if (m.role === 'user') return <UserMessage key={m.id} m={m} focus={m.id === focusId} onEdit={onEdit} />
         return <AssistantMessage key={m.id} m={m} focus={m.id === focusId} onRetry={onRetry} onSwitch={onSwitch} onBranch={onBranch} onSecondOpinion={onSecondOpinion} isLast={m.id === lastAssistantId && m.id === lastId} />
       })}
     </>

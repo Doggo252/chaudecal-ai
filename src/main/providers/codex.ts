@@ -6,7 +6,8 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { homedir } from 'node:os'
 import { codexMcpConfig, mcpToolLabel } from '@shared/mcp'
-import type { ApprovalDecision, LimitWindow, ProviderStatus, RunEvent, RunMode, Settings, ToolCall } from '@shared/types'
+import type { ApprovalDecision, LimitWindow, PlanStep, ProviderStatus, RunEvent, RunMode, Settings, ToolCall } from '@shared/types'
+import { codexFileDiffs } from '@shared/diff'
 import { limitsFromCodex, type CodexRateLimitSnapshot } from '@shared/usage'
 import { findBinary, lineReader, runCli, spawnCli } from '../env'
 import { describeTool } from './claudeParser'
@@ -65,10 +66,11 @@ export function codexItemToTool(item: Json): ToolCall | undefined {
     s === 'failed' ? 'error' : s === 'declined' ? 'denied' : s === 'inProgress' || s === 'in_progress' ? 'running' : 'done'
   switch (item.type) {
     case 'commandExecution':
-      return { id: item.id, name: 'Command', summary: String(item.command ?? '').slice(0, 200), status: status(item.status), output: item.aggregatedOutput ? truncate(item.aggregatedOutput) : undefined }
+      return { id: item.id, name: 'Command', summary: String(item.command ?? '').slice(0, 200), status: status(item.status), output: item.aggregatedOutput ? truncate(item.aggregatedOutput) : undefined, kind: 'command' }
     case 'fileChange': {
       const paths = (item.changes ?? []).map((c: Json) => c.path).filter(Boolean)
-      return { id: item.id, name: 'Edit', summary: paths.join(', ').slice(0, 200) || 'file changes', status: status(item.status) }
+      const diff = codexFileDiffs(item.changes)
+      return { id: item.id, name: 'Edit', summary: paths.join(', ').slice(0, 200) || 'file changes', status: status(item.status), kind: 'edit', ...(diff.length ? { diff } : {}) }
     }
     case 'mcpToolCall': {
       const refused = /rejected|requires approval/i.test(String(item.error?.message ?? ''))
@@ -77,16 +79,25 @@ export function codexItemToTool(item: Json): ToolCall | undefined {
         name: mcpToolLabel(String(item.server), String(item.tool)),
         summary: describeTool('', item.arguments),
         status: refused ? 'denied' : status(item.status),
-        output: item.error?.message ? truncate(String(item.error.message)) : mcpResultText(item.result)
+        output: item.error?.message ? truncate(String(item.error.message)) : mcpResultText(item.result),
+        kind: 'tool'
       }
     }
     case 'webSearch':
-      return { id: item.id, name: 'Web search', summary: String(item.query ?? '').slice(0, 200), status: 'done' }
+      return { id: item.id, name: 'Web search', summary: String(item.query ?? '').slice(0, 200), status: 'done', kind: 'web' }
     case 'imageGeneration':
       return { id: item.id, name: 'Image', summary: 'generated an image', status: 'done' }
     default:
       return undefined
   }
+}
+
+/** ChatGPT's plan for the turn, as a checklist. */
+export function codexPlan(plan: unknown): PlanStep[] | undefined {
+  if (!Array.isArray(plan)) return undefined
+  return plan
+    .filter((p: Json) => typeof p?.step === 'string' && p.step.trim())
+    .map((p: Json) => ({ text: String(p.step).trim(), status: /^complete/i.test(String(p.status)) ? 'done' : /progress/i.test(String(p.status)) ? 'active' : 'pending' }))
 }
 
 function mcpResultText(result: Json | null | undefined): string | undefined {
@@ -315,6 +326,11 @@ export class CodexProvider implements Provider {
       case 'turn/started':
         run.turnId = params.turn?.id ?? run.turnId
         return
+      case 'turn/plan/updated': {
+        const steps = codexPlan(params.plan)
+        if (steps) run.emit({ type: 'plan', steps })
+        return
+      }
       case 'item/agentMessage/delta':
         if (params.delta) {
           run.sawText = true

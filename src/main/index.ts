@@ -44,6 +44,10 @@ else {
 }
 // Artifact previews are served under their own scheme, which has to be known before the app starts.
 registerArtifactScheme()
+if (process.env.CHAUDECAL_E2E_FAKE_MIC) {
+  app.commandLine.appendSwitch('use-fake-device-for-media-stream')
+  app.commandLine.appendSwitch('use-fake-ui-for-media-stream')
+}
 
 let win: BrowserWindow | undefined
 let store: Store
@@ -592,6 +596,23 @@ const api: Omit<Api, 'on'> = {
   },
   async webNavigate(service, url) {
     webTabs.navigate(service, url)
+  },
+  async transcribe(audio, mime) {
+    const base = settings.local.speechUrl.trim().replace(/\/+$/, '')
+    if (!base) return { error: 'No speech-to-text server is set up. Add one under Settings, Local AI.' }
+    if (!(audio instanceof Uint8Array) || audio.length > 25 * 1024 * 1024) return { error: 'That recording is too long.' }
+    try {
+      const form = new FormData()
+      const type = typeof mime === 'string' && /^audio\/[\w.+-]+(;.*)?$/.test(mime) ? mime : 'audio/webm'
+      form.append('file', new Blob([new Uint8Array(audio)], { type }), type.includes('ogg') ? 'speech.ogg' : type.includes('mp4') ? 'speech.m4a' : 'speech.webm')
+      form.append('model', 'whisper-1')
+      const res = await fetch(`${base}/audio/transcriptions`, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) })
+      if (!res.ok) return { error: `The speech-to-text server answered ${res.status}.` }
+      const body = (await res.json()) as { text?: unknown }
+      return typeof body.text === 'string' ? { text: body.text.trim() } : { error: 'The speech-to-text server sent no text.' }
+    } catch (e) {
+      return { error: `The speech-to-text server could not be reached: ${e instanceof Error ? e.message : String(e)}` }
+    }
   },
   async applyUpdate() {
     return updater.apply()

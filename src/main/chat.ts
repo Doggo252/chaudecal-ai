@@ -256,7 +256,20 @@ export class ChatEngine {
     let userMessage: Message | undefined
     const attachments = this.cleanAttachments(input.attachments)
 
-    if (input.retry) {
+    if (input.edit) {
+      // An earlier question, changed. What came after it no longer fits, so it goes, and the question is answered again.
+      const idx = all.findIndex((m) => m.id === input.edit)
+      const original = all[idx]
+      if (!original || original.role !== 'user') throw new Error('That question can no longer be changed.')
+      if (!userText && !original.attachments?.length) throw new Error('Write something to ask.')
+      for (const m of all.slice(idx + 1)) this.store.remove('message', m.id)
+      userMessage = { ...original, text: userText }
+      this.store.put('message', userMessage.id, userMessage)
+      this.updateConversation(conv.id, { updatedAt: Date.now(), ...(idx === 0 && conv.title === titleFromText(original.text) ? { title: titleFromText(userText) } : {}) })
+      // An assistant that saw the old version is caught up from scratch, because the message it last saw is gone.
+      prior = threadMessages(all.slice(0, idx))
+      userText = messageBody(userMessage)
+    } else if (input.retry) {
       // Answer the last user message again. Failed or stopped replies after it are removed.
       const lastUserIdx = all.map((m) => m.role).lastIndexOf('user')
       if (lastUserIdx < 0) throw new Error('There is nothing to retry.')
@@ -388,6 +401,10 @@ export class ChatEngine {
           flush(true)
           break
         }
+        case 'plan':
+          message.plan = event.steps
+          flush(true)
+          break
         case 'session':
           sessionId = event.sessionId
           break

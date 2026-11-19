@@ -1,3 +1,5 @@
+import type { FileDiff } from './diff'
+
 // Types shared by the main process, the renderer and the hub.
 
 export type ProviderId = 'claude' | 'chatgpt' | 'local'
@@ -66,6 +68,18 @@ export interface ToolCall {
   summary: string
   status: 'running' | 'done' | 'error' | 'denied'
   output?: string
+  /** What sort of step it is, so steps of one sort can be shown together. */
+  kind?: ToolKind
+  /** For a file edit: what changed, file by file. */
+  diff?: FileDiff[]
+}
+
+export type ToolKind = 'command' | 'read' | 'search' | 'edit' | 'web' | 'agent' | 'tool' | 'other'
+
+/** One step of the assistant's own plan for the turn. */
+export interface PlanStep {
+  text: string
+  status: 'pending' | 'active' | 'done'
 }
 
 export interface MessageUsage {
@@ -93,6 +107,8 @@ export interface Message {
   selected?: boolean
   /** Files the user attached to this message. */
   attachments?: Attachment[]
+  /** The assistant's checklist for this reply, as it last stood. */
+  plan?: PlanStep[]
 }
 
 /**
@@ -274,6 +290,8 @@ export interface Settings {
     contextTokens: number
     /** Use a local model to keep conversation summaries up to date. */
     summarize: boolean
+    /** A speech-to-text server on this machine or the network that speaks the OpenAI transcription API, for dictation. Empty when there is none. */
+    speechUrl: string
   }
   hub: {
     /** This machine is the hub: it stores the master copy and shares its local AI. */
@@ -325,7 +343,8 @@ export function defaultSettings(deviceName: string): Settings {
       ],
       defaultModel: '',
       contextTokens: 16_000,
-      summarize: true
+      summarize: true,
+      speechUrl: ''
     },
     hub: { hostEnabled: false, port: DEFAULT_HUB_PORT, token: '', remoteUrl: '', remoteToken: '', allowRemoteRuns: false },
     runOnHubByDefault: false,
@@ -447,6 +466,7 @@ export type RunEvent =
   | { type: 'text'; delta: string }
   | { type: 'thinking'; delta: string }
   | { type: 'tool'; tool: ToolCall }
+  | { type: 'plan'; steps: PlanStep[] }
   | { type: 'session'; sessionId: string }
   | { type: 'model'; model: string }
   | { type: 'usage'; usage: MessageUsage }

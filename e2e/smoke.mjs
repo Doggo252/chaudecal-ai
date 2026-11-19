@@ -116,6 +116,23 @@ const releases = createHttpServer((_req, res) => {
 await new Promise((r) => releases.listen(0, '127.0.0.1', r))
 const releasesUrl = `http://127.0.0.1:${releases.address().port}/latest`
 
+// A stand-in speech-to-text server, for dictation. It checks that a recording arrived.
+let heardAudio = 0
+const speechServer = createHttpServer(async (req, res) => {
+  let size = 0
+  let body = ''
+  for await (const chunk of req) {
+    size += chunk.length
+    if (body.length < 4000) body += chunk.toString('latin1')
+  }
+  const ok = req.url === '/v1/audio/transcriptions' && /multipart\/form-data/.test(req.headers['content-type'] ?? '') && body.includes('name="file"') && body.includes('whisper-1')
+  if (ok) heardAudio = size
+  res.writeHead(ok ? 200 : 400, { 'content-type': 'application/json' })
+  res.end(JSON.stringify(ok ? { text: 'Hello from dictation' } : { error: 'bad request' }))
+})
+await new Promise((r) => speechServer.listen(0, '127.0.0.1', r))
+const speechUrl = `http://127.0.0.1:${speechServer.address().port}/v1`
+
 // Stand-ins for claude.ai and chatgpt.com, for bringing in chats through the website tabs.
 const sites = makeSites()
 const claudeSite = await serveSite(sites, 'claude')
@@ -132,10 +149,10 @@ try {
       theme: 'light',
       claude: { cliPath: fakeClaude },
       chatgpt: { cliPath: fakeCodex },
-      local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false },
+      local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false, speechUrl },
       hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true }
     },
-    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir, CHAUDECAL_E2E_WEB_ORIGINS: webOrigins }
+    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir, CHAUDECAL_E2E_WEB_ORIGINS: webOrigins, CHAUDECAL_E2E_FAKE_MIC: '1' }
   )
   await a.page.waitForFunction(async () => {
     const s = await window.api.state()
@@ -298,6 +315,64 @@ try {
   await shot(a.page, '19-tool-used')
   ok('Claude and ChatGPT both use the tool server, each after asking')
 
+  // Work shown the way coding tools show it: a checklist, steps grouped by sort, and diffs of file edits.
+  await a.page.click(tid('new-chat'))
+  await pickProvider(a.page, 'claude')
+  await sendMessage(a.page, 'Tidy up the greeting. [work]')
+  await waitForReply(a.page, 'claude', 'The work is done')
+  const last = `${tid('assistant-message')}:last-of-type`
+  assert((await a.page.textContent(`${last} ${tid('plan')}`)).includes('3 of 3 done'), 'the checklist should be all ticked off')
+  const groupText = async (kind) => a.page.textContent(`${last} [data-kind="${kind}"] > summary`)
+  const edited = await groupText('edit')
+  assert(edited.includes('Edited 2 files') && edited.includes('+5') && edited.includes('−1'), `the edits should be grouped with their counts, got ${edited}`)
+  assert((await groupText('command')).includes('Ran 2 commands'), 'the commands should be grouped')
+  assert(!(await a.page.$(`${last} ${tid('tool-row')}[data-kind="other"]`)), 'the to-do list should not show as a step')
+  await a.page.click(`${last} [data-kind="edit"] > summary`)
+  await a.page.click(`${last} ${tid('step-group')}[data-kind="edit"] ${tid('tool-row')}:first-of-type > summary`)
+  await a.page.waitForSelector(`${last} ${tid('diff')} .diff-line.add:has-text("hello there")`)
+  await shot(a.page, '33-steps-claude')
+  await pickProvider(a.page, 'chatgpt')
+  await sendMessage(a.page, 'Now the readme. [work]')
+  await waitForReply(a.page, 'chatgpt', 'The work is done')
+  assert((await a.page.textContent(`${last} ${tid('plan')}`)).includes('2 of 2 done'), "ChatGPT's plan should show as a checklist")
+  const readme = await a.page.textContent(`${last} ${tid('tool-row')}[data-kind="edit"] > summary`)
+  assert(readme.includes('README.md') && readme.includes('+2') && readme.includes('−1'), `ChatGPT's edit should carry its diff, got ${readme}`)
+  ok('a checklist, grouped steps and diffs show what Claude and ChatGPT did')
+
+  // Math is drawn as formulas, and prices stay text.
+  await pickProvider(a.page, 'claude')
+  await sendMessage(a.page, 'Some formulas please. [math]')
+  await waitForReply(a.page, 'claude', 'Tickets cost')
+  assert((await a.page.$$(`${last} .prose math`)).length === 3, 'three formulas should be drawn')
+  assert((await a.page.$$(`${last} .prose .math-block math mfrac`)).length === 1, 'the fraction should be drawn as a fraction')
+  assert((await a.page.textContent(`${last} .prose`)).includes('Tickets cost $5 and $10.'), 'prices should stay as text')
+  assert(!(await a.page.textContent(`${last} .prose`)).includes('\\frac'), 'no TeX source should show')
+  await shot(a.page, '35-math')
+  ok('math formulas are drawn, and prices stay text')
+
+  // An earlier question can be changed and asked again. The answer after it is replaced.
+  const oldQuestion = `${tid('user-message')}:has-text("Some formulas please.")`
+  await a.page.hover(oldQuestion)
+  await a.page.click(`${oldQuestion} ${tid('edit-question')}`)
+  await a.page.fill(tid('edit-input'), 'Just one formula, please.')
+  await shot(a.page, '36-edit-question')
+  await a.page.click(tid('edit-send'))
+  await waitForReply(a.page, 'claude', 'You said: "Just one formula, please."')
+  assert(!(await a.page.$(oldQuestion)), 'the old question should be gone')
+  assert(!(await a.page.$(`${tid('assistant-message')}:has-text("Tickets cost")`)), 'the old answer should be gone')
+  ok('an earlier question can be edited and asked again')
+
+  // Dictation: a recording goes to the speech-to-text server, and its text lands in the message box.
+  await a.page.click(tid('dictate'))
+  await a.page.waitForSelector(`${tid('dictate')}[data-state="recording"]`)
+  await new Promise((r) => setTimeout(r, 700))
+  await a.page.click(tid('dictate'))
+  await a.page.waitForFunction(() => document.querySelector('[data-testid="composer-input"]').value === 'Hello from dictation', null, { timeout: 15000 })
+  assert(heardAudio > 1000, `a real recording should have been sent, got ${heardAudio} bytes`)
+  assert(await a.page.$(`${tid('assistant-message')}:last-of-type ${tid('read-aloud')}`), 'answers can be read aloud')
+  await a.page.fill(tid('composer-input'), '')
+  ok('dictation turns a recording into text, and answers have a read-aloud button')
+
   // ---------- Device B: a client of the hub ----------
   const token = await a.page.evaluate(async () => (await window.api.state()).settings.hub.token)
   assert(token && token.length >= 10, 'hub should have generated a pairing code')
@@ -309,7 +384,7 @@ try {
     local: { endpoints: [], summarize: false },
     hub: { remoteUrl: `127.0.0.1:${hubPort}`, remoteToken: token }
   }, { CHAUDECAL_E2E_NOTIFY: noticeFile.client })
-  await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 5, null, { timeout: 15000 })
+  await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 6, null, { timeout: 15000 })
   ok('a second device pairs with the hub and receives every conversation')
 
   await b.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
@@ -721,6 +796,7 @@ try {
   for (const d of [b, a]) if (d) await d.app.close().catch(() => {})
   await runtime.close()
   releases.close()
+  speechServer.close()
   await claudeSite.close()
   await chatgptSite.close()
   rmSync(attachDir, { recursive: true, force: true })

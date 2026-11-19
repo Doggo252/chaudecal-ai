@@ -2,9 +2,9 @@
 // sign-in. Because it is the real CLI, the user's Claude Code settings, plugins,
 // MCP servers, skills and CLAUDE.md files all apply here without extra work.
 
-import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { claudeMcpAllow, claudeMcpConfig } from '@shared/mcp'
 import type { ApprovalDecision, ProviderStatus, RunEvent, Settings } from '@shared/types'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
@@ -217,9 +217,19 @@ export class ClaudeProvider implements Provider {
       if (structured) runArgs.push('--input-format', 'stream-json')
       if (live) runArgs.push('--permission-prompt-tool', 'stdio')
 
+      // A file Claude is about to rewrite is read first, so the change can be shown as a diff.
+      const readCurrent = (path: string) => {
+        try {
+          const full = resolve(request.cwd, path)
+          return statSync(full).size <= 2_000_000 ? readFileSync(full, 'utf8') : undefined
+        } catch {
+          return undefined
+        }
+      }
       const lines = createClaudeParser(
         emit,
-        mcp.map((m) => m.name)
+        mcp.map((m) => m.name),
+        readCurrent
       )
       parser = lines
       let stderr = ''

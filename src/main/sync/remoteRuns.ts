@@ -25,6 +25,7 @@ export function cleanSendInput(body: unknown): SendInput | undefined {
   if (b.variant === 'summary' || b.variant === 'full') input.variant = b.variant
   if (Array.isArray(b.compare)) input.compare = b.compare.filter(isProvider)
   if (b.retry === true) input.retry = true
+  if (typeof b.edit === 'string' && b.edit) input.edit = b.edit
   if (Array.isArray(b.allow)) input.allow = b.allow.filter((r): r is string => typeof r === 'string').slice(0, 50)
   if (Array.isArray(b.attachments)) input.attachments = b.attachments as Attachment[]
   return input

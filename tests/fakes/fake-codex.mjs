@@ -132,6 +132,23 @@ async function runTurn(threadId, text, imageCount = 0) {
       if (/not allowed|no tool server/.test(note)) break
     }
   }
+  // "[work]" works through a small task: a plan, a file change and a command.
+  if (lastLine.includes('[work]')) {
+    const plan = (done) => send({ method: 'turn/plan/updated', params: { threadId, turnId, explanation: null, plan: [
+      { step: 'Update the readme', status: done > 0 ? 'completed' : 'inProgress' },
+      { step: 'Run the tests', status: done > 1 ? 'completed' : done === 1 ? 'inProgress' : 'pending' }
+    ] } })
+    plan(0)
+    const change = { type: 'fileChange', id: `fc-${randomUUID().slice(0, 6)}`, changes: [{ path: 'README.md', kind: { type: 'update', move_path: null }, diff: '@@ -1,2 +1,3 @@\n # Title\n-Old line\n+New line\n+Another line\n' }] }
+    send({ method: 'item/started', params: { threadId, turnId, item: { ...change, status: 'inProgress' } } })
+    send({ method: 'item/completed', params: { threadId, turnId, item: { ...change, status: 'completed' } } })
+    plan(1)
+    const cmd = { type: 'commandExecution', id: `cmd-${randomUUID().slice(0, 6)}`, command: 'npm test', aggregatedOutput: 'ok', exitCode: 0 }
+    send({ method: 'item/started', params: { threadId, turnId, item: { ...cmd, status: 'inProgress' } } })
+    send({ method: 'item/completed', params: { threadId, turnId, item: { ...cmd, status: 'completed' } } })
+    plan(2)
+    notes.push('The work is done')
+  }
   if (text.includes('<context_file>')) notes.push('I received the context file')
   if (text.includes('<conversation_since_your_last_reply>')) notes.push('I was caught up on what happened in between')
   if (thread.resumed) notes.push('I resumed my earlier session')

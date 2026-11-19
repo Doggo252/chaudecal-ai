@@ -94,6 +94,26 @@ describe.skipIf(!canRunFakes)('conversation engine', () => {
     expect(threadMessages(store.messages(conv.id))).toHaveLength(10)
   })
 
+  it('changes an earlier question, drops what came after it, and answers it afresh', async () => {
+    const { engine, store } = await setup()
+    const conv = engine.createConversation({ provider: 'claude' })
+    await engine.send({ conversationId: conv.id, text: 'My dog is called Rex.' })
+    await engine.send({ conversationId: conv.id, text: 'What is my dog called?' })
+    await engine.send({ conversationId: conv.id, text: 'And how old is he?' })
+    const second = store.messages(conv.id).filter((m) => m.role === 'user')[1]
+    await engine.send({ conversationId: conv.id, text: 'What breed is my dog?', edit: second.id })
+    const after = store.messages(conv.id)
+    expect(after.map((m) => [m.role, m.text])).toEqual([
+      ['user', 'My dog is called Rex.'],
+      ['assistant', 'Claude here. You said: "My dog is called Rex.".'],
+      ['user', 'What breed is my dog?'],
+      // The session last saw a message that is gone, so Claude is caught up afresh instead of resumed.
+      ['assistant', expect.not.stringContaining('I resumed my earlier session')]
+    ])
+    expect(after[2].id).toBe(second.id)
+    await expect(engine.send({ conversationId: conv.id, text: 'x', edit: after[1].id })).rejects.toThrow(/can no longer be changed/)
+  })
+
   it('keeps both context files on disk, ready to hand over', async () => {
     const { engine, last } = await setup()
     const conv = engine.createConversation({ provider: 'claude' })

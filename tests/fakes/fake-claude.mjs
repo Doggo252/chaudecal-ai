@@ -191,6 +191,31 @@ if (prompt.includes('[plan]')) {
   }
 }
 
+// "[work]" works through a small task: a plan, reading, editing files, running commands.
+if (lastLine.includes('[work]')) {
+  const todos = (done) => ({ todos: [
+    { content: 'Read the greeting', activeForm: 'Reading the greeting', status: done > 0 ? 'completed' : 'in_progress' },
+    { content: 'Change the greeting', activeForm: 'Changing the greeting', status: done > 1 ? 'completed' : done === 1 ? 'in_progress' : 'pending' },
+    { content: 'Run the checks', activeForm: 'Running the checks', status: done > 2 ? 'completed' : done === 2 ? 'in_progress' : 'pending' }
+  ] })
+  const step = async (name, input, result) => {
+    const id = newToolId()
+    toolUse(id, name, input)
+    await sleep(20)
+    toolResult(id, result)
+  }
+  toolUse(newToolId(), 'TodoWrite', todos(0))
+  await step('Read', { file_path: 'greeting.txt' }, 'hello\nworld')
+  toolUse(newToolId(), 'TodoWrite', todos(1))
+  await step('Edit', { file_path: 'greeting.txt', old_string: 'hello\nworld', new_string: 'hello there\nworld\nand more' }, 'Edited')
+  await step('Write', { file_path: 'notes.md', content: '# Notes\nOne\nTwo' }, 'Written')
+  toolUse(newToolId(), 'TodoWrite', todos(2))
+  await step('Bash', { command: 'npm test' }, 'All tests passed')
+  await step('Bash', { command: 'npm run lint' }, 'No problems')
+  toolUse(newToolId(), 'TodoWrite', todos(3))
+  notes.push('The work is done')
+}
+
 if (prompt.includes('[tool]') || prompt.includes('[deny]')) {
   const command = prompt.includes('[deny]') ? 'npm test' : 'ls'
   const allowed = !prompt.includes('[deny]') || (arg('--allowedTools') ?? '').includes('Bash')
@@ -241,6 +266,11 @@ if (prompt.includes('[mcp]') || prompt.includes('[mcp-echo]')) {
 }
 
 let reply = `Claude here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
+
+// "[math]" answers with formulas, and with prices that must stay plain text.
+if (lastLine.includes('[math]')) {
+  reply = 'Claude here. The area is $A = \\pi r^2$, and \\(e^{i\\pi} + 1 = 0\\).\n\n$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$\n\nTickets cost $5 and $10.'
+}
 
 // "[artifact]" writes a web page, an image and a program as artifacts. "[artifact-v2]" writes
 // the page again (a new version, whose script fails on purpose), a document and a component.

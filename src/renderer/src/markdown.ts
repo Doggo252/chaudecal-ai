@@ -2,6 +2,7 @@ import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/common'
 import { Marked, type Tokens } from 'marked'
 import { ARTIFACT_KIND_LABEL, classifyFence, fenceClosed } from '@shared/artifacts'
+import { mathExtensions } from './math'
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -37,9 +38,9 @@ function artifactCard(token: Tokens.Code): string {
   return `<button type="button" class="artifact-card" data-testid="artifact-card" data-artifact-index="${index}" data-kind="${spec.kind}"${writing ? ' data-writing="1"' : ''}><span class="artifact-card-icon">${ICON}</span><span class="artifact-card-text"><span class="artifact-card-title">${escapeHtml(spec.title)}</span><span class="artifact-card-sub">${sub}</span></span><span class="artifact-card-open">${writing ? 'Writing' : 'Open'}</span></button>`
 }
 
-const marked = new Marked({ gfm: true, breaks: false, renderer: { code: artifactCard } })
+const marked = new Marked({ gfm: true, breaks: false, renderer: { code: artifactCard }, extensions: mathExtensions })
 /** For documents shown in the panel, where code blocks stay code blocks. */
-const plain = new Marked({ gfm: true, breaks: false, renderer: { code: codeBlock } })
+const plain = new Marked({ gfm: true, breaks: false, renderer: { code: codeBlock }, extensions: mathExtensions })
 
 // Links leave the app and open in the system browser.
 DOMPurify.addHook('afterSanitizeAttributes', (node) => {

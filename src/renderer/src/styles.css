@@ -2133,3 +2133,217 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---------- Steps: groups, diffs and the plan ---------- */
+
+.tool-group-rows {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border-top: 1px solid var(--border);
+}
+.tool-group-rows .tool {
+  background: var(--bg);
+}
+.diff-counts {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: calc(12px * var(--text-scale));
+}
+.diff-plus {
+  color: var(--ok);
+}
+.diff-minus {
+  color: var(--bad);
+}
+.diff {
+  border-top: 1px solid var(--border);
+}
+.diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: calc(12px * var(--text-scale));
+  color: var(--text-soft);
+}
+.diff-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.diff-lines {
+  max-height: 340px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.5;
+  background: var(--bg-code);
+}
+.diff-line {
+  display: flex;
+  white-space: pre;
+  min-width: max-content;
+}
+.diff-line.add {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+.diff-line.del {
+  background: color-mix(in srgb, var(--bad) 13%, transparent);
+}
+.diff-sign {
+  flex: none;
+  width: 22px;
+  text-align: center;
+  color: var(--text-muted);
+  user-select: none;
+}
+.diff-line.add .diff-sign {
+  color: var(--ok);
+}
+.diff-line.del .diff-sign {
+  color: var(--bad);
+}
+.diff-text {
+  padding-right: 12px;
+  color: var(--text);
+}
+.diff-gap {
+  padding: 2px 10px;
+  color: var(--text-muted);
+  font-size: calc(11px * var(--text-scale));
+  background: var(--bg-raised);
+}
+
+.plan-card {
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  font-size: calc(13px * var(--text-scale));
+}
+.plan-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.plan-head .muted {
+  font-weight: 400;
+  font-size: calc(12px * var(--text-scale));
+}
+.plan-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 6px 12px 8px;
+  display: grid;
+  gap: 5px;
+}
+.plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--text-soft);
+}
+.plan-step.done .plan-text {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+.plan-step.active .plan-text {
+  color: var(--text);
+  font-weight: 600;
+}
+.plan-mark {
+  flex: none;
+  width: 16px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  color: var(--ok);
+}
+.plan-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+}
+.plan-step.active .plan-dot {
+  border-color: var(--text-soft);
+  background: color-mix(in srgb, var(--text-soft) 30%, transparent);
+}
+
+/* ---------- Math ---------- */
+
+.prose math {
+  font-size: 1.08em;
+  font-family: 'STIX Two Math', 'Cambria Math', 'Latin Modern Math', math;
+}
+.prose .math-block {
+  margin: 0.4em 0 0.9em;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.prose .math-block math {
+  font-size: 1.15em;
+}
+.prose merror {
+  color: var(--bad);
+}
+
+/* ---------- Editing an earlier question ---------- */
+
+.msg-user .user-actions {
+  margin-top: 2px;
+}
+.msg-user.editing {
+  align-items: stretch;
+}
+.edit-box {
+  width: 100%;
+  border: 1px solid var(--accent-focus);
+  border-radius: 16px;
+  background: var(--bg-raised);
+  padding: 10px 12px 8px;
+}
+.edit-input {
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: vertical;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(15px * var(--text-scale));
+  line-height: 1.55;
+}
+.edit-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+.edit-actions .muted {
+  margin-right: auto;
+}
+
+.icon-btn.recording {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+.icon-btn.on {
+  color: var(--text);
+  background: var(--bg-active);
+}

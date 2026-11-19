@@ -4,6 +4,7 @@ import { MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
 import { headroom } from '@shared/usage'
 import type { AttachResult } from '@shared/ipc'
 import { createFromDraft, getState, setState, toast, useUi, type Draft } from '../state'
+import { DictationButton } from './Speech'
 import { IconBook, IconChevron, IconClip, IconColumns, IconComputer, IconFolder, IconLock, IconSend, IconStop } from '../icons'
 import { AttachmentList, fileToBase64 } from './Attachments'
 import { HubFolder } from './HubFolder'
@@ -380,6 +381,8 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
             )}
 
             <span className="spacer" />
+
+            <DictationButton onText={(t) => setText((prev) => (prev.trim() ? `${prev.trimEnd()} ${t}` : t))} />
 
             <button type="button" className="icon-btn" title="Attach images or text files" data-testid="attach" onClick={() => void window.api.pickAttachments().then(addAttached)}>
               <IconClip />

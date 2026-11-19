@@ -1,7 +1,8 @@
 // Turns the Claude Code CLI's stream-json output (one JSON object per line)
 // into the app's provider-neutral run events. Pure: no process handling here.
 
-import type { ApprovalRequest, PermissionDenial, RunEvent, ToolCall } from '@shared/types'
+import type { ApprovalRequest, PermissionDenial, PlanStep, RunEvent, ToolCall, ToolKind } from '@shared/types'
+import { claudeToolDiff } from '@shared/diff'
 import { mcpToolLabel, mcpToolParts } from '@shared/mcp'
 import { limitsFromClaude, type ClaudeRateLimitInfo } from '@shared/usage'
 import { truncate } from './types'
@@ -48,6 +49,30 @@ export function sessionRule(name: string, input: Json | undefined): string | und
 }
 
 const COMMAND_TOOLS = new Set(['Bash', 'BashOutput', 'KillShell', 'KillBash'])
+const READ_TOOLS = new Set(['Read', 'NotebookRead'])
+const SEARCH_TOOLS = new Set(['Glob', 'Grep', 'LS', 'ToolSearch'])
+const WEB_TOOLS = new Set(['WebSearch', 'WebFetch'])
+const AGENT_TOOLS = new Set(['Task', 'Agent'])
+
+/** What sort of step one of Claude's tools is. */
+export function claudeToolKind(name: string): ToolKind {
+  if (COMMAND_TOOLS.has(name)) return 'command'
+  if (READ_TOOLS.has(name)) return 'read'
+  if (SEARCH_TOOLS.has(name)) return 'search'
+  if (FILE_TOOLS.has(name)) return 'edit'
+  if (WEB_TOOLS.has(name)) return 'web'
+  if (AGENT_TOOLS.has(name)) return 'agent'
+  if (mcpToolParts(name)) return 'tool'
+  return 'other'
+}
+
+/** Claude's to-do list, as a checklist. */
+export function todoPlan(input: Json | undefined): PlanStep[] | undefined {
+  if (!Array.isArray(input?.todos)) return undefined
+  return (input!.todos as Json[])
+    .filter((t) => typeof t?.content === 'string' && t.content.trim())
+    .map((t) => ({ text: String(t.status === 'in_progress' && typeof t.activeForm === 'string' && t.activeForm.trim() ? t.activeForm : t.content).trim(), status: t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'active' : 'pending' }))
+}
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
 /** A question Claude Code asks in the middle of a turn: may this tool be used? */
@@ -103,7 +128,7 @@ export interface ClaudeParser {
 }
 
 /** `mcpNames` are the tool servers this app added to the run. */
-export function createClaudeParser(emit: (event: RunEvent) => void, mcpNames: string[] = []): ClaudeParser {
+export function createClaudeParser(emit: (event: RunEvent) => void, mcpNames: string[] = [], readCurrent?: (path: string) => string | undefined): ClaudeParser {
   /** Text for the current block already arrived as deltas, so the full copy is skipped. */
   let streamedText = false
   let anyText = false
@@ -188,7 +213,14 @@ export function createClaudeParser(emit: (event: RunEvent) => void, mcpNames: st
                 text(block.text ?? '')
               }
             } else if (block.type === 'tool_use') {
-              const tool: ToolCall = { id: block.id, name: toolLabel(block.name), summary: describeTool(block.name, block.input), status: 'running' }
+              // The to-do list is shown as a checklist, not as a step.
+              if (block.name === 'TodoWrite') {
+                const steps = todoPlan(block.input)
+                if (steps) emit({ type: 'plan', steps })
+                continue
+              }
+              const diff = FILE_TOOLS.has(block.name) ? claudeToolDiff(block.name, block.input, readCurrent) : undefined
+              const tool: ToolCall = { id: block.id, name: toolLabel(block.name), summary: describeTool(block.name, block.input), status: 'running', kind: claudeToolKind(block.name), ...(diff ? { diff } : {}) }
               tools.set(tool.id, tool)
               emit({ type: 'tool', tool })
             }

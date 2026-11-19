@@ -414,6 +414,9 @@ function LocalAi() {
         <Row title="Keep summaries up to date with local AI" sub="Conversation summaries for handoffs are written by a local model, so they never spend a paid limit.">
           <Toggle checked={s.summarize} label="Summarize with local AI" onChange={(v) => save({ local: { summarize: v } })} />
         </Row>
+        <Row title="Speech to text for dictation" sub="The address of a speech-to-text server that works like OpenAI's, for example one running Whisper on this computer. Leave it empty to use your computer's own dictation instead." stack>
+          <Field className="input wide" value={s.speechUrl ?? ''} placeholder="http://127.0.0.1:8000/v1" testId="speech-url" onCommit={(v) => save({ local: { speechUrl: v.trim() } })} />
+        </Row>
       </div>
     </>
   )

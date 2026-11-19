@@ -25,6 +25,8 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 - **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, account settings).
 - **Tools for both assistants (MCP).** Add a tool server once, for example for GitHub, your notes or a database, and Claude and ChatGPT can both use it. The list syncs between your machines.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
+- **See what the assistant did.** Its plan shows as a checklist that ticks itself off, its steps are grouped ("Ran 3 commands", "Edited 2 files +12 −3"), and every file edit opens to show the lines it changed.
+- **Math, editing and voice.** Formulas are drawn properly. Any earlier question can be edited and asked again. Answers can be read aloud, and you can dictate a message.
 
 | Switching assistants | Comparing answers |
 | --- | --- |
@@ -46,9 +48,13 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 | --- | --- |
 | ![Claude asking whether it may use a tool from a tool server](docs/screenshots/tool-ask.png) | ![The appearance settings: theme, accent color and text size](docs/screenshots/theme.png) |
 
-| Artifacts | Versions, and a preview that ran into an error |
+| A checklist, grouped steps and a diff | Artifacts |
 | --- | --- |
-| ![A Mermaid diagram open in the artifact panel beside the conversation](docs/screenshots/artifacts.png) | ![The second version of a web page, with "Ask to fix" for an error on the page](docs/screenshots/artifact-versions.png) |
+| ![Claude's plan as a checklist, its edits grouped with a diff open, and its commands grouped](docs/screenshots/steps.png) | ![A Mermaid diagram open in the artifact panel beside the conversation](docs/screenshots/artifacts.png) |
+
+| Versions, and a preview that ran into an error | |
+| --- | --- |
+| ![The second version of a web page, with "Ask to fix" for an error on the page](docs/screenshots/artifact-versions.png) | |
 
 | A chat brought in from claude.ai | Bringing in your chats |
 | --- | --- |
@@ -185,6 +191,10 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - **Attachments.** Use the paperclip, paste a screenshot, or drop files on the message box. Images can be PNG, JPEG, GIF or WebP up to 8 MB. Text files (code, Markdown, CSV and so on) are read into the message, so they travel in the context file. A PDF up to 32 MB is turned into text page by page and then travels the same way. When a conversation moves to another assistant, its four most recent images are sent along.
 - **Second opinion.** Hover over the latest answer and click the speech bubbles. Another assistant with room left reads the conversation and reviews the answer. Your next message goes back to the assistant you were using.
 - **Branching.** Hover over any answer and click the branch icon. The conversation up to that answer is copied into a new one, and the original is left as it was.
+- **Editing a question.** Hover over any of your messages and click the pencil. Change it and press Send: the answers after it are replaced by a new answer to the changed question. An assistant that saw the old version is given the conversation afresh, so it does not answer from the old one.
+- **What the assistant did.** In Plan, Edit and Auto modes, Claude's to-do list and ChatGPT's plan show as a checklist at the top of the answer. Steps of the same sort are grouped: click a group to see each step, and click a file edit to see the lines it removed and added.
+- **Math.** Formulas written as `$...$`, `$$...$$`, `\(...\)` or `\[...\]` are drawn as math. Prices such as "$5 and $10" stay text.
+- **Read aloud and dictation.** The speaker button under an answer reads it with your computer's own voice, leaving out code and formulas. The microphone in the message box records you and turns it into text, using a speech-to-text server you set up under Settings, "Local AI" (any server that works like OpenAI's, for example one running Whisper). Without one, use your computer's own dictation in the message box: Fn twice on a Mac, Windows key + H on Windows.
 - **Notifications.** They appear only while the app is not the window in front, and only on the computer the message was sent from, so the hub PC stays quiet about work you started on the Mac. The Dock icon also shows a count (on Windows the taskbar button flashes) until you look at the app. A conversation that is waiting for your answer has an amber dot in the sidebar. Private chats never show their contents in a notification. Turn it all off under Settings, "General".
 - **Theme.** Under Settings, "General", choose Light, Dark or Match system, and an accent color. The accent is used for the main buttons, the send button, the switches, the text selection and a tint on your own messages. The last swatch opens a color picker for any color, and the text on it turns dark or white to stay readable. Text size has four steps, from Small to Extra large, and changes every piece of text in the app at once. The look is a setting of each machine, so the Mac and the PC can differ.
 - **Artifacts.** When an assistant writes something you will want to look at or reuse, it appears in the reply as a card, and the panel beside the conversation opens by itself while it is written. Click any card to open it again. The kinds are web pages (HTML), React components (JSX or TSX, with Tailwind and npm packages), SVG images, Mermaid diagrams, Markdown documents and code in any language. Preview and Code switch between the running result and its source. When the assistant writes the same title again, it becomes a new version, and the arrows step between versions. If a preview hits an error, "Ask to fix" sends the error back to the assistant. Copy, download, and a button to let the panel fill the window are at the top. In a narrow window the panel covers the conversation instead of squeezing it; close it to go back. The app tells every assistant how to write artifacts; turn that off under Settings, "General", "Artifacts".
@@ -206,6 +216,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - Tool servers that sign in through a browser page (many hosted ones do) are not supported yet. Use one that takes a token, or the version of it that runs as a program. Tool servers you added to Claude Code or Codex yourself keep working, each in its own assistant only.
 - Tokens typed into a tool server are stored and synced the way conversations are: unencrypted on your disks and on your home network, encrypted over Tailscale. Give a server a token with only the access it needs.
 - On Windows, a tool server started with `npx`, `npm`, `pnpm` or `yarn` is run through `cmd` automatically. This has not been tried on a real PC yet.
+- Dictation needs a speech-to-text server. Neither plan offers speech to text through the tools this app uses, and a live voice conversation like the ones on the websites is not possible here; use the claude.ai or chatgpt.com tab for that.
 - Bringing in chats relies on how claude.ai and chatgpt.com load your chats in their own pages. Neither site documents this, so a change on their side can stop it working until the app is updated; the settings row then says what went wrong. The app goes slowly on purpose (a short pause between chats) so as not to strain the sites.
 - Pictures in imported chats are not brought in; a note such as "[Image]" or "[Attached: file name]" marks where they were. Text files attached on claude.ai do come in. ChatGPT chats in a Team or Enterprise workspace are not brought in yet, only those in your personal account. Thinking, web searches and other tool steps are left out; the questions and answers are kept.
 - A chat you delete in the app stays deleted, even though it is still on the website. A title you change in the app is kept. A message written in the app stays in the app; it is not sent to the website.
@@ -235,7 +246,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 32 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 36 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 
