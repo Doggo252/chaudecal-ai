@@ -2347,3 +2347,62 @@ a {
   color: var(--text);
   background: var(--bg-active);
 }
+
+/* ---------- Projects ---------- */
+
+.side-group-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.side-add {
+  width: 22px;
+  height: 22px;
+}
+.project-page .project-name {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--serif);
+  font-size: calc(28px * var(--text-scale));
+  padding: 8px 0 2px;
+  outline: none;
+}
+.project-instructions {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  font: inherit;
+  margin-bottom: 8px;
+}
+.project-chats-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.project-chat {
+  width: 100%;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  justify-content: space-between;
+}
+.project-chat:hover {
+  background: var(--bg-hover);
+}
+.project-delete {
+  margin: 18px 0 40px;
+}
+.project-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -8px 0 14px;
+  padding: 4px 6px 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-soft);
+  font-size: calc(13px * var(--text-scale));
+}

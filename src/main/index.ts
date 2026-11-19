@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
-import type { Attachment, Blob, Conversation, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
+import type { Attachment, Blob, Conversation, Project, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
 import { defaultSettings, MAX_FILE_BYTES, newId } from '@shared/types'
 import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo, type McpInput } from '@shared/ipc'
 import { cleanMcpName, mcpProblem } from '@shared/mcp'
@@ -339,6 +339,7 @@ function appState(): AppState {
     conversations: store.list<Conversation>('conversation'),
     notes: store.list<MemoryNote>('note'),
     prompts: store.list<SavedPrompt>('prompt'),
+    projects: store.list<Project>('project').sort((a, b) => a.name.localeCompare(b.name)),
     mcp: mcpServers(),
     profile: store.get<Profile>('profile', 'profile') ?? { id: 'profile', instructions: '', updatedAt: 0 },
     usage: engine.allUsage(),
@@ -537,6 +538,22 @@ const api: Omit<Api, 'on'> = {
     const id = prompt.id ?? newId()
     store.put('prompt', id, { id, title: prompt.title, text: prompt.text, createdAt: existing?.createdAt ?? now, updatedAt: now } satisfies SavedPrompt)
   },
+  async saveProject(input) {
+    const now = Date.now()
+    const id = typeof input.id === 'string' && input.id ? input.id : newId()
+    const existing = store.get<Project>('project', id)
+    // Only the parts given change, so two quick edits never undo each other.
+    const name = typeof input.name === 'string' ? input.name.trim().slice(0, 120) || 'Untitled project' : (existing?.name ?? 'New project')
+    const instructions = typeof input.instructions === 'string' ? input.instructions.slice(0, 100_000) : (existing?.instructions ?? '')
+    // Only text travels with a project. Pictures belong in a chat.
+    const files = Array.isArray(input.files) ? input.files.filter((f) => f && f.kind === 'text' && typeof f.text === 'string').slice(0, 50) : (existing?.files ?? [])
+    store.put('project', id, { id, name, instructions, files, createdAt: existing?.createdAt ?? now, updatedAt: now } satisfies Project)
+    return id
+  },
+  async deleteProject(id) {
+    for (const c of store.list<Conversation>('conversation')) if (c.projectId === id) engine.updateConversation(c.id, { projectId: undefined })
+    store.remove('project', id)
+  },
   async deletePrompt(id) {
     store.remove('prompt', id)
   },
@@ -604,8 +621,8 @@ const api: Omit<Api, 'on'> = {
     try {
       const form = new FormData()
       const type = typeof mime === 'string' && /^audio\/[\w.+-]+(;.*)?$/.test(mime) ? mime : 'audio/webm'
-      form.append('file', new Blob([new Uint8Array(audio)], { type }), type.includes('ogg') ? 'speech.ogg' : type.includes('mp4') ? 'speech.m4a' : 'speech.webm')
       form.append('model', 'whisper-1')
+      form.append('file', new Blob([new Uint8Array(audio)], { type }), type.includes('ogg') ? 'speech.ogg' : type.includes('mp4') ? 'speech.m4a' : 'speech.webm')
       const res = await fetch(`${base}/audio/transcriptions`, { method: 'POST', body: form, signal: AbortSignal.timeout(120000) })
       if (!res.ok) return { error: `The speech-to-text server answered ${res.status}.` }
       const body = (await res.json()) as { text?: unknown }

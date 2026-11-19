@@ -48,6 +48,8 @@ export interface Conversation {
   summary?: ConversationSummary
   /** Brought in from the user's history on claude.ai or chatgpt.com. */
   source?: ConversationSource
+  /** The project this chat belongs to. */
+  projectId?: string
 }
 
 export interface ConversationSource {
@@ -165,6 +167,17 @@ export interface SavedPrompt {
 }
 
 /** Personal instructions applied to every provider. Single record with id "profile". */
+/** A project: its own instructions and files, given to every assistant in its chats. Synced. */
+export interface Project {
+  id: string
+  name: string
+  instructions: string
+  /** Text files, PDFs included as their text. */
+  files: Attachment[]
+  createdAt: number
+  updatedAt: number
+}
+
 export interface Profile {
   id: 'profile'
   instructions: string
@@ -196,7 +209,7 @@ export interface ProviderUsage {
 
 // ---------- Sync records ----------
 
-export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage' | 'blob' | 'mcp'
+export type RecordKind = 'conversation' | 'message' | 'note' | 'prompt' | 'profile' | 'usage' | 'blob' | 'mcp' | 'project'
 
 export interface SyncRecord<T = unknown> {
   kind: RecordKind

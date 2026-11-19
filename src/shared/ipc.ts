@@ -1,6 +1,7 @@
 // The contract between the window (renderer) and the app's backend (main).
 
 import type {
+  Project,
   ApprovalDecision,
   ApprovalRequest,
   Attachment,
@@ -112,6 +113,7 @@ export interface AppState {
   prompts: SavedPrompt[]
   /** Tool servers (MCP) that Claude and ChatGPT share. */
   mcp: McpServer[]
+  projects: Project[]
   profile: Profile
   usage: Record<ProviderId, ProviderUsage>
   providers: Partial<Record<ProviderId, ProviderStatus>>
@@ -194,6 +196,10 @@ export interface Api {
   saveNote(note: { id?: string; text: string }): Promise<void>
   deleteNote(id: string): Promise<void>
   savePrompt(prompt: { id?: string; title: string; text: string }): Promise<void>
+  /** Adds a project, or changes only the given parts of one. Gives back its id. */
+  saveProject(project: { id?: string; name?: string; instructions?: string; files?: Attachment[] }): Promise<string>
+  /** Deletes a project. Its chats stay, outside any project. */
+  deleteProject(id: string): Promise<void>
   deletePrompt(id: string): Promise<void>
   saveProfile(instructions: string): Promise<void>
 
@@ -262,6 +268,8 @@ export const API_METHODS = [
   'saveNote',
   'deleteNote',
   'savePrompt',
+  'saveProject',
+  'deleteProject',
   'deletePrompt',
   'saveProfile',
   'saveMcpServer',

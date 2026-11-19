@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import type { Conversation, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
 import { openChat, setState, toast, useUi } from '../state'
-import { IconDownload, IconGlobe, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
+import { IconDownload, IconFolder, IconGlobe, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
 import { Meter, ProviderDot } from './ui'
 
 function groupLabel(ts: number, now: number): string {
@@ -54,6 +54,26 @@ export function Sidebar() {
       </div>
 
       <nav className="side-list" aria-label="Conversations">
+        <div className="side-group side-group-row">
+          Projects
+          <button
+            type="button"
+            className="icon-btn side-add"
+            title="New project"
+            data-testid="new-project"
+            onClick={() =>
+              void window.api.saveProject({ name: 'New project', instructions: '', files: [] }).then((projectId) => setState({ view: { kind: 'project', projectId } }))
+            }
+          >
+            <IconPlus size={13} />
+          </button>
+        </div>
+        {app.projects.map((p) => (
+          <button type="button" key={p.id} className={`conv ${view.kind === 'project' && view.projectId === p.id ? 'active' : ''}`} data-testid="project" onClick={() => setState({ view: { kind: 'project', projectId: p.id } })} title={p.name}>
+            <IconFolder size={14} />
+            <span className="conv-title">{p.name}</span>
+          </button>
+        ))}
         {!groups.length && <div className="side-empty">Your conversations with Claude, ChatGPT and local AI will all appear here.</div>}
         {groups.map((g) => (
           <div key={g.label}>

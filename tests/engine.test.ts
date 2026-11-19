@@ -114,6 +114,22 @@ describe.skipIf(!canRunFakes)('conversation engine', () => {
     await expect(engine.send({ conversationId: conv.id, text: 'x', edit: after[1].id })).rejects.toThrow(/can no longer be changed/)
   })
 
+  it("gives every assistant in a project's chats the project's instructions and files", async () => {
+    const { engine, store, last, runtime } = await setup()
+    store.put('project', 'p1', { id: 'p1', name: 'Garden', instructions: 'Use metric units.', files: [{ id: 'f1', name: 'beds.txt', mime: 'text/plain', size: 5, kind: 'text', text: 'Bed A' }], createdAt: 1, updatedAt: 1 })
+    const conv = engine.createConversation({ provider: 'claude', projectId: 'p1' })
+    await engine.send({ conversationId: conv.id, text: 'How big is bed A?' })
+    expect(last(conv.id).text).toContain('I know the project Garden and its files')
+    engine.switchProvider(conv.id, 'local')
+    await engine.send({ conversationId: conv.id, text: 'And you?' })
+    const system = runtime.requests[runtime.requests.length - 1].messages.find((m: { role: string }) => m.role === 'system')?.content ?? ''
+    expect(system).toContain('Use metric units.')
+    expect(system).toContain('Bed A')
+    const outside = engine.createConversation({ provider: 'claude' })
+    await engine.send({ conversationId: outside.id, text: 'Hello' })
+    expect(last(outside.id).text).not.toContain('I know the project')
+  })
+
   it('keeps both context files on disk, ready to hand over', async () => {
     const { engine, last } = await setup()
     const conv = engine.createConversation({ provider: 'claude' })

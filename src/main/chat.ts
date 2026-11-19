@@ -16,6 +16,7 @@ import type {
   Message,
   PermissionDenial,
   Profile,
+  Project,
   ProviderChoice,
   ProviderId,
   ProviderStatus,
@@ -34,6 +35,7 @@ import {
   planTurn,
   providerBudget,
   sharedSystemText,
+  projectSystemText,
   ARTIFACT_GUIDE,
   threadMessages,
   titleFromText,
@@ -178,13 +180,17 @@ export class ChatEngine {
     return this.store.get<Profile>('profile', 'profile')?.instructions ?? ''
   }
 
-  private systemText(): string {
+  private systemText(conv?: Conversation, provider?: ProviderId): string {
     const notes = this.store
       .list<MemoryNote>('note')
       .sort((a, b) => a.createdAt - b.createdAt)
       .map((n) => n.text)
     const shared = sharedSystemText(this.profileText(), notes)
-    return this.settings().artifacts === false ? shared : [shared, ARTIFACT_GUIDE].filter(Boolean).join('\n\n')
+    const project = conv?.projectId ? this.store.get<Project>('project', conv.projectId) : undefined
+    // A local model's window is small. Its files get about a quarter of it: as many characters as the window has tokens.
+    const room = provider === 'local' ? Math.max(2000, providerBudget('local', this.settings())) : 400_000
+    const projectText = projectSystemText(project, room)
+    return [shared, projectText, this.settings().artifacts === false ? '' : ARTIFACT_GUIDE].filter(Boolean).join('\n\n')
   }
 
   // ----- context files -----
@@ -347,7 +353,7 @@ export class ChatEngine {
     const compare = !!args.compareGroup
     const mode: RunMode = compare ? 'chat' : conv.mode
     const model = conv.models[provider] ?? (provider === 'claude' ? s.claude.defaultModel : provider === 'chatgpt' ? s.chatgpt.defaultModel : s.local.defaultModel)
-    const system = this.systemText()
+    const system = this.systemText(conv, provider)
     const budget = providerBudget(provider, s)
     const cwd = this.workspace(conv.id) || this.dirs.scratch
 

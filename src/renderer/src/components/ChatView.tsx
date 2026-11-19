@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { Attachment, Message, ProviderId } from '@shared/types'
+import type { Attachment, Message, Project, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
 import { messageBody, SECOND_OPINION_PROMPT, threadMessages } from '@shared/context'
 import { estimateTokens, formatTokens } from '@shared/tokens'
@@ -14,6 +14,7 @@ import { artifactBlocks } from '@shared/artifacts'
 import { MenuItem, Popover, ProviderDot } from './ui'
 
 const EMPTY: Message[] = []
+const NO_PROJECTS: Project[] = []
 
 function greeting(): string {
   const h = new Date().getHours()
@@ -32,6 +33,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const denial = useUi((s) => (conversationId ? s.denials[conversationId] : undefined))
   const dismissed = useUi((s) => s.dismissed)
   const openArtifact = useUi((s) => s.artifact)
+  const draftProject = useUi((s) => (conversationId ? undefined : s.app?.projects.find((p) => p.id === s.draft.projectId)))
+  const projects = useUi((s) => s.app?.projects) ?? NO_PROJECTS
   const conversation = app.conversations.find((c) => c.id === conversationId)
   const [renaming, setRenaming] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
@@ -187,6 +190,11 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                 conversation.title
               )}
             </div>
+            {conversation.projectId && projects.some((p) => p.id === conversation.projectId) && (
+              <button type="button" className="chip no-drag" data-testid="conversation-project" title="Open the project" onClick={() => setState({ view: { kind: 'project', projectId: conversation.projectId! } })}>
+                <IconFolder size={14} /> {projects.find((p) => p.id === conversation.projectId)!.name}
+              </button>
+            )}
             <span className="topbar-spacer" />
             <span className="ctx-meter" title="Size of this conversation against your context budget" data-testid="context-meter">
               {formatTokens(contextTokens)} / {formatTokens(app.settings.contextBudgetTokens)} tokens
@@ -226,6 +234,35 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                     >
                       Open on {conversation.source.service === 'claude' ? 'claude.ai' : 'chatgpt.com'}
                     </MenuItem>
+                  )}
+                  {projects.length > 0 && (
+                    <>
+                      <div className="menu-sep" />
+                      <div className="menu-title">Project</div>
+                      {projects.map((p) => (
+                        <MenuItem
+                          key={p.id}
+                          testId="move-to-project"
+                          onClick={() => {
+                            void window.api.updateConversation(conversation.id, { projectId: p.id })
+                            close()
+                          }}
+                        >
+                          {conversation.projectId === p.id ? '✓ ' : ''}
+                          {p.name}
+                        </MenuItem>
+                      ))}
+                      {conversation.projectId && (
+                        <MenuItem
+                          onClick={() => {
+                            void window.api.updateConversation(conversation.id, { projectId: '' })
+                            close()
+                          }}
+                        >
+                          Not in a project
+                        </MenuItem>
+                      )}
+                    </>
                   )}
                   <div className="menu-sep" />
                   <MenuItem
@@ -281,6 +318,14 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
       {empty ? (
         <div className="empty">
           <h1>{greeting()}</h1>
+          {draftProject && (
+            <div className="project-pill" data-testid="draft-project">
+              <IconFolder size={14} /> In the project <b>{draftProject.name}</b>
+              <button type="button" className="icon-btn" title="Not in a project" onClick={() => setState((s) => ({ draft: { ...s.draft, projectId: undefined } }))}>
+                ×
+              </button>
+            </div>
+          )}
           {composer}
           <div className="starter-row">
             <button type="button" className="starter" onClick={() => setState((s) => ({ draft: { ...s.draft, provider: 'auto', private: false } }))}>

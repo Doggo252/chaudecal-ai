@@ -119,6 +119,10 @@ if (prompt.includes('<attached_file')) notes.push('I read the attached file')
 const pdfPages = (prompt.match(/\[Page \d+\]\n/g) ?? []).length
 if (pdfPages) notes.push(`I read a PDF of ${pdfPages} ${pdfPages === 1 ? 'page' : 'pages'}`)
 if (system.includes('standing instructions')) notes.push('I have your standing instructions')
+{
+  const project = /This conversation is part of the project "([^"]+)"/.exec(system)
+  if (project) notes.push(`I know the project ${project[1]}${system.includes('<project_file') ? ' and its files' : ''}`)
+}
 const utilization = Number(process.env.FAKE_CLAUDE_UTILIZATION ?? '0.2')
 out({
   type: 'rate_limit_event',

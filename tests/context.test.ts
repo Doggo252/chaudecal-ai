@@ -149,3 +149,18 @@ describe('other helpers', () => {
     expect(titleFromText('x'.repeat(200)).length).toBeLessThanOrEqual(60)
   })
 })
+
+describe('projects', () => {
+  it("gives the assistant the project's instructions and files, cut to fit", async () => {
+    const { projectSystemText } = await import('@shared/context')
+    expect(projectSystemText(undefined)).toBe('')
+    const project = { name: 'Garden', instructions: 'Use metric units.', files: [{ name: 'beds.txt', text: 'Bed A' }, { name: 'long.md', text: 'x'.repeat(50) }, { name: 'last.md', text: 'never' }] }
+    const full = projectSystemText(project)
+    expect(full).toContain('part of the project "Garden"')
+    expect(full).toContain("The project's instructions:\nUse metric units.")
+    expect(full).toContain('<project_file name="beds.txt">\nBed A\n</project_file>')
+    const cut = projectSystemText(project, 20)
+    expect(cut).toContain('(The rest of this file is left out.)')
+    expect(cut).toContain('left out for length: last.md')
+  })
+})

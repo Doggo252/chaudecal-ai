@@ -119,12 +119,10 @@ const releasesUrl = `http://127.0.0.1:${releases.address().port}/latest`
 // A stand-in speech-to-text server, for dictation. It checks that a recording arrived.
 let heardAudio = 0
 const speechServer = createHttpServer(async (req, res) => {
-  let size = 0
-  let body = ''
-  for await (const chunk of req) {
-    size += chunk.length
-    if (body.length < 4000) body += chunk.toString('latin1')
-  }
+  const parts = []
+  for await (const chunk of req) parts.push(chunk)
+  const size = parts.reduce((n, c) => n + c.length, 0)
+  const body = Buffer.concat(parts).toString('latin1')
   const ok = req.url === '/v1/audio/transcriptions' && /multipart\/form-data/.test(req.headers['content-type'] ?? '') && body.includes('name="file"') && body.includes('whisper-1')
   if (ok) heardAudio = size
   res.writeHead(ok ? 200 : 400, { 'content-type': 'application/json' })
@@ -581,6 +579,30 @@ try {
   assert((await a.page.evaluate(async () => (await window.api.state()).settings.textSize)) === 'default', 'the text size is a setting of each device')
   await b.page.click(tid('new-chat'))
   ok('the text size can be made smaller or larger')
+
+  // Projects: instructions and files that every chat in the project gets, synced to the other device.
+  await a.page.click(tid('new-project'))
+  await a.page.waitForSelector(tid('project-page'))
+  await a.page.fill(tid('project-name'), 'Garden plans')
+  await a.page.press(tid('project-name'), 'Enter')
+  await a.page.fill(tid('project-instructions'), 'Use metric units.')
+  await a.page.click(tid('project-add-files'))
+  await a.page.waitForFunction(() => document.querySelectorAll('[data-testid="project-file"]').length === 2)
+  await a.page.waitForFunction(async () => (await window.api.state()).projects.some((p) => p.name === 'Garden plans' && p.instructions === 'Use metric units.' && p.files.length === 2))
+  assert((await a.page.inputValue(tid('project-instructions'))) === 'Use metric units.', 'the instructions should still be there after adding files')
+  await a.page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 })
+  await shot(a.page, '37-project')
+  await a.page.click(tid('project-new-chat'))
+  assert((await a.page.textContent(tid('draft-project'))).includes('Garden plans'), 'the new chat should say it is in the project')
+  await pickProvider(a.page, 'claude')
+  await sendMessage(a.page, 'How should I lay out the beds?')
+  await waitForReply(a.page, 'claude', 'I know the project Garden plans and its files')
+  assert((await a.page.textContent(tid('conversation-project'))).includes('Garden plans'), 'the chat should show its project')
+  await a.page.click(tid('conversation-project'))
+  await a.page.waitForSelector(`${tid('project-chat')}:has-text("How should I lay out the beds?")`)
+  await b.page.waitForFunction(async () => (await window.api.state()).projects.some((p) => p.name === 'Garden plans' && p.files.length === 2), null, { timeout: 15000 })
+  await a.page.click(tid('new-chat'))
+  ok('a project gives its chats instructions and files, and syncs to the other device')
 
   // Chats from claude.ai and chatgpt.com come in through the website tabs' sign-ins, and sync to the other device.
   await a.page.click(tid('open-settings'))

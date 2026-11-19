@@ -293,6 +293,32 @@ export function composeChatMessages(input: {
   return out
 }
 
+/**
+ * What every assistant in a project's chats is told: the project's instructions and its files.
+ * Files are cut to `maxChars` in all, so a local model with a small window is not swamped.
+ */
+export function projectSystemText(project: { name: string; instructions: string; files: { name: string; text?: string }[] } | undefined, maxChars = 400_000): string {
+  if (!project) return ''
+  const parts = [`This conversation is part of the project "${project.name}".`]
+  if (project.instructions.trim()) parts.push(`The project's instructions:\n${project.instructions.trim()}`)
+  let room = maxChars
+  const files: string[] = []
+  const left: string[] = []
+  for (const f of project.files) {
+    const text = f.text ?? ''
+    if (!text || room <= 0) {
+      left.push(f.name)
+      continue
+    }
+    const cut = text.length > room
+    files.push(`<project_file name="${f.name.replace(/"/g, "'")}">\n${cut ? `${text.slice(0, room)}\n(The rest of this file is left out.)` : text}\n</project_file>`)
+    room -= text.length
+  }
+  if (files.length) parts.push(`The project's files:\n${files.join('\n')}`)
+  if (left.length) parts.push(`The project also has these files, left out for length: ${left.join(', ')}.`)
+  return parts.join('\n\n')
+}
+
 /** System text shared by every provider: personal instructions and memory notes. */
 export function sharedSystemText(profile: string, notes: string[]): string {
   const parts: string[] = []

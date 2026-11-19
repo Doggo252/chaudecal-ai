@@ -17,10 +17,11 @@ import type {
   RouteDecision,
   RunMode,
   SavedPrompt,
+  Project,
   SyncRecord
 } from '@shared/types'
 
-export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'web'; service: WebService } | { kind: 'settings'; tab?: string }
+export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'web'; service: WebService } | { kind: 'settings'; tab?: string } | { kind: 'project'; projectId: string }
 
 /** Choices made before a conversation exists. */
 export interface Draft {
@@ -30,6 +31,8 @@ export interface Draft {
   private: boolean
   /** Run on the hub machine instead of this one. */
   runOnHub: boolean
+  /** Start the chat inside this project. */
+  projectId?: string
 }
 
 /** The starting choices for a new conversation. */
@@ -132,6 +135,7 @@ function applyRecords(records: SyncRecord[]): void {
   let conversations = app.conversations
   let notes = app.notes
   let prompts = app.prompts
+  let projects = app.projects ?? []
   let mcp = app.mcp
   let profile = app.profile
   let usage = app.usage
@@ -150,6 +154,9 @@ function applyRecords(records: SyncRecord[]): void {
         break
       case 'prompt':
         prompts = r.deleted ? prompts.filter((x) => x.id !== r.id) : upsert(prompts, r.data as SavedPrompt)
+        break
+      case 'project':
+        projects = r.deleted ? projects.filter((x) => x.id !== r.id) : upsert(projects, r.data as Project).sort((a, b) => a.name.localeCompare(b.name))
         break
       case 'mcp':
         mcp = r.deleted ? mcp.filter((x) => x.id !== r.id) : upsert(mcp, r.data as McpServer).sort((a, b) => a.name.localeCompare(b.name))
@@ -180,7 +187,8 @@ function applyRecords(records: SyncRecord[]): void {
   let view = state.view
   const openId = view.kind === 'chat' ? view.conversationId : undefined
   if (openId && !conversations.some((c) => c.id === openId)) view = { kind: 'chat' }
-  setState({ app: { ...app, conversations, notes, prompts, mcp, profile, usage }, messages, streaming, view })
+  if (view.kind === 'project' && !projects.some((p) => p.id === (view as { projectId: string }).projectId)) view = { kind: 'chat' }
+  setState({ app: { ...app, conversations, notes, prompts, projects, mcp, profile, usage }, messages, streaming, view })
 }
 
 export async function boot(): Promise<void> {
@@ -265,7 +273,7 @@ export function dismissRemoved(conversationId: string): void {
 /** Turn the choices made on the new-chat screen into a saved conversation and open it. */
 export async function createFromDraft(): Promise<Conversation> {
   const d = state.draft
-  const conv = await window.api.createConversation({ provider: d.provider, models: d.models, mode: d.mode, private: d.private || undefined, runOnHub: d.runOnHub || undefined })
+  const conv = await window.api.createConversation({ provider: d.provider, models: d.models, mode: d.mode, private: d.private || undefined, runOnHub: d.runOnHub || undefined, projectId: d.projectId || undefined })
   setState((s) => ({ messages: { ...s.messages, [conv.id]: s.messages[conv.id] ?? [] }, view: { kind: 'chat', conversationId: conv.id } }))
   return conv
 }
