@@ -150,7 +150,7 @@ try {
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false, speechUrl },
       hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true }
     },
-    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir, CHAUDECAL_E2E_WEB_ORIGINS: webOrigins, CHAUDECAL_E2E_FAKE_MIC: '1' }
+    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir, CHAUDECAL_E2E_WEB_ORIGINS: webOrigins, CHAUDECAL_E2E_FAKE_MIC: '1', CHAUDECAL_E2E_CAPTURE: readFileSync(join(root, 'build/icon.png')).toString('base64') }
   )
   await a.page.waitForFunction(async () => {
     const s = await window.api.state()
@@ -646,6 +646,29 @@ try {
   await a.page.click(tid('new-chat'))
   ok('a scheduled task runs into its own chat, and a chat exports as Markdown or a web page')
 
+  // Screen capture: a screenshot of the screen or a window goes into the message as a picture.
+  await pickProvider(a.page, 'claude')
+  await a.page.click(tid('capture'))
+  await a.page.click(tid('capture-source'))
+  await a.page.waitForSelector(`.attachments.pending ${tid('attachment')}[data-kind="image"]`, { timeout: 15000 })
+  await sendMessage(a.page, 'What is on my screen?')
+  await waitForReply(a.page, 'claude', 'I can see 1 image')
+  ok('a screenshot of the screen is attached and reaches the assistant')
+
+  // Quick ask: the small box from the shortcut sends a question to a new chat in the main window.
+  const quickOpened = a.app.waitForEvent('window')
+  await a.page.evaluate(() => window.api.toggleQuick())
+  const quickPage = await quickOpened
+  await quickPage.waitForSelector(tid('quick-input'))
+  await quickPage.fill(tid('quick-input'), 'A quick question from anywhere.')
+  await shot(quickPage, '39-quick-ask')
+  await quickPage.press(tid('quick-input'), 'Enter')
+  await a.page.waitForFunction(() => document.querySelector('.topbar-title')?.textContent === 'A quick question from anywhere.', null, { timeout: 15000 })
+  await a.page.waitForFunction(() => document.querySelectorAll('[data-testid="assistant-message"]').length === 1, null, { timeout: 15000 })
+  await a.page.waitForSelector(tid('send'))
+  await a.page.click(tid('new-chat'))
+  ok('quick ask starts a chat from the small box')
+
   // Chats from claude.ai and chatgpt.com come in through the website tabs' sign-ins, and sync to the other device.
   await a.page.click(tid('open-settings'))
   await a.page.click(tid('settings-tab-accounts'))
@@ -711,7 +734,7 @@ try {
   }
   // E2E_NARROW=1 runs the whole artifacts flow in a window too narrow for the panel beside the conversation.
   if (process.env.E2E_NARROW === '1') {
-    await a.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1000, 800))
+    await a.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => !w.isAlwaysOnTop()).setSize(1000, 800))
     await until(covers, 'the window to become narrow')
   }
   console.log(`       the window is ${(await covers()) ? 'narrow, so the panel covers the conversation' : 'wide enough for the panel beside the conversation'}`)
@@ -822,8 +845,8 @@ try {
   await a.page.click(tid('artifact-close'))
   await until(async () => !(await a.page.$(tid('artifact-panel'))), 'the panel to close')
   // In a narrow window the panel covers the conversation instead of squeezing it, and closing it brings the conversation back.
-  const [width, height] = await a.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getSize())
-  await a.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(900, 700))
+  const [width, height] = await a.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => !w.isAlwaysOnTop()).getSize())
+  await a.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((w) => !w.isAlwaysOnTop()).setSize(900, 700))
   await until(covers, 'the window to become narrow')
   await openCard(`${tid('artifact-card')}:has-text("Read me")`)
   await until(async () => !(await paneShown()), 'the panel to cover the conversation')
@@ -831,7 +854,7 @@ try {
   await shot(a.page, '30-artifact-narrow')
   await a.page.click(tid('artifact-close'))
   await until(paneShown, 'the conversation to come back after closing')
-  await a.app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size[0], size[1]), [width, height])
+  await a.app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows().find((w) => !w.isAlwaysOnTop()).setSize(size[0], size[1]), [width, height])
   await a.page.click(tid('new-chat'))
   ok('documents and components open too, and the panel fills the window, covers a narrow one, or closes')
 

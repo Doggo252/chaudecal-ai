@@ -26,6 +26,7 @@ import { normalizeMcpServer, testMcpServer } from './mcp'
 import { guardFrames, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { WebImporter } from './webImport'
 import { TaskRunner } from './tasks'
+import { captureSource, captureSources, hideQuick, setQuickShortcut, toggleQuick } from './quick'
 import { cleanSchedule, nextRun } from '@shared/schedule'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
 import { checkForUpdate, RELEASE_DOWNLOADS } from './updates'
@@ -52,6 +53,7 @@ if (process.env.CHAUDECAL_E2E_FAKE_MIC) {
 }
 
 let win: BrowserWindow | undefined
+const PRELOAD = join(__dirname, '../preload/index.js')
 let store: Store
 let settings: Settings
 let engine: ChatEngine
@@ -465,6 +467,7 @@ const api: Omit<Api, 'on'> = {
     if (hubChanged) await applyHub()
     if (before.startAtLogin !== settings.startAtLogin && !dataOverride) applyStartAtLogin(settings.startAtLogin)
     if (!before.checkForUpdates && settings.checkForUpdates) void lookForUpdate()
+    if (before.quickAsk !== settings.quickAsk) setQuickShortcut(settings.quickAsk, PRELOAD)
     if (!before.autoUpdate && settings.autoUpdate && updater.info?.canInstall && updater.info.state === 'available') void updater.download().catch(() => {})
     for (const service of ['claude', 'chatgpt'] as const) if (!before.webImport?.[service] && settings.webImport?.[service]) void webImporter.run(service)
     const providersChanged = JSON.stringify([before.claude, before.chatgpt, before.local]) !== JSON.stringify([settings.claude, settings.chatgpt, settings.local])
@@ -652,6 +655,31 @@ const api: Omit<Api, 'on'> = {
   async webNavigate(service, url) {
     webTabs.navigate(service, url)
   },
+  async toggleQuick() {
+    toggleQuick(PRELOAD)
+  },
+  async hideQuick() {
+    hideQuick()
+  },
+  async quickAsk(text) {
+    const question = String(text ?? '').trim()
+    hideQuick()
+    if (!question) return undefined
+    const conv = engine.createConversation({})
+    showWindow()
+    send('open', conv.id)
+    void api.send({ conversationId: conv.id, text: question }).catch(() => {})
+    return conv.id
+  },
+  async captureSources() {
+    return captureSources()
+  },
+  async captureSource(id) {
+    const png = await captureSource(String(id), win ? [win] : [])
+    if (!png) return { attachments: [], errors: ['The screen could not be captured. On a Mac, allow Chaude under System Settings, Privacy & Security, Screen Recording, then open it again.'] }
+    const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '.')
+    return attach([{ name: `Screenshot ${stamp}.png`, bytes: png }])
+  },
   async transcribe(audio, mime) {
     const base = settings.local.speechUrl.trim().replace(/\/+$/, '')
     if (!base) return { error: 'No speech-to-text server is set up. Add one under Settings, Local AI.' }
@@ -752,7 +780,7 @@ function createWindow(): void {
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1b1a' : '#faf9f6',
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac ? { trafficLightPosition: { x: 16, y: 16 } } : { titleBarOverlay: { color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e6e1' : '#3d3a35', height: 44 } }),
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), contextIsolation: true, sandbox: true, nodeIntegration: false }
+    webPreferences: { preload: PRELOAD, contextIsolation: true, sandbox: true, nodeIntegration: false }
   })
   win.once('ready-to-show', () => {
     if (!startHidden) win?.show()
@@ -893,9 +921,23 @@ app.whenReady().then(async () => {
   setInterval(() => void refreshProviders(), 60_000)
   void lookForUpdate()
   setInterval(() => void lookForUpdate(), 6 * 60 * 60 * 1000)
-  tasks = new TaskRunner(store, { createConversation: (p) => engine.createConversation(p), send: (input) => engine.send(input), isBusy: (id) => engine.isBusy(id) }, () => settings.hub.hostEnabled)
+  tasks = new TaskRunner(
+    store,
+    {
+      createConversation: (p) => engine.createConversation(p),
+      // A task's run counts as started on this machine, so its answer is announced like any other.
+      send: (input) => {
+        startedHere.set(input.conversationId, lastReply(input.conversationId)?.id)
+        return engine.send(input)
+      },
+      isBusy: (id) => engine.isBusy(id)
+    },
+    () => settings.hub.hostEnabled
+  )
   // Scheduled tasks are checked every half minute. One missed while the app was closed runs once now.
   setInterval(() => void tasks.tick(), 30_000)
+  // The quick ask shortcut. Tests leave the keyboard alone.
+  if (!dataOverride) setQuickShortcut(settings.quickAsk, PRELOAD)
   setTimeout(() => void tasks.tick(), 5_000)
   // Bringing in chats from the websites waits a little, so starting up stays quick.
   setTimeout(importFromWebs, process.env.CHAUDECAL_USER_DATA ? 3_600_000 : 90_000)

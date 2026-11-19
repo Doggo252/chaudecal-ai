@@ -28,6 +28,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 - **See what the assistant did.** Its plan shows as a checklist that ticks itself off, its steps are grouped ("Ran 3 commands", "Edited 2 files +12 −3"), and every file edit opens to show the lines it changed.
 - **Projects.** Give a group of chats their own instructions and files (text files, documents and PDFs). Every chat in the project gets them, whichever assistant answers.
 - **Scheduled tasks.** A prompt that runs by itself every hour, day, weekday or week, or once, into its own chat. Run it on the hub PC and it keeps going while the Mac is closed.
+- **Quick ask and screenshots.** Option+Space (Alt+Space on Windows) opens a small box over whatever you are doing; type a question and it starts a new chat. The screen button in the message box attaches a screenshot of your screen or of one window.
 - **Export.** Save any chat as Markdown or as one web page that opens in any browser.
 - **Math, editing and voice.** Formulas are drawn properly. Any earlier question can be edited and asked again. Answers can be read aloud, and you can dictate a message.
 
@@ -200,6 +201,8 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - **Branching.** Hover over any answer and click the branch icon. The conversation up to that answer is copied into a new one, and the original is left as it was.
 - **Projects.** Click the + next to "Projects" in the sidebar. Name the project, write its instructions, and add files with "Add files". "New chat in this project" starts a chat in it; an existing chat moves into a project from its menu (the three dots at the top). The project's name shows at the top of its chats. Local models get a shorter cut of the files, to fit their smaller memory.
 - **Scheduled tasks.** Under Settings, "Scheduled tasks", click "Add a task", write what the assistant should do each time, and choose when it runs and on which machine. "On the hub" runs it on the PC whichever device you set it up on, so it keeps running while the Mac is closed. Each task's answers collect in its own chat, and you get the usual notification when one is ready. "Run now" tries it straight away. A run missed while the app was closed happens once when it opens again.
+- **Quick ask.** Press Option+Space on a Mac (Alt+Space on Windows) from any app. A small box opens; type a question and press Enter, and it starts a new chat in Chaude with the assistant you use by default. Esc closes the box. Turn it off under Settings, "General".
+- **Screenshots.** The screen button in the message box lists your screens and open windows. Pick one and its picture is attached to your message. On a Mac, the first time asks for permission under System Settings, Privacy & Security, Screen Recording; allow Chaude and open it again.
 - **Export.** From a chat's menu, "Export as a web page" saves one file that opens in any browser, with its formatting and formulas, ready to send to someone. "Export as Markdown" saves the plain text.
 - **Editing a question.** Hover over any of your messages and click the pencil. Change it and press Send: the answers after it are replaced by a new answer to the changed question. An assistant that saw the old version is given the conversation afresh, so it does not answer from the old one.
 - **What the assistant did.** In Plan, Edit and Auto modes, Claude's to-do list and ChatGPT's plan show as a checklist at the top of the answer. Steps of the same sort are grouped: click a group to see each step, and click a file edit to see the lines it removed and added.
@@ -226,6 +229,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - Tool servers that sign in through a browser page (many hosted ones do) are not supported yet. Use one that takes a token, or the version of it that runs as a program. Tool servers you added to Claude Code or Codex yourself keep working, each in its own assistant only.
 - Tokens typed into a tool server are stored and synced the way conversations are: unencrypted on your disks and on your home network, encrypted over Tailscale. Give a server a token with only the access it needs.
 - On Windows, a tool server started with `npx`, `npm`, `pnpm` or `yarn` is run through `cmd` automatically. This has not been tried on a real PC yet.
+- Quick ask and screenshots have been tested with a pretend screen; the real keyboard shortcut and a real screen capture have not been tried yet. If another app already uses Option+Space (or Alt+Space), the shortcut does not register.
 - Dictation needs a speech-to-text server. Neither plan offers speech to text through the tools this app uses, and a live voice conversation like the ones on the websites is not possible here; use the claude.ai or chatgpt.com tab for that.
 - Bringing in chats relies on how claude.ai and chatgpt.com load your chats in their own pages. Neither site documents this, so a change on their side can stop it working until the app is updated; the settings row then says what went wrong. The app goes slowly on purpose (a short pause between chats) so as not to strain the sites.
 - Pictures in imported chats are not brought in; a note such as "[Image]" or "[Attached: file name]" marks where they were. Text files attached on claude.ai do come in. ChatGPT chats in a Team or Enterprise workspace are not brought in yet, only those in your personal account. Thinking, web searches and other tool steps are left out; the questions and answers are kept.
@@ -256,7 +260,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 38 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 40 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

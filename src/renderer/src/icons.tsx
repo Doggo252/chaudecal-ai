@@ -205,3 +205,9 @@ export const IconSpeaker = (p: P) => (
     <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" />
   </Svg>
 )
+export const IconScreen = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4" width="18" height="12" rx="2" />
+    <path d="M8 20h8M12 16v4" />
+  </Svg>
+)

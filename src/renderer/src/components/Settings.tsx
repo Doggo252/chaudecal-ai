@@ -209,6 +209,9 @@ function General() {
         <Row title="Tell me about new versions" sub="Checks the project's GitHub page a few times a day.">
           <Toggle checked={s.checkForUpdates} onChange={(v) => save({ checkForUpdates: v })} label="Tell me about new versions" />
         </Row>
+        <Row title="Quick ask from anywhere" sub={`${navigator.platform.toLowerCase().includes('mac') ? 'Option' : 'Alt'}+Space opens a small box over whatever you are doing. Type a question and press Enter: it starts a new chat here.`}>
+          <Toggle checked={s.quickAsk} onChange={(v) => save({ quickAsk: v })} label="Quick ask from anywhere" testId="quick-ask-toggle" />
+        </Row>
         <Row title="Download updates automatically" sub="A new version is downloaded in the background and checked against the release. Then &quot;Restart to update&quot; appears in the sidebar. Nothing is installed until you click it.">
           <Toggle checked={s.autoUpdate} onChange={(v) => save({ autoUpdate: v })} label="Download updates automatically" testId="auto-update" />
         </Row>

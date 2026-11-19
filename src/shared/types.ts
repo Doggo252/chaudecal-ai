@@ -348,6 +348,8 @@ export interface Settings {
   checkForUpdates: boolean
   /** Download a newer version in the background, ready to install with one click. */
   autoUpdate: boolean
+  /** Option+Space (Alt+Space on Windows) opens a small box to ask something from anywhere. */
+  quickAsk: boolean
   /** Show a system notification when a reply is ready or an assistant is waiting for an answer. */
   notifications: boolean
 }
@@ -386,6 +388,7 @@ export function defaultSettings(deviceName: string): Settings {
     startAtLogin: false,
     checkForUpdates: true,
     autoUpdate: true,
+    quickAsk: true,
     notifications: true
   }
 }

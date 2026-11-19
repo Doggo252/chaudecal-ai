@@ -2430,3 +2430,79 @@ a {
 .task-actions .spacer {
   flex: 1;
 }
+
+/* ---------- Quick ask and screen capture ---------- */
+
+html.quick-window,
+html.quick-window body,
+html.quick-window #root {
+  background: transparent;
+  overflow: hidden;
+}
+.quick-box {
+  -webkit-app-region: drag;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 18px;
+  border-radius: 16px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+}
+.quick-input {
+  -webkit-app-region: no-drag;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(20px * var(--text-scale));
+}
+.quick-hint {
+  color: var(--text-muted);
+  font-size: calc(12px * var(--text-scale));
+  white-space: nowrap;
+}
+.capture-menu {
+  width: 420px;
+  max-width: 80vw;
+  padding: 4px;
+}
+.capture-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.capture-item {
+  display: grid;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--text-soft);
+  font-size: calc(12px * var(--text-scale));
+  text-align: left;
+  cursor: pointer;
+}
+.capture-item:hover {
+  border-color: var(--border-strong);
+}
+.capture-item span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.capture-item img,
+.capture-blank {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  background: var(--bg-code);
+  border-radius: 5px;
+}

@@ -146,7 +146,7 @@ export interface AppEvents {
   web: WebState
   update: UpdateInfo
   remote: RemoteInfo | undefined
-  command: 'new-chat' | 'search' | 'settings'
+  command: 'new-chat' | 'search' | 'settings' | 'quick-focus'
   /** Show this conversation. Sent when its notification is clicked. */
   open: string
   webImport: WebImportStatus
@@ -226,6 +226,15 @@ export interface Api {
   hubSyncNow(): Promise<void>
 
   openExternal(url: string): Promise<void>
+  /** Opens or closes the quick ask box. */
+  toggleQuick(): Promise<void>
+  /** From the quick ask box: starts a chat with this question, and shows it in the main window. */
+  quickAsk(text: string): Promise<string | undefined>
+  hideQuick(): Promise<void>
+  /** Screens and windows that can be captured. */
+  captureSources(): Promise<{ id: string; name: string; kind: 'screen' | 'window'; thumb: string }[]>
+  /** Captures one of them and attaches the picture. */
+  captureSource(id: string): Promise<AttachResult>
   /** Turns recorded speech into text with the speech-to-text server in the settings. */
   transcribe(audio: Uint8Array, mime: string): Promise<{ text?: string; error?: string }>
   /** Downloads the newer version if needed, installs it, and restarts into it. */
@@ -293,6 +302,11 @@ export const API_METHODS = [
   'openExternal',
   'applyUpdate',
   'transcribe',
+  'toggleQuick',
+  'quickAsk',
+  'hideQuick',
+  'captureSources',
+  'captureSource',
   'openConfig',
   'webShow',
   'webHide',
