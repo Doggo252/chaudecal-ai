@@ -42,6 +42,14 @@
   --bubble: var(--bg-user);
   --select: color-mix(in srgb, var(--local) 28%, transparent);
 }
+
+/* The text size the user picked. The window sets --text-scale; every font size multiplies by it. */
+:root {
+  --text-scale: 1;
+}
+.tiny {
+  font-size: calc(12px * var(--text-scale));
+}
 :root[data-accent] {
   --accent-switch: var(--accent);
   --accent-focus: color-mix(in srgb, var(--accent) 65%, var(--border-strong));
@@ -89,7 +97,7 @@ body,
 
 body {
   font-family: var(--font);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   line-height: 1.5;
   color: var(--text);
   background: var(--bg);
@@ -176,7 +184,7 @@ a {
 
 .brand {
   font-family: var(--serif);
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale));
   letter-spacing: 0.01em;
   padding: 0 8px 10px;
   color: var(--text);
@@ -203,7 +211,7 @@ a {
 .side-btn kbd {
   margin-left: auto;
   font: inherit;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-muted);
 }
 
@@ -215,7 +223,7 @@ a {
 }
 
 .side-group {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -274,7 +282,7 @@ a {
 .side-empty {
   padding: 18px 10px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .side-bottom {
@@ -292,7 +300,7 @@ a {
   grid-template-columns: 74px 1fr auto;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-soft);
 }
 .usage-row .pct {
@@ -311,7 +319,7 @@ a {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   padding: 6px 10px 2px;
 }
@@ -384,7 +392,7 @@ a {
   padding: 0 10px;
   border-radius: 9px;
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   white-space: nowrap;
 }
 .chip:hover:not(:disabled),
@@ -425,7 +433,7 @@ a {
   border-radius: 9px;
   border: 1px solid var(--border-strong);
   background: var(--bg-raised);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   white-space: nowrap;
 }
 .btn:hover:not(:disabled) {
@@ -446,7 +454,7 @@ a {
 .btn-small {
   height: 27px;
   padding: 0 10px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .popover {
@@ -502,7 +510,7 @@ a {
   gap: 8px;
 }
 .menu-item-hint {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   white-space: normal;
 }
@@ -512,7 +520,7 @@ a {
   margin: 5px 4px;
 }
 .menu-title {
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -602,7 +610,7 @@ a {
   align-self: stretch;
 }
 .ctx-meter {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
   padding: 0 6px;
@@ -634,7 +642,7 @@ a {
 .empty h1 {
   font-family: var(--serif);
   font-weight: 400;
-  font-size: 32px;
+  font-size: calc(32px * var(--text-scale));
   letter-spacing: -0.01em;
   margin: 0 0 26px;
   text-align: center;
@@ -656,7 +664,7 @@ a {
   border-radius: 20px;
   border: 1px solid var(--border);
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -682,14 +690,14 @@ a {
   padding: 10px 16px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   line-height: 1.55;
 }
 .msg-who {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   margin-bottom: 6px;
 }
@@ -723,7 +731,7 @@ a {
   align-items: center;
   gap: 10px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   margin: 18px 0;
 }
 .note::before,
@@ -735,7 +743,7 @@ a {
 }
 
 .prose {
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -757,16 +765,16 @@ a {
   font-weight: 650;
 }
 .prose h1 {
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale));
 }
 .prose h2 {
-  font-size: 18px;
+  font-size: calc(18px * var(--text-scale));
 }
 .prose h3 {
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
 }
 .prose h4 {
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 .prose ul,
 .prose ol {
@@ -807,7 +815,7 @@ a {
 .prose table {
   border-collapse: collapse;
   margin: 0 0 12px;
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   display: block;
   overflow-x: auto;
 }
@@ -838,12 +846,12 @@ a {
   justify-content: space-between;
   align-items: center;
   padding: 5px 10px 5px 12px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
 }
 .code-copy {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-soft);
   padding: 2px 7px;
   border-radius: 6px;
@@ -858,7 +866,7 @@ a {
 }
 .code-block code {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.55;
   background: none;
   border: 0;
@@ -899,7 +907,7 @@ a {
 
 .thinking {
   margin: 0 0 10px;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--text-muted);
 }
 .thinking summary {
@@ -927,7 +935,7 @@ a {
   gap: 4px;
 }
 .tool {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--text-soft);
   border: 1px solid var(--border);
   border-radius: 9px;
@@ -951,7 +959,7 @@ a {
 }
 .tool-summary {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -961,7 +969,7 @@ a {
 }
 .tool-state {
   flex: none;
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   color: var(--text-muted);
 }
 .tool-state.error,
@@ -973,7 +981,7 @@ a {
   padding: 8px 10px;
   border-top: 1px solid var(--border);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 220px;
@@ -1018,7 +1026,7 @@ a {
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--border));
   background: color-mix(in srgb, var(--bad) 7%, var(--bg));
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   margin-top: 8px;
 }
 .msg-error-text {
@@ -1050,7 +1058,7 @@ a {
   flex-direction: column;
 }
 .compare-card .prose {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   flex: 1;
 }
 .compare-card .msg-who {
@@ -1062,7 +1070,7 @@ a {
   justify-content: flex-end;
 }
 .compare-others {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   margin-top: 8px;
 }
@@ -1084,7 +1092,7 @@ a {
   background: var(--bg-raised);
   padding: 12px 14px;
   margin: 10px 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .card-title {
   font-weight: 600;
@@ -1097,7 +1105,7 @@ a {
 }
 .card code {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .card-actions {
   display: flex;
@@ -1115,7 +1123,7 @@ a {
   border-radius: 12px;
   border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--border));
   background: color-mix(in srgb, var(--warn) 9%, var(--bg));
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   margin-bottom: 10px;
 }
 .banner.exhausted {
@@ -1129,7 +1137,7 @@ a {
   font-weight: 600;
 }
 .route-note {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   padding: 0 4px 8px;
   display: flex;
@@ -1165,7 +1173,7 @@ a {
   outline: 0;
   resize: none;
   background: none;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
   line-height: 1.5;
   max-height: 260px;
   padding: 2px 0 8px;
@@ -1199,7 +1207,7 @@ a {
 }
 .composer-foot {
   text-align: center;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--text-scale));
   color: var(--text-muted);
   margin-top: 8px;
 }
@@ -1243,7 +1251,7 @@ a {
 }
 .modal-head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   font-weight: 650;
 }
 .modal-body {
@@ -1263,7 +1271,7 @@ a {
   border: 0;
   outline: 0;
   background: none;
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -1285,10 +1293,10 @@ a {
 }
 .hit-title {
   font-weight: 600;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .hit-snippet {
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   color: var(--text-soft);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1337,18 +1345,18 @@ a {
   gap: 8px;
 }
 .choice-sub {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   color: var(--text-muted);
   margin-top: 2px;
 }
 .choice-right {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .section-label {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   color: var(--text-soft);
   margin: 14px 0 7px;
@@ -1359,7 +1367,7 @@ a {
   background: var(--bg-code);
   padding: 10px 12px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   white-space: pre-wrap;
   max-height: 220px;
   overflow-y: auto;
@@ -1388,14 +1396,14 @@ a {
   max-width: 640px;
 }
 .settings h2 {
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale));
   font-weight: 650;
   margin: 4px 0 4px;
 }
 .settings .lead {
   color: var(--text-muted);
   margin: 0 0 18px;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .group {
   border: 1px solid var(--border);
@@ -1404,7 +1412,7 @@ a {
   margin-bottom: 18px;
 }
 .group-title {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -1429,7 +1437,7 @@ a {
   font-weight: 550;
 }
 .row-sub {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   color: var(--text-muted);
   margin-top: 1px;
 }
@@ -1478,7 +1486,7 @@ a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   padding: 2px 9px;
   border-radius: 10px;
   background: var(--bg-hover);
@@ -1495,7 +1503,7 @@ a {
 }
 .code-line {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   background: var(--bg-code);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -1538,7 +1546,7 @@ a {
   grid-template-columns: 110px 1fr 190px;
   gap: 12px;
   align-items: center;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   margin: 7px 0;
 }
 .usage-line .right {
@@ -1564,7 +1572,7 @@ a {
 .web-url {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1597,7 +1605,7 @@ a {
   color: var(--ink-text);
   padding: 9px 16px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   box-shadow: var(--shadow);
   max-width: 70vw;
 }
@@ -1655,7 +1663,7 @@ a {
   border-radius: 10px;
   border: 1px solid var(--border);
   background: var(--bg-raised, var(--bg));
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   max-width: 260px;
 }
 .attach-name {
@@ -1710,7 +1718,7 @@ a {
   flex: 1;
   min-width: 0;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 .folder-places {
   display: flex;
@@ -1721,7 +1729,7 @@ a {
   padding: 2px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-soft);
 }
 .folder-place:hover {
@@ -1763,12 +1771,12 @@ a {
 }
 .folder-empty {
   padding: 8px 7px;
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--text-muted);
   line-height: 1.4;
 }
 .menu-error {
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
   color: var(--bad);
   line-height: 1.4;
 }
@@ -1776,7 +1784,7 @@ a {
 /* Tool servers (MCP) in Settings */
 .mono {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 .mcp-title {
   display: flex;
@@ -1791,7 +1799,7 @@ a {
 }
 .mcp-test {
   margin-top: 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   overflow-wrap: anywhere;
 }
 .mcp-test.ok {
@@ -1808,7 +1816,7 @@ a {
 }
 .mcp-field label {
   display: block;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--text-scale));
   font-weight: 550;
   color: var(--text-soft);
   margin-bottom: 4px;

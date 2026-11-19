@@ -191,7 +191,7 @@ export function SwitchDialog({ conversationId, target: initial }: { conversation
         {variantRow('summary', 'Summary plus recent messages', 'A digest of the earlier conversation, then the latest messages word for word. Uses less of the limit.')}
         {variantRow('full', 'Full transcript', 'Every message word for word. Most faithful, uses more of the limit.')}
 
-        <div className="muted" style={{ fontSize: 12.5 }}>
+        <div className="muted tiny">
           {thread.length} {thread.length === 1 ? 'message' : 'messages'} in this conversation.{' '}
           <button type="button" className="linkish" onClick={() => setShowPreview((s) => !s)}>
             {showPreview ? 'Hide the file' : 'Preview the file'}

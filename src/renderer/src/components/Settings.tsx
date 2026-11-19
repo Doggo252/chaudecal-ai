@@ -3,7 +3,7 @@ import type { DeepPartial } from '@shared/ipc'
 import type { DiscoveredHub, LocalEndpoint, ProviderChoice, ProviderId, RunMode, Settings } from '@shared/types'
 import { PROVIDER_LABEL, newId } from '@shared/types'
 import { formatTokens } from '@shared/tokens'
-import { ACCENT_PRESETS, accentColor } from '@shared/theme'
+import { ACCENT_PRESETS, TEXT_SIZES, accentColor } from '@shared/theme'
 import { formatReset } from '@shared/usage'
 import { setState, toast, useUi } from '../state'
 import { applyAccent } from '../theme'
@@ -115,6 +115,15 @@ function Appearance() {
           <label className={`swatch swatch-custom ${!isPreset && chosen ? 'selected' : ''}`} title="Choose any color" style={!isPreset && chosen ? ({ '--swatch': chosen } as React.CSSProperties) : undefined}>
             <input type="color" aria-label="Choose any color" data-testid="accent-custom" value={chosen ?? '#2f7fe6'} onChange={(e) => pickCustom(e.target.value)} />
           </label>
+        </div>
+      </Row>
+      <Row title="Text size" sub="For messages, menus and everything else you read in the app.">
+        <div className="inline">
+          {TEXT_SIZES.map((t) => (
+            <button type="button" key={t.id} className={`chip ${s.textSize === t.id ? 'on' : ''}`} aria-pressed={s.textSize === t.id} data-testid={`text-${t.id}`} onClick={() => save({ textSize: t.id })}>
+              {t.name}
+            </button>
+          ))}
         </div>
       </Row>
       <Row title="Preview" sub="How a message of yours and a main button look.">
@@ -598,7 +607,7 @@ function Usage() {
             <div className="usage-card" key={p} data-testid={`usage-${p}`}>
               <div className="usage-card-head">
                 <ProviderDot provider={p} /> {PROVIDER_LABEL[p]}
-                <span className="muted" style={{ fontWeight: 400, marginLeft: 'auto', fontSize: 12 }}>
+                <span className="muted tiny" style={{ fontWeight: 400, marginLeft: 'auto' }}>
                   {app.providers[p]?.detail ?? ''}
                 </span>
               </div>
@@ -624,7 +633,7 @@ function Usage() {
                   </div>
                 </>
               )}
-              <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+              <div className="muted tiny" style={{ marginTop: 8 }}>
                 {formatTokens(u.tokensInWindow)} tokens through this app in the last 5 hours
               </div>
             </div>

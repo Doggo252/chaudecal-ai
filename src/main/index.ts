@@ -7,7 +7,7 @@ import type { Attachment, Blob, Conversation, HubStatus, LocalModel, McpServer, 
 import { defaultSettings, MAX_FILE_BYTES, newId } from '@shared/types'
 import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo, type McpInput } from '@shared/ipc'
 import { cleanMcpName, mcpProblem } from '@shared/mcp'
-import { normalizeAccent } from '@shared/theme'
+import { normalizeAccent, normalizeTextSize } from '@shared/theme'
 import { Store } from './store'
 import { findBinary, loadShellPath, spawnCli } from './env'
 import { ClaudeProvider } from './providers/claude'
@@ -235,6 +235,7 @@ function loadSettings(): Settings {
     }
   }
   loaded.accent = normalizeAccent(loaded.accent)
+  loaded.textSize = normalizeTextSize(loaded.textSize)
   return loaded
 }
 
@@ -430,6 +431,7 @@ const api: Omit<Api, 'on'> = {
     const before = settings
     settings = merge(settings, patch)
     settings.accent = normalizeAccent(settings.accent)
+    settings.textSize = normalizeTextSize(settings.textSize)
     store.kvSet('settings', settings)
     nativeTheme.themeSource = settings.theme
     send('settings', settings)

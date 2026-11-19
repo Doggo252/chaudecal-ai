@@ -65,7 +65,7 @@ function AssistantBody({ m }: { m: Message }) {
           <i />
         </span>
       )}
-      {m.status === 'stopped' && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>Stopped</div>}
+      {m.status === 'stopped' && <div className="muted tiny" style={{ marginTop: 6 }}>Stopped</div>}
     </>
   )
 }

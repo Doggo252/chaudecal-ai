@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultSettings } from '@shared/types'
-import { ACCENT_PRESETS, accentColor, accentVars, normalizeAccent, textOn } from '@shared/theme'
+import { ACCENT_PRESETS, TEXT_SIZES, accentColor, accentVars, normalizeAccent, normalizeTextSize, textOn, textScale } from '@shared/theme'
 
 describe('accent color', () => {
   it('starts on the default look, which sets no color', () => {
@@ -46,5 +46,28 @@ describe('accent color', () => {
     }
     expect(accentVars('yellow')).toEqual({ '--accent': '#d9a316', '--accent-text': '#1b1a18' })
     expect(accentVars('#1c2f6b')).toEqual({ '--accent': '#1c2f6b', '--accent-text': '#ffffff' })
+  })
+})
+
+describe('text size', () => {
+  it('starts on the default size, which changes nothing', () => {
+    expect(defaultSettings('x').textSize).toBe('default')
+    expect(textScale('default')).toBe(1)
+    expect(textScale(undefined)).toBe(1)
+  })
+
+  it('has steps that grow from small to extra large', () => {
+    expect(TEXT_SIZES.map((t) => t.id)).toEqual(['small', 'default', 'large', 'larger'])
+    const scales = TEXT_SIZES.map((t) => t.scale)
+    expect([...scales].sort((a, b) => a - b)).toEqual(scales)
+    expect(textScale('small')).toBeLessThan(1)
+    expect(textScale('larger')).toBeGreaterThan(textScale('large'))
+  })
+
+  it('stores only one of the steps', () => {
+    expect(normalizeTextSize('large')).toBe('large')
+    expect(normalizeTextSize('huge')).toBe('default')
+    expect(normalizeTextSize(2)).toBe('default')
+    expect(textScale('huge')).toBe(1)
   })
 })

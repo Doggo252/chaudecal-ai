@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect } from 'react'
 import { installCopyHandler } from './markdown'
 import { openChat, setState, useUi } from './state'
-import { applyAccent } from './theme'
+import { applyAccent, applyTextSize } from './theme'
 import { ChatView } from './components/ChatView'
 import { SearchDialog, SwitchDialog } from './components/Dialogs'
 import { SettingsView } from './components/Settings'
@@ -20,6 +20,8 @@ export function App() {
 
   // Before the first paint, so the window never flashes in the default colors.
   useLayoutEffect(() => applyAccent(accent), [accent])
+  const textSize = useUi((s) => s.app?.settings.textSize)
+  useLayoutEffect(() => applyTextSize(textSize), [textSize])
 
   useEffect(() => {
     // The menu shortcuts cover these on macOS. This keeps them working everywhere.

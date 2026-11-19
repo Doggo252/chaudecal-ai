@@ -238,6 +238,8 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark'
   /** The accent color: 'default', the id of a preset such as 'blue', or a color written #rrggbb. */
   accent: string
+  /** How large the text is drawn. */
+  textSize: 'small' | 'default' | 'large' | 'larger'
   /** Context budget for the running context file, in tokens. */
   contextBudgetTokens: number
   /** Percent of a limit used at which the app offers to switch. */
@@ -288,6 +290,7 @@ export function defaultSettings(deviceName: string): Settings {
     deviceName,
     theme: 'system',
     accent: 'default',
+    textSize: 'default',
     contextBudgetTokens: 400_000,
     warnThresholdPct: 80,
     defaultProvider: 'auto',

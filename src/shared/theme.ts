@@ -62,3 +62,24 @@ export function accentVars(accent: string | undefined): { '--accent': string; '-
   const color = accentColor(accent)
   return color ? { '--accent': color, '--accent-text': textOn(color) } : undefined
 }
+
+// The text size: one of a few steps. Every font size in the app multiplies by its scale.
+
+export type TextSize = 'small' | 'default' | 'large' | 'larger'
+
+export const TEXT_SIZES: { id: TextSize; name: string; scale: number }[] = [
+  { id: 'small', name: 'Small', scale: 0.92 },
+  { id: 'default', name: 'Default', scale: 1 },
+  { id: 'large', name: 'Large', scale: 1.12 },
+  { id: 'larger', name: 'Extra large', scale: 1.25 }
+]
+
+/** What to store for whatever was asked for. Anything that is not one of the steps becomes the default. */
+export function normalizeTextSize(size: unknown): TextSize {
+  return TEXT_SIZES.find((t) => t.id === size)?.id ?? 'default'
+}
+
+/** How much larger or smaller than usual the text is drawn. */
+export function textScale(size: unknown): number {
+  return TEXT_SIZES.find((t) => t.id === size)?.scale ?? 1
+}
