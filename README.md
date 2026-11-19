@@ -19,6 +19,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Attachments.** Attach, paste or drop images, PDFs and text files. Images go to whichever assistant is answering and follow the conversation when it switches. A PDF's text is read by the app, so every assistant can use it, local models included. Everything syncs between your machines.
 - **Second opinion and branching.** One click asks another assistant to review an answer. Any answer can be branched into a separate conversation to try a different direction.
 - **Notifications.** Send a long task, switch to another app, and get a notification when the reply is ready or when the assistant has stopped to ask you something. Clicking it opens that conversation.
+- **Your own look.** Light, dark or matching the system, plus an accent color: seven presets or any color you pick.
 - **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, artifacts, account settings). A web chat can be brought into the unified chat.
 - **Tools for both assistants (MCP).** Add a tool server once, for example for GitHub, your notes or a database, and Claude and ChatGPT can both use it. The list syncs between your machines.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
@@ -39,9 +40,9 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 | --- | --- |
 | ![Browsing the hub PC's folders from the Mac](docs/screenshots/folders.png) | ![The list of tool servers in Settings](docs/screenshots/tools.png) |
 
-| Asking before a tool is used |
-| --- |
-| ![Claude asking whether it may use a tool from a tool server](docs/screenshots/tool-ask.png) |
+| Asking before a tool is used | Theme and accent color |
+| --- | --- |
+| ![Claude asking whether it may use a tool from a tool server](docs/screenshots/tool-ask.png) | ![The appearance settings with a purple accent color](docs/screenshots/theme.png) |
 
 The screenshots come from the automated test, which uses stand-in assistants, so the replies and numbers in them are not real.
 
@@ -161,6 +162,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - **Second opinion.** Hover over the latest answer and click the speech bubbles. Another assistant with room left reads the conversation and reviews the answer. Your next message goes back to the assistant you were using.
 - **Branching.** Hover over any answer and click the branch icon. The conversation up to that answer is copied into a new one, and the original is left as it was.
 - **Notifications.** They appear only while the app is not the window in front, and only on the computer the message was sent from, so the hub PC stays quiet about work you started on the Mac. The Dock icon also shows a count (on Windows the taskbar button flashes) until you look at the app. A conversation that is waiting for your answer has an amber dot in the sidebar. Private chats never show their contents in a notification. Turn it all off under Settings, "General".
+- **Theme.** Under Settings, "General", choose Light, Dark or Match system, and an accent color. The accent is used for the main buttons, the send button, the switches, the text selection and a tint on your own messages. The last swatch opens a color picker for any color, and the text on it turns dark or white to stay readable. The look is a setting of each machine, so the Mac and the PC can differ.
 - **At a limit.** By default the app asks before switching. Turn on "Switch automatically at a limit" under Settings, "General" to have it carry on with another assistant by itself when a limit is hit in the middle of a reply.
 - **Private chats.** A private conversation only ever uses local AI.
 - **Shortcuts.** New chat is Cmd or Ctrl+N. Search is Cmd or Ctrl+K. Settings is Cmd or Ctrl+comma.
@@ -200,7 +202,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 26 checks |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 27 checks |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

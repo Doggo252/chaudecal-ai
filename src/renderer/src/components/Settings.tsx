@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DeepPartial } from '@shared/ipc'
 import type { DiscoveredHub, LocalEndpoint, ProviderChoice, ProviderId, RunMode, Settings } from '@shared/types'
 import { PROVIDER_LABEL, newId } from '@shared/types'
 import { formatTokens } from '@shared/tokens'
+import { ACCENT_PRESETS, accentColor } from '@shared/theme'
 import { formatReset } from '@shared/usage'
 import { setState, toast, useUi } from '../state'
+import { applyAccent } from '../theme'
 import { McpSettings } from './McpSettings'
 import { limitText, Meter, ProviderDot, Toggle } from './ui'
 
@@ -66,20 +68,78 @@ function Row({ title, sub, children, stack }: { title: string; sub?: string; chi
   )
 }
 
+const THEMES: { id: Settings['theme']; label: string }[] = [
+  { id: 'system', label: 'Match system' },
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' }
+]
+
+function Appearance() {
+  const s = useUi((x) => x.app!.settings)
+  const chosen = accentColor(s.accent)
+  const isPreset = ACCENT_PRESETS.some((p) => p.id === s.accent)
+  const saving = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // The color picker reports every step of a drag. The page follows at once, and the setting is saved when it settles.
+  const pickCustom = (color: string) => {
+    applyAccent(color)
+    clearTimeout(saving.current)
+    saving.current = setTimeout(() => save({ accent: color }), 200)
+  }
+  return (
+    <div className="group">
+      <Row title="Theme" sub="Match system follows the light or dark setting of this computer.">
+        <div className="inline">
+          {THEMES.map((t) => (
+            <button type="button" key={t.id} className={`chip ${s.theme === t.id ? 'on' : ''}`} aria-pressed={s.theme === t.id} data-testid={`theme-${t.id}`} onClick={() => save({ theme: t.id })}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </Row>
+      <Row title="Accent color" sub="Used for the main buttons, the switches and your own messages.">
+        <div className="swatches" role="radiogroup" aria-label="Accent color">
+          {ACCENT_PRESETS.map((p) => (
+            <button
+              type="button"
+              key={p.id}
+              role="radio"
+              aria-checked={s.accent === p.id}
+              aria-label={p.name}
+              title={p.name}
+              className={`swatch ${p.color ? '' : 'swatch-default'} ${s.accent === p.id ? 'selected' : ''}`}
+              style={p.color ? ({ '--swatch': p.color } as React.CSSProperties) : undefined}
+              data-testid={`accent-${p.id}`}
+              onClick={() => save({ accent: p.id })}
+            />
+          ))}
+          <label className={`swatch swatch-custom ${!isPreset && chosen ? 'selected' : ''}`} title="Choose any color" style={!isPreset && chosen ? ({ '--swatch': chosen } as React.CSSProperties) : undefined}>
+            <input type="color" aria-label="Choose any color" data-testid="accent-custom" value={chosen ?? '#2f7fe6'} onChange={(e) => pickCustom(e.target.value)} />
+          </label>
+        </div>
+      </Row>
+      <Row title="Preview" sub="How a message of yours and a main button look.">
+        <div className="theme-preview" data-testid="theme-preview">
+          <div className="bubble">Hello there</div>
+          <button type="button" className="btn btn-small btn-primary" tabIndex={-1}>
+            Button
+          </button>
+        </div>
+      </Row>
+    </div>
+  )
+}
+
 function General() {
   const s = useUi((x) => x.app!.settings)
   return (
     <>
       <h2>General</h2>
       <p className="lead">How the app looks and behaves on this machine.</p>
+      <div className="group-title">Appearance</div>
+      <Appearance />
+
+      <div className="group-title">This machine</div>
       <div className="group">
-        <Row title="Appearance">
-          <select className="select" value={s.theme} onChange={(e) => save({ theme: e.target.value as Settings['theme'] })}>
-            <option value="system">Match system</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
-          </select>
-        </Row>
         <Row title="Name of this machine" sub="Shown to your other devices.">
           <Field value={s.deviceName} onCommit={(v) => save({ deviceName: v.trim() || s.deviceName })} />
         </Row>

@@ -433,6 +433,46 @@ try {
     await b.page.click(tid('new-chat'))
   }
 
+  // Theme: an accent color recolors the main buttons, the switches and the user's own messages, and is remembered.
+  const css = (page, sel, prop) => page.$eval(sel, (el, p) => getComputedStyle(el)[p], prop)
+  await b.page.click(tid('open-settings'))
+  await b.page.click(tid('settings-tab-general'))
+  const inkButton = await css(b.page, `${tid('theme-preview')} .btn-primary`, 'backgroundColor')
+  const plainBubble = await css(b.page, `${tid('theme-preview')} .bubble`, 'backgroundColor')
+  await b.page.click(tid('accent-purple'))
+  await b.page.waitForFunction(() => getComputedStyle(document.querySelector('[data-testid="theme-preview"] .btn-primary')).backgroundColor === 'rgb(139, 92, 246)')
+  assert((await css(b.page, `${tid('theme-preview')} .btn-primary`, 'color')) === 'rgb(255, 255, 255)', 'text on the purple button should be white')
+  assert((await css(b.page, `${tid('theme-preview')} .bubble`, 'backgroundColor')) !== plainBubble, 'the message bubble should be tinted')
+  // Switches that are on use the accent too (their color fades over, so this waits for it).
+  await b.page.waitForFunction(() => getComputedStyle(document.querySelector('.toggle.on')).backgroundColor === 'rgb(139, 92, 246)')
+  assert((await b.page.getAttribute(tid('accent-purple'), 'aria-checked')) === 'true', 'the chosen swatch should be marked')
+  await shot(b.page, '20-accent-color')
+  // Any color can be chosen. A pale one gets dark text.
+  await b.page.fill(tid('accent-custom'), '#ffe45c')
+  await b.page.waitForFunction(async () => (await window.api.state()).settings.accent === '#ffe45c')
+  assert((await css(b.page, `${tid('theme-preview')} .btn-primary`, 'backgroundColor')) === 'rgb(255, 228, 92)', 'the custom color should be used')
+  assert((await css(b.page, `${tid('theme-preview')} .btn-primary`, 'color')) === 'rgb(27, 26, 24)', 'text on a pale color should be dark')
+  // It applies in a conversation too, and going back to the default undoes all of it.
+  await b.page.click(tid('accent-blue'))
+  await b.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
+  await b.page.waitForFunction(() => getComputedStyle(document.querySelector('[data-testid="send"]')).backgroundColor === 'rgb(47, 127, 230)')
+  await shot(b.page, '21-accent-in-chat')
+  await b.page.click(tid('open-settings'))
+  await b.page.click(tid('settings-tab-general'))
+  await b.page.click(tid('accent-default'))
+  await b.page.waitForFunction((want) => getComputedStyle(document.querySelector('[data-testid="theme-preview"] .btn-primary')).backgroundColor === want, inkButton)
+  assert((await css(b.page, `${tid('theme-preview')} .bubble`, 'backgroundColor')) === plainBubble, 'the default look should come back unchanged')
+  assert((await a.page.evaluate(async () => (await window.api.state()).settings.accent)) === 'default', 'the accent is a setting of each device, so the hub keeps its own')
+  await b.page.click(tid('accent-blue'))
+  await b.page.click(tid('theme-dark'))
+  await b.page.waitForFunction(() => matchMedia('(prefers-color-scheme: dark)').matches)
+  await shot(b.page, '22-accent-dark')
+  await b.page.click(tid('theme-light'))
+  await b.page.waitForFunction(() => !matchMedia('(prefers-color-scheme: dark)').matches)
+  await b.page.click(tid('accent-default'))
+  await b.page.click(tid('new-chat'))
+  ok('an accent color, preset or custom, recolors the app and can be undone')
+
   // Dark appearance.
   await b.page.evaluate(() => window.api.updateSettings({ theme: 'dark' }))
   await b.page.waitForFunction(() => matchMedia('(prefers-color-scheme: dark)').matches)

@@ -32,6 +32,23 @@
   color-scheme: light;
 }
 
+/* The accent color. By default it is the theme's own ink, and nothing is tinted.
+   When the user picks one, the window sets --accent and --accent-text and marks the root. */
+:root {
+  --accent: var(--ink);
+  --accent-text: var(--ink-text);
+  --accent-switch: var(--ok);
+  --accent-focus: var(--text-muted);
+  --bubble: var(--bg-user);
+  --select: color-mix(in srgb, var(--local) 28%, transparent);
+}
+:root[data-accent] {
+  --accent-switch: var(--accent);
+  --accent-focus: color-mix(in srgb, var(--accent) 65%, var(--border-strong));
+  --bubble: color-mix(in srgb, var(--accent) 17%, var(--bg-raised));
+  --select: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #201f1d;
@@ -106,7 +123,7 @@ button:disabled {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--local) 28%, transparent);
+  background: var(--select);
 }
 
 ::-webkit-scrollbar {
@@ -415,12 +432,12 @@ a {
   background: var(--bg-hover);
 }
 .btn-primary {
-  background: var(--ink);
-  color: var(--ink-text);
-  border-color: var(--ink);
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--ink);
+  background: var(--accent);
   opacity: 0.88;
 }
 .btn-danger {
@@ -538,7 +555,7 @@ a {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 .toggle.on {
-  background: var(--ok);
+  background: var(--accent-switch);
 }
 .toggle.on span {
   transform: translateX(15px);
@@ -660,7 +677,7 @@ a {
 }
 .bubble {
   max-width: 82%;
-  background: var(--bg-user);
+  background: var(--bubble);
   border-radius: 18px;
   padding: 10px 16px;
   white-space: pre-wrap;
@@ -1139,7 +1156,7 @@ a {
   transition: border-color 0.15s;
 }
 .composer:focus-within {
-  border-color: var(--text-muted);
+  border-color: var(--accent-focus);
 }
 .composer textarea {
   display: block;
@@ -1169,8 +1186,8 @@ a {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  background: var(--ink);
-  color: var(--ink-text);
+  background: var(--accent);
+  color: var(--accent-text);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1435,7 +1452,7 @@ a {
 .select:focus,
 .textarea:focus {
   outline: 0;
-  border-color: var(--text-muted);
+  border-color: var(--accent-focus);
 }
 .input.wide,
 .textarea {
@@ -1813,4 +1830,54 @@ a {
 .mcp-trust .toggle {
   flex: none;
   margin-top: 2px;
+}
+
+/* Appearance settings: theme, accent color and a small preview */
+.swatches {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  background: var(--swatch);
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  flex: none;
+}
+.swatch.selected {
+  box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--swatch);
+}
+.swatch-default {
+  --swatch: var(--ink);
+}
+.swatch-custom {
+  background: conic-gradient(#e0569c, #e8772e, #d9a316, #2e9e6b, #2f7fe6, #8b5cf6, #e0569c);
+  overflow: hidden;
+}
+.swatch-custom.selected {
+  background: var(--swatch);
+}
+.swatch-custom input {
+  position: absolute;
+  inset: -6px;
+  width: calc(100% + 12px);
+  height: calc(100% + 12px);
+  opacity: 0;
+  cursor: pointer;
+}
+.theme-preview {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.theme-preview .bubble {
+  max-width: none;
 }
