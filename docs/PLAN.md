@@ -1,4 +1,4 @@
-# Chaudecal AI: plan, design and roadmap
+# Chaude: plan, design and roadmap
 
 This document records what the app is meant to be, the decisions behind it, how it is built, what works today, and what comes next.
 
@@ -182,7 +182,8 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Second opinion and branching | Built, tested |
 | Automatic failover at a limit (off by default) | Built, tested |
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
-| Notice when a newer build is published | Built, tested |
+| Updates that download in the background, are checked against the release's checksum, and install on "Restart to update" | Built, tested. The Mac path was run for real between two packaged versions (`node e2e/update-mac.mjs`). The Windows path runs the installer silently and is unchecked on a real PC. |
+| Renamed to Chaude, keeping the old data folder | Built |
 | Remote work: a conversation typed on one device runs on the hub | Built, tested with two app instances. Not yet run between two real machines. |
 | Choosing the hub's working folder from another device by browsing its folders | Built, tested with two app instances on a Mac. Drive letters and Windows paths are in code only. |
 | Notifications for a finished reply or a waiting question, with a Dock count and a sidebar marker | Built. When and what to announce is tested, including across two app instances. A real notification was shown by the packaged Mac app. Not yet seen on Windows. |
@@ -209,8 +210,7 @@ A PDF is read in the app, page by page, with a marker at the start of each page,
 3. **Tell a device about replies that finished while it was away**, when it reconnects.
 4. **Create a new folder on the hub** from the folder browser.
 5. **Answer Claude's own questions in the app.** When Claude wants to ask a multiple choice question, it is told to ask in its reply. A proper form would be nicer.
-6. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
-7. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
+6. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
 
 ### Suggested features
 

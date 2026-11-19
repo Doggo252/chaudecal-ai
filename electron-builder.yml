@@ -1,5 +1,5 @@
 appId: com.doggo252.chaudecal
-productName: Chaudecal AI
+productName: Chaude
 directories:
   output: release
   buildResources: build
@@ -19,11 +19,11 @@ mac:
   hardenedRuntime: false
   extendInfo:
     NSMicrophoneUsageDescription: Used for voice features inside the claude.ai and chatgpt.com tabs.
-    NSLocalNetworkUsageDescription: Used to find and sync with your Chaudecal hub on your home network.
+    NSLocalNetworkUsageDescription: Used to find and sync with your Chaude hub on your home network.
     NSBonjourServices:
       - _chaudecal._tcp
 dmg:
-  artifactName: Chaudecal-AI-${version}-mac-${arch}.${ext}
+  artifactName: Chaude-${version}-mac-${arch}.${ext}
 win:
   target:
     - target: nsis
@@ -32,5 +32,5 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  artifactName: Chaudecal-AI-${version}-windows-setup.${ext}
+  artifactName: Chaude-${version}-windows-setup.${ext}
 publish: null

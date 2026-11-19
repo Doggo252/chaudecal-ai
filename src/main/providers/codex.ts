@@ -221,7 +221,7 @@ export class CodexProvider implements Provider {
       child.on('error', (e) => gone(`Could not start Codex: ${e.message}`))
       child.on('close', () => gone('Codex stopped unexpectedly.'))
       await this.request('initialize', {
-        clientInfo: { name: 'chaudecal-ai', title: 'Chaudecal AI', version: this.appVersion },
+        clientInfo: { name: 'chaude', title: 'Chaude', version: this.appVersion },
         capabilities: { experimentalApi: false, requestAttestation: false }
       })
       this.send({ method: 'initialized', params: {} })

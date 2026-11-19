@@ -331,7 +331,7 @@ describe('notifications', () => {
     expect(long.body.startsWith('ChatGPT: word word')).toBe(true)
     expect(long.body.length).toBeLessThanOrEqual('ChatGPT: '.length + 140)
     expect(long.body.endsWith('…')).toBe(true)
-    expect(finishedNotice(conv({ title: '' }), reply({ text: '' }))).toEqual({ title: 'Chaudecal AI', body: 'Claude has finished.' })
+    expect(finishedNotice(conv({ title: '' }), reply({ text: '' }))).toEqual({ title: 'Chaude', body: 'Claude has finished.' })
     expect(finishedNotice(conv(), reply({ variantGroup: 'g1' }))?.body).toBe('The answers are ready to compare.')
   })
 
@@ -395,7 +395,7 @@ describe('background and updates', () => {
     cleanup.push(() => new Promise<void>((r) => server.close(() => r())))
     const url = `http://127.0.0.1:${(server.address() as { port: number }).port}/latest`
 
-    expect(await checkForUpdate({ version: '0.2.0', build: 4 }, url)).toEqual({ version: '0.2.0', build: 9, url: 'https://github.com/Doggo252/chaudecal-ai/releases/tag/x' })
+    expect(await checkForUpdate({ version: '0.2.0', build: 4 }, url)).toEqual({ version: '0.2.0', build: 9, url: 'https://github.com/Doggo252/chaudecal-ai/releases/tag/x', assets: [] })
     expect(await checkForUpdate({ version: '0.2.0', build: 9 }, url)).toBeUndefined()
     tag = 'not a tag'
     expect(await checkForUpdate({ version: '0.2.0', build: 4 }, url)).toBeUndefined()

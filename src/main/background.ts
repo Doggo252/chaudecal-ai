@@ -30,11 +30,11 @@ export function showTray(actions: { open(): void; quit(): void; status(): string
     // No tray on this system (some Linux desktops). The window still works.
     return
   }
-  tray.setToolTip('Chaudecal AI')
+  tray.setToolTip('Chaude')
   const rebuild = () =>
     tray?.setContextMenu(
       Menu.buildFromTemplate([
-        { label: 'Open Chaudecal AI', click: actions.open },
+        { label: 'Open Chaude', click: actions.open },
         { label: actions.status(), enabled: false },
         { type: 'separator' },
         { label: 'Quit', click: actions.quit }

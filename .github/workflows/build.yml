@@ -104,7 +104,7 @@ jobs:
         if: steps.built.outputs.count != '0'
         with:
           tag_name: v${{ steps.built.outputs.version }}-build.${{ github.run_number }}
-          name: Chaudecal AI ${{ steps.built.outputs.version }} (build ${{ github.run_number }})
+          name: Chaude ${{ steps.built.outputs.version }} (build ${{ github.run_number }})
           body: |
             Automatic build of commit ${{ github.sha }}.
 

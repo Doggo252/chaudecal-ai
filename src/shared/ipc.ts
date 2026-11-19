@@ -211,6 +211,8 @@ export interface Api {
   hubSyncNow(): Promise<void>
 
   openExternal(url: string): Promise<void>
+  /** Downloads the newer version if needed, installs it, and restarts into it. */
+  applyUpdate(): Promise<{ error?: string }>
   openConfig(which: 'claude' | 'chatgpt'): Promise<void>
 
   webShow(service: WebService, bounds: { x: number; y: number; width: number; height: number }): Promise<void>
@@ -267,6 +269,7 @@ export const API_METHODS = [
   'hubNewToken',
   'hubSyncNow',
   'openExternal',
+  'applyUpdate',
   'openConfig',
   'webShow',
   'webHide',

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { Conversation, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
-import { openChat, setState, useUi } from '../state'
+import { openChat, setState, toast, useUi } from '../state'
 import { IconDownload, IconGlobe, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
 import { Meter, ProviderDot } from './ui'
 
@@ -44,7 +44,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="side-top drag">
-        <div className="brand">Chaudecal</div>
+        <div className="brand">Chaude</div>
         <button type="button" className={`side-btn ${view.kind === 'chat' && !activeId ? 'active' : ''}`} data-testid="new-chat" onClick={() => openChat(undefined)}>
           <IconPlus /> New chat <kbd>{isMac ? '⌘N' : 'Ctrl N'}</kbd>
         </button>
@@ -113,16 +113,49 @@ export function Sidebar() {
           </div>
         )}
 
-        {app.update && (
-          <button type="button" className="side-btn update-chip" data-testid="update-chip" title={`Version ${app.update.version}, build ${app.update.build}. Opens the download page.`} onClick={() => void window.api.openExternal(app.update!.url)}>
-            <IconDownload /> Update available
-          </button>
-        )}
+        {app.update && <UpdateChip />}
 
         <button type="button" className={`side-btn ${view.kind === 'settings' ? 'active' : ''}`} data-testid="open-settings" onClick={() => setState({ view: { kind: 'settings' } })}>
           <IconSettings /> Settings
         </button>
       </div>
     </aside>
+  )
+}
+
+/** Says a newer version is out, and installs it where this machine can. */
+function UpdateChip() {
+  const u = useUi((x) => x.app!.update!)
+  const version = `version ${u.version}, build ${u.build}`
+  const openPage = () => void window.api.openExternal(u.url)
+  const install = () =>
+    void window.api.applyUpdate().then((r) => {
+      if (r.error) toast(r.error)
+    })
+  if (u.state === 'downloading') {
+    return (
+      <button type="button" className="side-btn update-chip" data-testid="update-chip" data-state="downloading" title={`Downloading ${version}.`} disabled>
+        <IconDownload /> Downloading update {Math.round((u.progress ?? 0) * 100)}%
+      </button>
+    )
+  }
+  if (u.state === 'ready') {
+    return (
+      <button type="button" className="side-btn update-chip" data-testid="update-chip" data-state="ready" title={`The new ${version} is downloaded. Restarts the app to install it.`} onClick={install}>
+        <IconDownload /> Restart to update
+      </button>
+    )
+  }
+  if (u.canInstall && u.state !== 'error') {
+    return (
+      <button type="button" className="side-btn update-chip" data-testid="update-chip" data-state="available" title={`New ${version}. Downloads and installs it, then restarts the app.`} onClick={install}>
+        <IconDownload /> Update to {u.version}
+      </button>
+    )
+  }
+  return (
+    <button type="button" className="side-btn update-chip" data-testid="update-chip" data-state={u.state ?? 'available'} title={`New ${version}. ${u.message ? `${u.message} ` : ''}Opens the download page.`} onClick={openPage}>
+      <IconDownload /> Update available
+    </button>
   )
 }

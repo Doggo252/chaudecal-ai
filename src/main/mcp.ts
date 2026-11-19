@@ -46,7 +46,7 @@ const initialize = (version: string) => ({
   jsonrpc: '2.0',
   id: 1,
   method: 'initialize',
-  params: { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: 'chaudecal-ai', title: 'Chaudecal AI', version } }
+  params: { protocolVersion: PROTOCOL, capabilities: {}, clientInfo: { name: 'chaude', title: 'Chaude', version } }
 })
 
 function testCommand(server: McpServer, version: string, timeoutMs: number): Promise<McpTestResult> {

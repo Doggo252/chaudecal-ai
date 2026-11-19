@@ -26,7 +26,8 @@ import { normalizeMcpServer, testMcpServer } from './mcp'
 import { guardFrames, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { WebImporter } from './webImport'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
-import { checkForUpdate } from './updates'
+import { checkForUpdate, RELEASE_DOWNLOADS } from './updates'
+import { Updater } from './updater'
 import { finishedNotice, questionNotice, shouldNotify, type Notice } from './notify'
 
 /** Set by the build on GitHub. Zero for a build made on a developer's machine. */
@@ -35,7 +36,12 @@ declare const __BUILD_NUMBER__: number
 // Tests and side-by-side instances point the app at their own data folder.
 const dataOverride = process.env.CHAUDECAL_USER_DATA
 if (dataOverride) app.setPath('userData', dataOverride)
-else if (!app.requestSingleInstanceLock()) app.quit()
+else {
+  // The app was called Chaudecal AI before. Its data folder keeps that name, so nothing is lost.
+  const before = join(app.getPath('appData'), 'Chaudecal AI')
+  if (existsSync(before)) app.setPath('userData', before)
+  if (!app.requestSingleInstanceLock()) app.quit()
+}
 // Artifact previews are served under their own scheme, which has to be known before the app starts.
 registerArtifactScheme()
 
@@ -55,7 +61,7 @@ let providers: Record<ProviderId, Provider>
 let statuses: Partial<Record<ProviderId, ProviderStatus>> = {}
 let localModels: LocalModel[] = []
 let hubError = ''
-let update: UpdateInfo | undefined
+let updater: Updater
 let quitting = false
 
 /** Turn chosen, pasted or dropped files into attachments, storing image bytes as they come in. */
@@ -94,11 +100,9 @@ async function lookForUpdate(): Promise<void> {
   const override = process.env.CHAUDECAL_UPDATE_URL
   if (dataOverride && !override) return
   const build = Number(process.env.CHAUDECAL_BUILD_OVERRIDE ?? __BUILD_NUMBER__) || 0
-  const found = await checkForUpdate({ version: app.getVersion(), build }, override || undefined)
-  if (found && found.build !== update?.build) {
-    update = found
-    send('update', found)
-  }
+  // A test's stand-in release page serves its downloads from the same place.
+  const found = await checkForUpdate({ version: app.getVersion(), build }, override || undefined, override ? `${new URL(override).origin}/` : RELEASE_DOWNLOADS)
+  if (found) updater.offer(found, settings.autoUpdate)
 }
 
 /** True when this conversation's assistants run on the hub and this machine is not the hub. */
@@ -338,7 +342,7 @@ function appState(): AppState {
     localModels,
     hub: hubStatus(),
     busy: store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id) || remote.isBusy(c.id)).map((c) => c.id),
-    update,
+    update: updater.info,
     remote: settings.hub.hostEnabled ? undefined : remote.info(),
     webImport: { claude: webImporter.status('claude'), chatgpt: webImporter.status('chatgpt') }
   }
@@ -452,6 +456,7 @@ const api: Omit<Api, 'on'> = {
     if (hubChanged) await applyHub()
     if (before.startAtLogin !== settings.startAtLogin && !dataOverride) applyStartAtLogin(settings.startAtLogin)
     if (!before.checkForUpdates && settings.checkForUpdates) void lookForUpdate()
+    if (!before.autoUpdate && settings.autoUpdate && updater.info?.canInstall && updater.info.state === 'available') void updater.download().catch(() => {})
     for (const service of ['claude', 'chatgpt'] as const) if (!before.webImport?.[service] && settings.webImport?.[service]) void webImporter.run(service)
     const providersChanged = JSON.stringify([before.claude, before.chatgpt, before.local]) !== JSON.stringify([settings.claude, settings.chatgpt, settings.local])
     if (providersChanged || hubChanged) void refreshProviders()
@@ -588,6 +593,9 @@ const api: Omit<Api, 'on'> = {
   async webNavigate(service, url) {
     webTabs.navigate(service, url)
   },
+  async applyUpdate() {
+    return updater.apply()
+  },
   async webImport(service) {
     if (service !== 'claude' && service !== 'chatgpt') throw new Error('Unknown site.')
     return webImporter.run(service)
@@ -664,7 +672,7 @@ function createWindow(): void {
     minWidth: 820,
     minHeight: 560,
     show: false,
-    title: 'Chaudecal AI',
+    title: 'Chaude',
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1c1b1a' : '#faf9f6',
     titleBarStyle: isMac ? 'hiddenInset' : 'hidden',
     ...(isMac ? { trafficLightPosition: { x: 16, y: 16 } } : { titleBarOverlay: { color: '#00000000', symbolColor: nativeTheme.shouldUseDarkColors ? '#e8e6e1' : '#3d3a35', height: 44 } }),
@@ -771,6 +779,18 @@ app.whenReady().then(async () => {
     summarizer
   )
   webTabs = new WebTabs(() => win, (state) => send('web', state))
+  updater = new Updater({
+    dir: join(app.getPath('userData'), 'updates'),
+    platform: process.platform,
+    arch: process.arch,
+    packaged: app.isPackaged,
+    exePath: app.getPath('exe'),
+    quit: () => {
+      quitting = true
+      app.quit()
+    },
+    onChange: (info) => send('update', info)
+  })
   webImporter = new WebImporter(store, (service, path, headers) => webTabs.request(service, path, headers), (status) => send('webImport', status), { pauseMs: 300, backoffMs: 20000, origin: siteOrigin })
   // Image bytes stay in the backend. The window asks for one when it needs to show it.
   store.onChange((records) => send('records', records.filter((r) => r.kind !== 'blob')))

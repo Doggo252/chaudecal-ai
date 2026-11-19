@@ -17,7 +17,7 @@ function instance(): Bonjour {
 export function announceHub(name: string, port: number): void {
   stopAnnouncing()
   try {
-    published = instance().publish({ name: `Chaudecal hub (${name})`, type: TYPE, port })
+    published = instance().publish({ name: `Chaude hub (${name})`, type: TYPE, port })
     published.on('error', () => {})
   } catch {
     // Discovery is a convenience. The hub still works by address.

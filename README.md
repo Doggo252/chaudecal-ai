@@ -1,6 +1,6 @@
-# Chaudecal AI
+# Chaude
 
-One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversations sync between your machines, and any conversation can move from one assistant to another without losing its context.
+One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used to be called Chaudecal AI.) Conversations sync between your machines, and any conversation can move from one assistant to another without losing its context.
 
 ![A conversation that started on Claude and continued on ChatGPT](docs/screenshots/chat.png)
 
@@ -73,19 +73,23 @@ Every push to `main` builds installers automatically. Download the latest from t
 
 | System | File |
 | --- | --- |
-| Windows | `Chaudecal-AI-<version>-windows-setup.exe` |
-| Mac with Apple silicon | `Chaudecal-AI-<version>-mac-arm64.dmg` |
-| Mac with Intel | `Chaudecal-AI-<version>-mac-x64.dmg` |
+| Windows | `Chaude-<version>-windows-setup.exe` |
+| Mac with Apple silicon | `Chaude-<version>-mac-arm64.dmg` |
+| Mac with Intel | `Chaude-<version>-mac-x64.dmg` |
 
 The builds are not signed with a paid developer certificate, so both systems warn the first time.
 
 **Mac.** Drag the app to Applications and open it. macOS will refuse. Open System Settings, go to Privacy & Security, scroll down and click "Open Anyway". If that button does not appear, run this once:
 
 ```bash
-xattr -dr com.apple.quarantine "/Applications/Chaudecal AI.app"
+xattr -dr com.apple.quarantine "/Applications/Chaude.app"
 ```
 
 **Windows.** SmartScreen shows "Windows protected your PC". Click "More info", then "Run anyway".
+
+**After that, it updates itself.** When a new version is published, the app downloads it in the background and checks it against the checksum on the release. "Restart to update" then appears in the sidebar; click it and the app installs the new version and opens again. Nothing is installed until you click. To have it ask before downloading, turn off "Download updates automatically" under Settings, "General". On a Mac, keep the app in your Applications folder: an app opened straight from the downloaded disk image cannot replace itself.
+
+**Coming from Chaudecal AI?** Install Chaude the same way. It finds your existing chats, settings and website sign-ins by itself. Then delete the old Chaudecal AI app. On Windows, uninstall Chaudecal AI from Settings, Apps, if it is still listed.
 
 ## Set up
 
@@ -209,7 +213,8 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - A preview is sealed off: it cannot reach the app, your files or the internet. It may load scripts, styles and fonts only from esm.sh, jsDelivr, unpkg, cdnjs and Google Fonts. Images must be inside the artifact (inline SVG or data URLs), links in a preview do not open, and forms do not send. A page that needs to fetch data will not work in the preview; download it and open it in a browser instead.
 - A React component must be a single file. Imports of project files such as `@/components/ui/...` (the shadcn/ui components that claude.ai offers) cannot be shown, and the panel says so.
 - Artifacts are found in the text of replies, so an assistant that ignores the instructions writes ordinary code blocks instead. Real Claude and ChatGPT replies have not been checked with artifacts yet; the tests use a stand-in assistant.
-- Updates are not installed for you. The sidebar shows "Update available" when a newer build is published, and clicking it opens the download page.
+- Updating by itself works from the first version called Chaude onwards. Older versions only say that an update exists, so install Chaude once by hand.
+- The Mac update has been run for real between two packaged versions. The Windows update runs the new installer silently and has only been checked in code, not on a real PC yet. If it fails, the sidebar says so and the release page still works.
 - Sign-ins inside the website tabs are separate from the command line sign-ins and stay on each machine.
 - The Windows build is produced and tested automatically, but it has not been used day to day yet. The tray icon, closing to the tray and starting at sign-in in particular have only been checked in code, not on a real PC. Please report anything odd.
 

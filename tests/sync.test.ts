@@ -94,7 +94,8 @@ describe('hub sync', () => {
     offline.settings.hub.remoteUrl = hub.url
     await offline.client.syncNow()
     await until(() => !!hub.store.get('conversation', 'c9'), 8000, 'the offline change to reach the hub')
-    expect(offline.client.status().pending).toBe(0)
+    // The client marks it sent once the hub's answer is back, a moment after the hub has it.
+    await until(() => offline.client.status().pending === 0, 8000, 'the client to mark the change as sent')
   })
 
   it('lets the newer edit win and spreads deletions', async () => {

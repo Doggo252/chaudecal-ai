@@ -99,7 +99,7 @@ export class HubClient implements HubLink {
       const health = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(5000) })
       if (!health.ok) throw new Error(`The hub answered ${health.status}.`)
       const info = (await health.json()) as { app?: string; hubId?: string; name?: string }
-      if (info.app !== 'chaudecal' || !info.hubId) throw new Error('That address is not a Chaudecal hub.')
+      if (info.app !== 'chaudecal' || !info.hubId) throw new Error('That address is not a Chaude hub.')
       if (this.store.kvGet<string>('hubId') !== info.hubId) {
         // A hub this device has not synced with before: send everything, fetch everything.
         this.store.kvSet('hubId', info.hubId)

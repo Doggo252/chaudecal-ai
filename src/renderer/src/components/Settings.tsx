@@ -204,8 +204,11 @@ function General() {
         <Row title="Start when I sign in to this computer" sub="Starts quietly in the background. Useful on the hub PC.">
           <Toggle checked={s.startAtLogin} onChange={(v) => save({ startAtLogin: v })} label="Start when I sign in to this computer" />
         </Row>
-        <Row title="Tell me about new versions" sub="Checks the project's GitHub page a few times a day. Nothing is downloaded or installed for you.">
+        <Row title="Tell me about new versions" sub="Checks the project's GitHub page a few times a day.">
           <Toggle checked={s.checkForUpdates} onChange={(v) => save({ checkForUpdates: v })} label="Tell me about new versions" />
+        </Row>
+        <Row title="Download updates automatically" sub="A new version is downloaded in the background and checked against the release. Then &quot;Restart to update&quot; appears in the sidebar. Nothing is installed until you click it.">
+          <Toggle checked={s.autoUpdate} onChange={(v) => save({ autoUpdate: v })} label="Download updates automatically" testId="auto-update" />
         </Row>
       </div>
     </>

@@ -30,7 +30,7 @@ function oneLine(text: string, max = 140): string {
   return flat.length > max ? `${flat.slice(0, max - 1).trimEnd()}…` : flat
 }
 
-const titleOf = (conversation: Conversation | undefined) => conversation?.title?.trim() || 'Chaudecal AI'
+const titleOf = (conversation: Conversation | undefined) => conversation?.title?.trim() || 'Chaude'
 
 /** What to say when a reply has arrived. Undefined when there is nothing worth announcing. */
 export function finishedNotice(conversation: Conversation | undefined, reply: Message | undefined): Notice | undefined {
@@ -38,7 +38,7 @@ export function finishedNotice(conversation: Conversation | undefined, reply: Me
   if (!reply || reply.status === 'stopped' || reply.status === 'streaming') return undefined
   const title = titleOf(conversation)
   // A private conversation never shows its contents outside the window.
-  if (conversation?.private) return { title: 'Chaudecal AI', body: 'A reply is ready in a private chat.' }
+  if (conversation?.private) return { title: 'Chaude', body: 'A reply is ready in a private chat.' }
   const who = reply.provider ? PROVIDER_LABEL[reply.provider] : 'The assistant'
   if (reply.variantGroup) return { title, body: 'The answers are ready to compare.' }
   if (reply.status === 'error') {

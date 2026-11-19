@@ -296,6 +296,8 @@ export interface Settings {
   keepRunningInBackground: boolean
   startAtLogin: boolean
   checkForUpdates: boolean
+  /** Download a newer version in the background, ready to install with one click. */
+  autoUpdate: boolean
   /** Show a system notification when a reply is ready or an assistant is waiting for an answer. */
   notifications: boolean
 }
@@ -332,6 +334,7 @@ export function defaultSettings(deviceName: string): Settings {
     keepRunningInBackground: true,
     startAtLogin: false,
     checkForUpdates: true,
+    autoUpdate: true,
     notifications: true
   }
 }
@@ -373,7 +376,25 @@ export interface HubStatus {
 export interface UpdateInfo {
   version: string
   build: number
+  /** The release page. */
   url: string
+  /** The release's files. */
+  assets?: ReleaseAsset[]
+  /** Set once this machine knows what it can do with the update. */
+  state?: 'available' | 'downloading' | 'ready' | 'error'
+  /** This machine can download and install it by itself. Otherwise the release page is opened. */
+  canInstall?: boolean
+  /** While downloading, from 0 to 1. */
+  progress?: number
+  message?: string
+}
+
+export interface ReleaseAsset {
+  name: string
+  url: string
+  size: number
+  /** For example "sha256:...", as GitHub reports it. */
+  digest?: string
 }
 
 /** What a client knows about running assistants on its hub. */
