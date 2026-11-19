@@ -1908,6 +1908,23 @@ a {
 .panel-wide .chat-pane {
   display: none;
 }
+.with-panel:not(.panel-wide) .chat-pane {
+  min-width: 420px;
+  overflow: hidden;
+}
+/* Too narrow for both side by side: the panel takes the whole area until it is closed. */
+@media (max-width: 1080px) {
+  .with-panel .chat-pane {
+    display: none;
+  }
+  .with-panel .artifact-panel {
+    border-left: 0;
+    min-width: 0;
+  }
+  .artifact-wide-btn {
+    display: none;
+  }
+}
 .win .with-panel:not(.panel-wide) .topbar {
   padding-right: 14px;
 }

@@ -14,6 +14,9 @@ export function closeArtifact(): void {
   })
 }
 
+/** The window is too narrow to show the panel beside the conversation, so it covers it. Matches the stylesheet. */
+export const PANEL_COVERS = '(max-width: 1080px)'
+
 /** Replies whose artifacts the user turned away from while they were being written. */
 export const declined = new Set<string>()
 
@@ -182,7 +185,7 @@ export function ArtifactPanel({ open, messages, onAskFix }: { open: OpenArtifact
         >
           <IconDownload size={15} />
         </button>
-        <button type="button" className="icon-btn" title={open.wide ? 'Show the conversation' : 'Fill the window'} data-testid="artifact-wide" onClick={() => update({ wide: !open.wide })}>
+        <button type="button" className="icon-btn artifact-wide-btn" title={open.wide ? 'Show the conversation' : 'Fill the window'} data-testid="artifact-wide" onClick={() => update({ wide: !open.wide })}>
           {open.wide ? <IconShrink size={15} /> : <IconExpand size={15} />}
         </button>
         <button type="button" className="icon-btn" title="Close" data-testid="artifact-close" onClick={closeArtifact}>

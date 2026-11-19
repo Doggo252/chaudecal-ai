@@ -9,7 +9,7 @@ import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, setS
 import { IconColumns, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
 import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList } from './Messages'
-import { ArtifactPanel, declined } from './ArtifactPanel'
+import { ArtifactPanel, closeArtifact, declined, PANEL_COVERS } from './ArtifactPanel'
 import { artifactBlocks } from '@shared/artifacts'
 import { MenuItem, Popover, ProviderDot } from './ui'
 
@@ -98,6 +98,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const askFix = (title: string, error: string) => {
     if (!conversation || busy) return
     stick.current = true
+    // When the panel covers the conversation, step back to it so the reply can be seen. The fix opens the panel again.
+    if (getState().artifact?.wide || matchMedia(PANEL_COVERS).matches) closeArtifact()
     const text = `The artifact "${title}" shows this error in its preview:\n\n${error}\n\nPlease fix it and write the artifact again in full with the same title.`
     void window.api.send({ conversationId: conversation.id, text, variant: getState().variants[conversation.id] }).catch((e) => toast(String(e.message ?? e)))
   }
