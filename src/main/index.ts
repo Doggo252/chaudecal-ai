@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'n
 import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import type { Attachment, Blob, Conversation, HubStatus, LocalModel, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
-import { defaultSettings, MAX_IMAGE_BYTES, newId } from '@shared/types'
+import { defaultSettings, MAX_FILE_BYTES, newId } from '@shared/types'
 import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo } from '@shared/ipc'
 import { Store } from './store'
 import { findBinary, loadShellPath, spawnCli } from './env'
@@ -19,7 +19,7 @@ import { announceHub, discoverHubs, shutdownDiscovery, stopAnnouncing } from './
 import { ChatEngine } from './chat'
 import { Summarizer } from './summarizer'
 import { WebTabs } from './webtabs'
-import { makeAttachment } from './attachments'
+import { readAttachment } from './attachments'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
 import { checkForUpdate } from './updates'
 import { finishedNotice, questionNotice, shouldNotify, type Notice } from './notify'
@@ -51,10 +51,10 @@ let update: UpdateInfo | undefined
 let quitting = false
 
 /** Turn chosen, pasted or dropped files into attachments, storing image bytes as they come in. */
-function attach(files: { name: string; bytes: Buffer }[]): AttachResult {
+async function attach(files: { name: string; bytes: Buffer }[]): Promise<AttachResult> {
   const result: AttachResult = { attachments: [], errors: [] }
   for (const file of files) {
-    const outcome = makeAttachment(file.name, file.bytes)
+    const outcome = await readAttachment(file.name, file.bytes)
     if ('error' in outcome) {
       result.errors.push(outcome.error)
       continue
@@ -70,8 +70,8 @@ function readFiles(paths: string[]): { files: { name: string; bytes: Buffer }[];
   const errors: string[] = []
   for (const path of paths) {
     try {
-      // Nothing larger than the biggest image is ever useful, so do not read it into memory.
-      if (statSync(path).size > MAX_IMAGE_BYTES) errors.push(`${basename(path)} is too large to attach.`)
+      // Nothing larger than this is ever useful, so do not read it into memory.
+      if (statSync(path).size > MAX_FILE_BYTES) errors.push(`${basename(path)} is too large to attach.`)
       else files.push({ name: basename(path), bytes: readFileSync(path) })
     } catch {
       errors.push(`${basename(path)} could not be read.`)
@@ -357,11 +357,11 @@ const api: Omit<Api, 'on'> = {
       paths = res.canceled ? [] : res.filePaths
     }
     const { files, errors } = readFiles(paths)
-    const result = attach(files)
+    const result = await attach(files)
     return { attachments: result.attachments, errors: [...errors, ...result.errors] }
   },
   async addAttachment(file) {
-    if (typeof file?.base64 !== 'string' || file.base64.length > MAX_IMAGE_BYTES * 1.4) return { attachments: [], errors: ['That file is too large to attach.'] }
+    if (typeof file?.base64 !== 'string' || file.base64.length > MAX_FILE_BYTES * 1.4) return { attachments: [], errors: ['That file is too large to attach.'] }
     return attach([{ name: String(file.name || 'pasted'), bytes: Buffer.from(file.base64, 'base64') }])
   },
   async attachmentUrl(id) {

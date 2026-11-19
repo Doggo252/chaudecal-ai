@@ -100,6 +100,9 @@ if (prompt.includes('<conversation_since_your_last_reply>')) notes.push('I was c
 if (arg('--resume')) notes.push('I resumed my earlier session')
 if (imageCount) notes.push(`I can see ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`)
 if (prompt.includes('<attached_file')) notes.push('I read the attached file')
+// A PDF arrives as text with a marker at the start of each page.
+const pdfPages = (prompt.match(/\[Page \d+\]\n/g) ?? []).length
+if (pdfPages) notes.push(`I read a PDF of ${pdfPages} ${pdfPages === 1 ? 'page' : 'pages'}`)
 if (system.includes('standing instructions')) notes.push('I have your standing instructions')
 const utilization = Number(process.env.FAKE_CLAUDE_UTILIZATION ?? '0.2')
 out({

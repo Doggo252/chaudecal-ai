@@ -43,14 +43,14 @@ export function AttachmentList({ items, onRemove }: { items: Attachment[]; onRem
   return (
     <div className={`attachments ${onRemove ? 'pending' : ''}`} data-testid="attachments">
       {items.map((a) => (
-        <span className={`attachment ${a.kind}`} key={a.id} data-testid="attachment" data-kind={a.kind}>
+        <span className={`attachment ${a.kind}`} key={a.id} data-testid="attachment" data-kind={a.kind} data-pages={a.pages}>
           {a.kind === 'image' ? (
             <Thumb a={a} large={!onRemove} />
           ) : (
             <span className="attach-file" title={a.name}>
               <IconFile size={15} />
               <span className="attach-name">{a.name}</span>
-              <span className="muted">{size(a.size)}</span>
+              <span className="muted">{a.pages ? `${a.pages} ${a.pages === 1 ? 'page' : 'pages'}` : size(a.size)}</span>
             </span>
           )}
           {onRemove && (

@@ -150,7 +150,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Shared memory, profile and saved prompts | Built, tested |
 | Hub, client, offline changes, discovery | Built, tested with two app instances on one machine |
 | Website tabs and bringing a web chat in | Built. Loading is tested. Capture is best effort and depends on each site's page layout. |
-| Attachments: images and text files, picked, pasted or dropped | Built, tested. Image input is checked against real ChatGPT. |
+| Attachments: images, PDFs and text files, picked, pasted or dropped | Built, tested. Image input is checked against real ChatGPT. PDF reading is checked on real documents and in the packaged Mac app. |
 | Second opinion and branching | Built, tested |
 | Automatic failover at a limit (off by default) | Built, tested |
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
@@ -168,11 +168,13 @@ Not verified yet: real answers from Claude on the development Mac (its command l
 
 An image is stored as its own record, so it syncs like a message does. Sync batches are capped by size so a few large images cannot stall it. Each assistant gets the image in the form it expects: Claude as one structured message on standard input, ChatGPT as a file on disk, a local model as a data URL. A text file is read once and kept inside the message, which puts it in the transcript and both context files. When an assistant has to be caught up on a conversation, the four most recent images it has not seen are sent with the context file.
 
+A PDF is read in the app, page by page, with a marker at the start of each page, and from then on it is a text file like any other. That is the one form all three kinds of assistant accept, it needs nothing installed, and it survives a handoff. The cost is that pictures and scanned pages are not read. The reader is a JavaScript library with no native parts, so it works the same on Mac and Windows.
+
 ## Roadmap
 
 ### Next
 
-1. **PDF attachments.**
+1. **Scanned PDFs and pictures inside PDFs.** Today only the text of a PDF is read. Pages with no text could be sent as images.
 2. **Tell a device about replies that finished while it was away**, when it reconnects.
 3. **Create a new folder on the hub** from the folder browser.
 4. **Answer Claude's own questions in the app.** When Claude wants to ask a multiple choice question, it is told to ask in its reply. A proper form would be nicer.

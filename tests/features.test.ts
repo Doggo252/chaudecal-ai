@@ -11,11 +11,12 @@ import { Summarizer } from '../src/main/summarizer'
 import { ClaudeProvider } from '../src/main/providers/claude'
 import { CodexProvider } from '../src/main/providers/codex'
 import { LocalProvider, withImages } from '../src/main/providers/local'
-import { makeAttachment, sniffImage } from '../src/main/attachments'
+import { makeAttachment, readAttachment, sniffImage } from '../src/main/attachments'
 import { hidesOnClose, startedHidden } from '../src/main/background'
 import { checkForUpdate, isNewerBuild, parseTag } from '../src/main/updates'
 import { finishedNotice, questionNotice, shouldNotify } from '../src/main/notify'
 import { startMockOpenAI } from './fakes/mock-openai.mjs'
+import { makePdf } from './fakes/pdf.mjs'
 import { canRunFakes, tempDir, testSettings } from './helpers'
 
 // The smallest valid PNG: one transparent pixel.
@@ -81,13 +82,54 @@ describe('attachments', () => {
     expect(text).toMatchObject({ attachment: { kind: 'text', name: 'plan.md', text: '# Plan\nShip it.' } })
     expect('blob' in text && text.blob).toBeFalsy()
 
-    expect(makeAttachment('paper.pdf', Buffer.from('%PDF-1.7 ...'))).toMatchObject({ error: expect.stringContaining('PDF') })
     expect(makeAttachment('app.exe', Buffer.from([0x4d, 0x5a, 0x00, 0x00, 0x01]))).toMatchObject({ error: expect.stringContaining('not a text file') })
     expect(makeAttachment('huge.png', Buffer.concat([PNG, Buffer.alloc(MAX_IMAGE_BYTES)]))).toMatchObject({ error: expect.stringContaining('larger than') })
 
     const long = makeAttachment('log.txt', Buffer.from('x'.repeat(MAX_TEXT_CHARS + 500)))
     expect('attachment' in long && long.attachment.text!.length).toBeLessThan(MAX_TEXT_CHARS + 200)
     expect('attachment' in long && long.attachment.text).toContain('left out because it is too long')
+  })
+
+  it('reads the text of a PDF, page by page', async () => {
+    const made = await readAttachment('report "Q3".pdf', makePdf([['Quarterly report', 'Revenue rose 12 percent (net).'], ['The appendix is on page two.']]))
+    if (!('attachment' in made)) throw new Error(made.error)
+    expect(made.blob).toBeUndefined()
+    expect(made.attachment).toMatchObject({ kind: 'text', mime: 'application/pdf', name: 'report  Q3 .pdf', pages: 2 })
+    expect(made.attachment.text).toBe('[Page 1]\nQuarterly report\nRevenue rose 12 percent (net).\n\n[Page 2]\nThe appendix is on page two.')
+    // It then travels like any text file, so it reaches every assistant and survives a handoff.
+    const body = messageBody({ text: 'Summarise this.', attachments: [made.attachment] })
+    expect(body).toContain('<attached_file name="report  Q3 .pdf">')
+    expect(body).toContain('Revenue rose 12 percent')
+  })
+
+  it('keeps a page with no text in its place', async () => {
+    const made = await readAttachment('mixed.pdf', makePdf([['First page.'], [], ['Third page.']]))
+    expect('attachment' in made && made.attachment.text).toBe('[Page 1]\nFirst page.\n\n[Page 2]\n(no text on this page)\n\n[Page 3]\nThird page.')
+  })
+
+  it('says why a PDF cannot be used', async () => {
+    expect(await readAttachment('scan.pdf', makePdf([[], []]))).toMatchObject({ error: expect.stringContaining('no text that can be read') })
+    expect(await readAttachment('broken.pdf', Buffer.from('%PDF-1.7 this is not really a PDF'))).toMatchObject({ error: 'broken.pdf could not be read as a PDF.' })
+  })
+
+  it('cuts a very long PDF at a page boundary and says which pages are missing', async () => {
+    const line = 'All work and no play makes for a dull document. '
+    const made = await readAttachment('long.pdf', makePdf(Array.from({ length: 100 }, (_, i) => [`Chapter ${i + 1}`, ...Array.from({ length: 60 }, () => line)])))
+    if (!('attachment' in made)) throw new Error(made.error)
+    const text = made.attachment.text!
+    expect(made.attachment.pages).toBe(100)
+    expect(text.length).toBeLessThanOrEqual(MAX_TEXT_CHARS + 200)
+    const kept = text.match(/\[Page \d+\]/g)!.length
+    expect(kept).toBeGreaterThan(20)
+    expect(kept).toBeLessThan(100)
+    expect(text).toContain(`Chapter ${kept}`)
+    expect(text).not.toContain(`Chapter ${kept + 1}\n`)
+    expect(text.endsWith(`(Pages ${kept + 1} to 100 of this document were left out because it is too long.)`)).toBe(true)
+  })
+
+  it('still handles images and text files through the same door', async () => {
+    expect(await readAttachment('icon.png', PNG)).toMatchObject({ attachment: { kind: 'image' }, blob: { mime: 'image/png' } })
+    expect(await readAttachment('plan.md', Buffer.from('# Plan'))).toMatchObject({ attachment: { kind: 'text', text: '# Plan' } })
   })
 
   it('writes attached files into the transcript so they survive a handoff', () => {
@@ -138,6 +180,29 @@ describe.skipIf(!canRunFakes)('attachments through the engine', () => {
     const parts = sent[sent.length - 1].content
     expect(parts[0].text).toContain('<attached_file name="plan.md">\nShip it on Friday.')
     expect(parts[1].image_url.url.startsWith('data:image/png;base64,')).toBe(true)
+  })
+
+  it('gives the text of a PDF to every assistant, and to the next one after a switch', async () => {
+    const { engine, store, last, runtime } = await setup()
+    const made = await readAttachment('contract.pdf', makePdf([['The notice period is ninety days.'], ['Signed in Lisbon.']]))
+    if (!('attachment' in made)) throw new Error(made.error)
+    for (const provider of ['claude', 'chatgpt', 'local'] as const) {
+      const conv = engine.createConversation({ provider })
+      await engine.send({ conversationId: conv.id, text: 'How long is the notice period?', attachments: [made.attachment] })
+      expect(last(conv.id), provider).toMatchObject({ provider, status: 'complete' })
+      if (provider !== 'local') expect(last(conv.id).text, provider).toContain('I read the attached file')
+      if (provider !== 'local') expect(last(conv.id).text, provider).toContain('I read a PDF of 2 pages')
+      expect(store.messages(conv.id)[0].attachments, provider).toEqual([expect.objectContaining({ kind: 'text', mime: 'application/pdf', pages: 2, name: 'contract.pdf' })])
+    }
+    const sent = runtime.requests[runtime.requests.length - 1].messages
+    expect(JSON.stringify(sent[sent.length - 1].content)).toContain('[Page 1]\\nThe notice period is ninety days.')
+
+    // Started on Claude, continued on ChatGPT: the PDF's text is in the context file that is handed over.
+    const conv = engine.createConversation({ provider: 'claude' })
+    await engine.send({ conversationId: conv.id, text: 'Read this.', attachments: [made.attachment] })
+    const context = readFileSync(join(engine.contextDir(conv.id), 'full.md'), 'utf8')
+    expect(context).toContain('<attached_file name="contract.pdf">')
+    expect(context).toContain('Signed in Lisbon.')
   })
 
   it('sends a message that is only an attachment, and names the chat after it', async () => {

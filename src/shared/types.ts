@@ -94,6 +94,8 @@ export interface Attachment {
   size: number
   kind: 'image' | 'text'
   text?: string
+  /** For a PDF: how many pages it has. Its text is carried like a text file's. */
+  pages?: number
 }
 
 /** The bytes of an image attachment. Synced like any other record. */
@@ -106,6 +108,8 @@ export interface Blob {
 
 export const MAX_ATTACHMENTS = 8
 export const MAX_IMAGE_BYTES = 8 * 1024 * 1024
+/** The largest file that is read at all. PDFs can be this big; images have their own, smaller limit. */
+export const MAX_FILE_BYTES = 32 * 1024 * 1024
 export const MAX_TEXT_CHARS = 200_000
 
 export type ErrorCode =

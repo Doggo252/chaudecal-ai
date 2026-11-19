@@ -16,7 +16,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Compare.** Send one message to several assistants side by side and keep the answer you like.
 - **Search everything.** One search across every conversation from every assistant.
 - **Shared memory and prompts.** Notes about you and saved prompts that every assistant receives, so you never repeat yourself.
-- **Attachments.** Attach, paste or drop images and text files. Images go to whichever assistant is answering and follow the conversation when it switches. They sync between your machines too.
+- **Attachments.** Attach, paste or drop images, PDFs and text files. Images go to whichever assistant is answering and follow the conversation when it switches. A PDF's text is read by the app, so every assistant can use it, local models included. Everything syncs between your machines.
 - **Second opinion and branching.** One click asks another assistant to review an answer. Any answer can be branched into a separate conversation to try a different direction.
 - **Notifications.** Send a long task, switch to another app, and get a notification when the reply is ready or when the assistant has stopped to ask you something. Clicking it opens that conversation.
 - **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, artifacts, account settings). A web chat can be brought into the unified chat.
@@ -28,7 +28,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 
 | Attachments | Usage |
 | --- | --- |
-| ![An image and a text file attached to a message](docs/screenshots/attachments.png) | ![Usage tracker](docs/screenshots/usage.png) |
+| ![An image, a text file and a PDF attached to a message](docs/screenshots/attachments.png) | ![Usage tracker](docs/screenshots/usage.png) |
 
 | Working on the hub from another device | Asking before it acts |
 | --- | --- |
@@ -138,7 +138,7 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 - **Permission questions.** When an assistant wants to go beyond its mode (run a command in Edit mode, for example), the reply pauses and a card shows exactly what it wants to do. "Allow once" lets that one action through. "Allow for this chat" also stops it asking again for the same thing in this conversation. "Decline" tells the assistant no, and it carries on without it.
 - **Switching.** Click the switch button at the top of a conversation, pick the assistant, and choose what to hand over: the summary with recent messages (smaller, faster) or the full transcript (complete). The receiving assistant gets the file with your next message.
 - **The context files.** Both files are plain Markdown and are rewritten after every reply. Open them from the conversation menu to paste into anything else. The largest file is capped by the context budget in Settings (400,000 tokens by default) and by what the receiving model can take.
-- **Attachments.** Use the paperclip, paste a screenshot, or drop files on the message box. Images can be PNG, JPEG, GIF or WebP up to 8 MB. Text files (code, Markdown, CSV and so on) are read into the message, so they travel in the context file. When a conversation moves to another assistant, its four most recent images are sent along.
+- **Attachments.** Use the paperclip, paste a screenshot, or drop files on the message box. Images can be PNG, JPEG, GIF or WebP up to 8 MB. Text files (code, Markdown, CSV and so on) are read into the message, so they travel in the context file. A PDF up to 32 MB is turned into text page by page and then travels the same way. When a conversation moves to another assistant, its four most recent images are sent along.
 - **Second opinion.** Hover over the latest answer and click the speech bubbles. Another assistant with room left reads the conversation and reviews the answer. Your next message goes back to the assistant you were using.
 - **Branching.** Hover over any answer and click the branch icon. The conversation up to that answer is copied into a new one, and the original is left as it was.
 - **Notifications.** They appear only while the app is not the window in front, and only on the computer the message was sent from, so the hub PC stays quiet about work you started on the Mac. The Dock icon also shows a count (on Windows the taskbar button flashes) until you look at the app. A conversation that is waiting for your answer has an amber dot in the sidebar. Private chats never show their contents in a notification. Turn it all off under Settings, "General".
@@ -148,7 +148,8 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 
 ## Limits of this version
 
-- Image generation and voice are available through the built-in website tabs, not through the unified chat. PDFs cannot be attached yet.
+- Image generation and voice are available through the built-in website tabs, not through the unified chat.
+- Only the text of a PDF is read. Pictures, charts and scanned pages inside it are not, and a PDF that is all scans is refused with a note saying so. Use the claude.ai or chatgpt.com tab for those. A very long PDF is cut at about 200,000 characters (roughly 80 dense pages), and the message says which pages were left out.
 - A local model only understands images if it is a vision model. Others will report an error or ignore the image.
 - Claude asking during a reply needs a recent Claude Code. With an older one the app notices and falls back to asking afterwards: a card lists what Claude was blocked from doing and offers "Allow and continue".
 - "Allow for this chat" is remembered on the machine doing the work, and for Claude it is forgotten when you choose a different folder. A long command made of several parts is asked about each time, because allowing it "for this chat" would have to allow every command.

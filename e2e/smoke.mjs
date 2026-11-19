@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startMockOpenAI } from '../tests/fakes/mock-openai.mjs'
+import { makePdf } from '../tests/fakes/pdf.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const shots = join(root, 'e2e', 'artifacts')
@@ -93,7 +94,9 @@ for (const name of ['Desktop', 'Documents', 'projects/website', 'projects/api'])
 const notices = (name) => (existsSync(noticeFile[name]) ? readFileSync(noticeFile[name], 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
 const notesFile = join(attachDir, 'notes.md')
 writeFileSync(notesFile, '# Notes\nThe launch is on Friday.\n')
-const attachFiles = [join(root, 'build/icon.png'), notesFile].join(delimiter)
+const pdfFile = join(attachDir, 'handbook.pdf')
+writeFileSync(pdfFile, makePdf([['Staff handbook', 'Leave is twenty five days a year.'], ['Expenses are paid monthly.']]))
+const attachFiles = [join(root, 'build/icon.png'), notesFile, pdfFile].join(delimiter)
 
 // Stand-in for the GitHub releases page, announcing a newer build.
 const releases = createHttpServer((_req, res) => {
@@ -182,19 +185,20 @@ try {
   await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="user-message"]')].some((el) => el.textContent.includes('Biscuit')))
   ok('search finds a message and opens its conversation')
 
-  // Attachments: an image and a text file go to the assistant with the message.
+  // Attachments: an image, a text file and a PDF go to the assistant with the message.
   await a.page.click(tid('new-chat'))
   await pickProvider(a.page, 'claude')
   await a.page.click(tid('attach'))
-  await a.page.waitForFunction(() => document.querySelectorAll('.attachments.pending [data-testid="attachment"]').length === 2)
+  await a.page.waitForFunction(() => document.querySelectorAll('.attachments.pending [data-testid="attachment"]').length === 3)
+  assert((await a.page.textContent('.attachments.pending [data-pages="2"]')).includes('handbook.pdf'), 'the PDF should be shown with its page count')
   await sendMessage(a.page, 'What is in these?')
-  await waitForReply(a.page, 'claude', 'I can see 1 image. I read the attached file')
+  await waitForReply(a.page, 'claude', 'I can see 1 image. I read the attached file. I read a PDF of 2 pages')
   await a.page.waitForFunction(() => {
     const img = document.querySelector('[data-testid="user-message"] img.attach-thumb')
-    return img && img.complete && img.naturalWidth > 0 && !!document.querySelector('[data-testid="user-message"] [data-kind="text"]')
+    return img && img.complete && img.naturalWidth > 0 && !!document.querySelector('[data-testid="user-message"] [data-kind="text"]') && !!document.querySelector('[data-testid="user-message"] [data-pages="2"]')
   })
   await shot(a.page, '10-attachments')
-  ok('an image and a text file are attached, shown, and reach the assistant')
+  ok('an image, a text file and a PDF are attached, shown, and reach the assistant')
 
   // Second opinion: another assistant reviews the answer, and gets the image too.
   await a.page.click(tid('second-opinion'), { force: true })

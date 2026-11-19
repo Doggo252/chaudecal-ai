@@ -464,7 +464,11 @@ export class ChatEngine {
         if (!this.store.get<Blob>('blob', a.id)) continue
         out.push({ id: a.id, name: a.name, mime: String(a.mime), size: Number(a.size) || 0, kind: 'image' })
       } else if (a.kind === 'text' && typeof a.text === 'string') {
-        out.push({ id: a.id, name: a.name, mime: 'text/plain', size: Number(a.size) || 0, kind: 'text', text: a.text })
+        const file: Attachment = { id: a.id, name: a.name, mime: 'text/plain', size: Number(a.size) || 0, kind: 'text', text: a.text }
+        // A PDF was read into text, and keeps its page count for display.
+        const pages = Math.floor(Number(a.pages))
+        if (a.mime === 'application/pdf' && pages > 0) Object.assign(file, { mime: 'application/pdf', pages })
+        out.push(file)
       }
       if (out.length >= MAX_ATTACHMENTS) break
     }

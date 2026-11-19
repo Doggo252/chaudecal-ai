@@ -65,6 +65,9 @@ async function runTurn(threadId, text, imageCount = 0) {
   if (thread.resumed) notes.push('I resumed my earlier session')
   if (imageCount) notes.push(`I can see ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`)
   if (text.includes('<attached_file')) notes.push('I read the attached file')
+  // A PDF arrives as text with a marker at the start of each page.
+  const pdfPages = (text.match(/\[Page \d+\]\n/g) ?? []).length
+  if (pdfPages) notes.push(`I read a PDF of ${pdfPages} ${pdfPages === 1 ? 'page' : 'pages'}`)
   if ((thread.developerInstructions ?? '').includes('standing instructions')) notes.push('I have your standing instructions')
   const reply = `ChatGPT here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
 
