@@ -6,6 +6,7 @@ import type { AttachResult } from '@shared/ipc'
 import { createFromDraft, getState, setState, toast, useUi, type Draft } from '../state'
 import { IconBook, IconChevron, IconClip, IconColumns, IconComputer, IconFolder, IconLock, IconSend, IconStop } from '../icons'
 import { AttachmentList, fileToBase64 } from './Attachments'
+import { HubFolder } from './HubFolder'
 import { MenuItem, Popover, ProviderDot, PROVIDERS, providerName } from './ui'
 
 const MODES: { id: RunMode; label: string; hint: string }[] = [
@@ -48,8 +49,6 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   const onHub = !app.settings.hub.hostEnabled && !!(conversation?.runOnHub ?? draft.runOnHub)
   const hubName = remote?.deviceName ?? 'the hub'
   const providers = onHub && remote ? remote.providers : app.providers
-  const [folderDraft, setFolderDraft] = useState('')
-  const [folderError, setFolderError] = useState('')
 
   const change = (patch: Partial<Draft>) => {
     if (!conversation) {
@@ -65,8 +64,6 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     void window.api.updateConversation(conversation.id, patch)
   }
 
-  useEffect(() => setFolderDraft(workspace), [workspace])
-
   const lastId = useRef<string | undefined>(conversation?.id)
   useEffect(() => {
     // Keep what was typed when a new chat becomes a saved conversation.
@@ -78,7 +75,6 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     }
     setCompare(null)
     setWorkspace('')
-    setFolderError('')
     if (conversation) void window.api.getWorkspace(conversation.id).then(setWorkspace)
     ref.current?.focus()
     // The folder is kept per machine, so it is looked up again when the conversation moves to or from the hub.
@@ -126,14 +122,13 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     setWorkspace(await window.api.pickWorkspace(conv.id))
   }
 
-  /** A folder on the hub cannot be browsed from here, so its path is typed. */
-  const setHubFolder = async (close: () => void) => {
+  /** Sets the folder on the hub. The hub checks it, and its complaint is returned if it has one. */
+  const setHubFolder = async (path: string): Promise<string | undefined> => {
     const conv = conversation ?? (await createFromDraft())
-    const result = await window.api.setWorkspacePath(conv.id, folderDraft)
-    setFolderError(result.error ?? '')
-    if (result.error) return
+    const result = await window.api.setWorkspacePath(conv.id, path)
+    if (result.error) return result.error
     setWorkspace(result.path)
-    close()
+    return undefined
   }
 
   const modelList = (p: ProviderId): string[] => {
@@ -328,31 +323,16 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                 }
               >
                 {(close) => (
-                  <div className="menu-form">
-                    <div className="menu-title">Folder on {hubName}</div>
-                    <input
-                      className="input"
-                      autoFocus
-                      data-testid="hub-folder-input"
-                      placeholder={remote?.platform === 'win32' ? 'C:\\Users\\you\\project' : '/Users/you/project'}
-                      defaultValue={workspace}
-                      onChange={(e) => {
-                        setFolderDraft(e.target.value)
-                        setFolderError('')
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') void setHubFolder(close)
-                      }}
-                    />
-                    {folderError && (
-                      <div className="menu-error" data-testid="hub-folder-error">
-                        {folderError}
-                      </div>
-                    )}
-                    <button type="button" className="btn btn-small btn-primary" data-testid="hub-folder-save" onClick={() => void setHubFolder(close)}>
-                      Use this folder
-                    </button>
-                  </div>
+                  <HubFolder
+                    hubName={hubName}
+                    platform={remote?.platform}
+                    current={workspace}
+                    onUse={async (path) => {
+                      const error = await setHubFolder(path)
+                      if (!error) close()
+                      return error
+                    }}
+                  />
                 )}
               </Popover>
             )}

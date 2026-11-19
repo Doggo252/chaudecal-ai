@@ -88,6 +88,8 @@ Progress is sent to connected devices over the same event stream that announces 
 
 The provider sessions live on the hub, so they survive the other device sleeping, and a run started from the Mac can be continued at the PC or the other way round.
 
+The working folder is a folder on the hub, so the other device chooses it by asking the hub what folders it has. The hub answers one folder at a time with the names of the folders inside it, never files, and without hidden or system folders. It also gives a few starting points: the home folder, Desktop, Documents and Downloads, and on Windows each drive. The same switch that allows remote work gates this.
+
 This is off by default, because it allows a paired device to run commands on the hub.
 
 ### Permission questions
@@ -154,6 +156,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
 | Notice when a newer build is published | Built, tested |
 | Remote work: a conversation typed on one device runs on the hub | Built, tested with two app instances. Not yet run between two real machines. |
+| Choosing the hub's working folder from another device by browsing its folders | Built, tested with two app instances on a Mac. Drive letters and Windows paths are in code only. |
 | Notifications for a finished reply or a waiting question, with a Dock count and a sidebar marker | Built. When and what to announce is tested, including across two app instances. A real notification was shown by the packaged Mac app. Not yet seen on Windows. |
 | Light and dark themes | Built, tested |
 | Mac installer | Built and launched |
@@ -169,9 +172,9 @@ An image is stored as its own record, so it syncs like a message does. Sync batc
 
 ### Next
 
-1. **Browse folders on the hub** from another device, where today the path is typed.
-2. **PDF attachments.**
-3. **Tell a device about replies that finished while it was away**, when it reconnects.
+1. **PDF attachments.**
+2. **Tell a device about replies that finished while it was away**, when it reconnects.
+3. **Create a new folder on the hub** from the folder browser.
 4. **Answer Claude's own questions in the app.** When Claude wants to ask a multiple choice question, it is told to ask in its reply. A proper form would be nicer.
 5. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
 6. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.

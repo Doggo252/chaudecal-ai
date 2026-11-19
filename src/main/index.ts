@@ -446,8 +446,11 @@ const api: Omit<Api, 'on'> = {
     engine.setWorkspace(conversationId, checked.path)
     return checked
   },
+  async browseHubFolders(path) {
+    return remote.listFolders(path)
+  },
   async pickWorkspace(conversationId) {
-    // A folder on the hub cannot be browsed from here. Its path is typed instead.
+    // A folder on the hub is chosen in the message box, not with this machine's own folder dialog.
     if (runsOnHub(conversationId)) return remote.getWorkspace(conversationId)
     let chosen = process.env.CHAUDECAL_E2E_WORKSPACE ?? ''
     if (!chosen && win) {

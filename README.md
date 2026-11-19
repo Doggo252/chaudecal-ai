@@ -34,6 +34,10 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 | --- | --- |
 | ![A conversation on the Mac that runs on the hub PC, in a folder on the PC](docs/screenshots/remote.png) | ![Claude asking whether it may run a command](docs/screenshots/approval.png) |
 
+| Choosing a folder on the hub |
+| --- |
+| ![Browsing the hub PC's folders from the Mac](docs/screenshots/folders.png) |
+
 The screenshots come from the automated test, which uses stand-in assistants, so the replies and numbers in them are not real.
 
 ## How it connects, honestly
@@ -121,11 +125,11 @@ This lets the Mac hand work to the PC: the PC's own Claude Code and Codex do it,
 
 1. On the PC, open Settings, "Sync and hub", and turn on "Let my other devices run assistants on this machine".
 2. On the Mac, a "Runs on" button appears in the message box within a minute. Choose the PC there for a conversation, or turn on "Run new conversations on the hub" under Settings, "Sync and hub".
-3. For Plan, Edit or Auto mode, click the folder button and type the full path of a folder on the PC, for example `C:\Users\you\project`.
+3. For Plan, Edit or Auto mode, click the folder button to choose a folder on the PC. It opens on the PC's home folder: click a folder to go into it, use the arrow to go back up, or jump to Desktop, Documents or a drive. You can also type a full path, for example `C:\Users\you\project`. Then click "Use this folder".
 
 Replies stream to the Mac as they are written. If the Mac goes to sleep or offline, the PC carries on and the finished reply syncs when the Mac is back. When Claude or ChatGPT asks for permission, the question appears on the Mac, and on the PC's own screen too. Answering on either one clears it on both.
 
-**Read this before turning it on.** With this setting on, anyone who has the pairing code and can reach the PC can edit files and run commands on it. Keep the hub on your home network and Tailscale, never forward its port to the internet, and make a new pairing code if the old one may have leaked. The setting is off by default.
+**Read this before turning it on.** With this setting on, anyone who has the pairing code and can reach the PC can see the names of its folders, edit files and run commands on it. Keep the hub on your home network and Tailscale, never forward its port to the internet, and make a new pairing code if the old one may have leaked. The setting is off by default.
 
 ## Using it
 
@@ -148,7 +152,7 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 - A local model only understands images if it is a vision model. Others will report an error or ignore the image.
 - Claude asking during a reply needs a recent Claude Code. With an older one the app notices and falls back to asking afterwards: a card lists what Claude was blocked from doing and offers "Allow and continue".
 - "Allow for this chat" is remembered on the machine doing the work, and for Claude it is forgotten when you choose a different folder. A long command made of several parts is asked about each time, because allowing it "for this chat" would have to allow every command.
-- A folder on the hub is chosen by typing its path. It cannot be browsed from the other device yet.
+- The folder browser for the hub shows folders only, never files, and leaves out hidden folders. To use a hidden folder, type its path.
 - If the Mac disconnects while the PC is working, the PC finishes anyway. A permission question raised in the meantime waits on the PC's own screen, and the PC shows a notification about it. The Mac is not told about a reply that finished while it was disconnected.
 - The first notification makes macOS ask whether to allow them. If you say no, only the Dock count is shown.
 - Local models chat only. They do not edit files or run commands.
@@ -173,7 +177,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 22 checks |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 23 checks |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

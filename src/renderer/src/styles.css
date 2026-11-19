@@ -1680,6 +1680,76 @@ a {
 .menu-form .menu-title {
   padding: 4px 2px 0;
 }
+/* Choosing a folder on the hub from another device. */
+.folder-browser {
+  width: 320px;
+}
+.folder-path {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.folder-path .input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.folder-places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.folder-place {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-soft);
+}
+.folder-place:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.folder-list {
+  height: 168px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  transition: opacity 0.12s;
+}
+.folder-list.loading {
+  opacity: 0.55;
+}
+.folder-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 7px;
+  border-radius: 6px;
+  text-align: left;
+  color: var(--text);
+}
+.folder-item:hover {
+  background: var(--bg-hover);
+}
+.folder-item svg {
+  flex: none;
+  color: var(--text-muted);
+}
+.folder-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folder-empty {
+  padding: 8px 7px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
 .menu-error {
   font-size: 12px;
   color: var(--bad);

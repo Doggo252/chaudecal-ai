@@ -6,6 +6,7 @@ import type {
   Attachment,
   Conversation,
   DiscoveredHub,
+  FolderListing,
   HandoffVariant,
   HubStatus,
   LocalModel,
@@ -160,6 +161,8 @@ export interface Api {
   clearWorkspace(conversationId: string): Promise<void>
   /** Set the working folder by typing its path. Used for conversations that run on the hub. */
   setWorkspacePath(conversationId: string, path: string): Promise<{ path: string; error?: string }>
+  /** The folders inside a folder on the hub, for choosing one from this device. Without a path, the hub's home folder. */
+  browseHubFolders(path?: string): Promise<FolderListing>
 
   saveNote(note: { id?: string; text: string }): Promise<void>
   deleteNote(id: string): Promise<void>
@@ -211,6 +214,7 @@ export const API_METHODS = [
   'pickWorkspace',
   'clearWorkspace',
   'setWorkspacePath',
+  'browseHubFolders',
   'saveNote',
   'deleteNote',
   'savePrompt',

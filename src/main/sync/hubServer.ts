@@ -316,6 +316,10 @@ export class HubServer {
       json(res, 200, typeof body.path === 'string' ? runs.setWorkspace(conversationId, body.path) : { path: runs.getWorkspace(conversationId) })
       return
     }
+    if (path === '/api/run/folders') {
+      json(res, 200, runs.listFolders(typeof body.path === 'string' ? body.path : undefined))
+      return
+    }
     json(res, 404, { error: 'not found' })
   }
 }

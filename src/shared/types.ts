@@ -315,6 +315,26 @@ export interface RemoteInfo {
   busy: string[]
 }
 
+/** One folder in a listing of the hub's folders. */
+export interface FolderEntry {
+  name: string
+  path: string
+}
+
+/** The folders inside one folder on the hub, for choosing a working folder from another device. */
+export interface FolderListing {
+  /** The folder that was listed. Empty when it could not be. */
+  path: string
+  /** The folder above it. Absent at the top. */
+  parent?: string
+  folders: FolderEntry[]
+  /** Starting points: the home folder, the usual folders inside it, and the drives. */
+  places: FolderEntry[]
+  /** There were more folders than are listed. */
+  truncated?: boolean
+  error?: string
+}
+
 /** Live progress of a run on the hub, sent to connected devices. */
 export type RunWireEvent =
   | { type: 'stream'; message: Message }

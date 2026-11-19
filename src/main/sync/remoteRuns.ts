@@ -6,9 +6,10 @@
 // This lets a paired device run commands on the hub machine, so it is off until
 // the hub's owner turns it on.
 
-import { existsSync, statSync } from 'node:fs'
-import { isAbsolute } from 'node:path'
-import type { ApprovalDecision, Attachment, ProviderId, ProviderStatus, RemoteInfo, RunWireEvent, Settings } from '@shared/types'
+import { existsSync, readdirSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join } from 'node:path'
+import type { ApprovalDecision, Attachment, FolderEntry, FolderListing, ProviderId, ProviderStatus, RemoteInfo, RunWireEvent, Settings } from '@shared/types'
 import type { SendInput } from '@shared/ipc'
 import type { HubClient } from './hubClient'
 
@@ -42,6 +43,65 @@ export function checkFolder(path: string): { path: string; error?: string } {
   return { path: trimmed }
 }
 
+/** The most folders sent for one listing. */
+export const MAX_FOLDERS = 500
+
+const isFolder = (path: string): boolean => {
+  try {
+    return statSync(path).isDirectory()
+  } catch {
+    return false
+  }
+}
+
+/** The home folder, the usual folders inside it, and on Windows the drives. */
+export function folderPlaces(home = homedir(), platform: string = process.platform): FolderEntry[] {
+  const places: FolderEntry[] = [{ name: 'Home', path: home }]
+  for (const name of ['Desktop', 'Documents', 'Downloads']) {
+    const path = join(home, name)
+    if (existsSync(path)) places.push({ name, path })
+  }
+  if (platform === 'win32') {
+    for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+      if (existsSync(`${letter}:\\`)) places.push({ name: `${letter}:`, path: `${letter}:\\` })
+    }
+  } else {
+    places.push({ name: 'Computer', path: '/' })
+  }
+  return places
+}
+
+/**
+ * Lists the folders inside a folder on this machine, for a device that is choosing where an
+ * assistant should work. Only names of folders are given out, never files or their contents.
+ * Without a path it lists the home folder.
+ */
+export function listFolders(path: string | undefined, home = homedir(), platform: string = process.platform): FolderListing {
+  const places = folderPlaces(home, platform)
+  const target = (path ?? '').trim() || home
+  const failed = (error: string): FolderListing => ({ path: '', folders: [], places, error })
+  if (!isAbsolute(target)) return failed('Give the full path of the folder, for example C:\\Users\\you\\project.')
+  if (!isFolder(target)) return failed('That folder does not exist on the machine that will run this.')
+  let names: string[]
+  try {
+    names = readdirSync(target, { withFileTypes: true })
+      // Hidden and system folders are left out. A link counts when it leads to a folder.
+      .filter((e) => !e.name.startsWith('.') && !e.name.startsWith('$') && (e.isDirectory() || (e.isSymbolicLink() && isFolder(join(target, e.name)))))
+      .map((e) => e.name)
+  } catch {
+    return failed('That folder could not be opened.')
+  }
+  names.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base', numeric: true }))
+  const parent = dirname(target)
+  return {
+    path: target,
+    parent: parent !== target ? parent : undefined,
+    folders: names.slice(0, MAX_FOLDERS).map((name) => ({ name, path: join(target, name) })),
+    places,
+    truncated: names.length > MAX_FOLDERS || undefined
+  }
+}
+
 /** What the hub server needs in order to run assistants for other devices. */
 export interface RunHost {
   enabled(): boolean
@@ -51,6 +111,7 @@ export interface RunHost {
   respondApproval(conversationId: string, messageId: string, approvalId: string, decision: ApprovalDecision): void
   getWorkspace(conversationId: string): string
   setWorkspace(conversationId: string, path: string): { path: string; error?: string }
+  listFolders(path?: string): FolderListing
 }
 
 /** The parts of the conversation engine a run host needs. */
@@ -76,7 +137,9 @@ export function createRunHost(engine: RunEngine, settings: () => Settings, statu
       const checked = checkFolder(path)
       if (!checked.error) engine.setWorkspace(conversationId, checked.path)
       return checked.error ? { path: engine.workspace(conversationId), error: checked.error } : checked
-    }
+    },
+    // Tests give the hub a home folder of their own, so nothing personal is listed or photographed.
+    listFolders: (path) => listFolders(path, process.env.CHAUDECAL_E2E_HOME || homedir())
   }
 }
 
@@ -192,6 +255,15 @@ export class RemoteRuns {
       return await this.hub.request<{ path: string; error?: string }>('/api/run/workspace', { conversationId, path })
     } catch (e) {
       return { path: '', error: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  /** The folders inside a folder on the hub. Without a path, the hub's home folder. */
+  async listFolders(path?: string): Promise<FolderListing> {
+    try {
+      return await this.hub.request<FolderListing>('/api/run/folders', { path: path ?? '' }, 15000)
+    } catch (e) {
+      return { path: '', folders: [], places: [], error: e instanceof Error ? e.message : String(e) }
     }
   }
 }

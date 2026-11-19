@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { basename, delimiter, dirname, join, resolve } from 'node:path'
+import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startMockOpenAI } from '../tests/fakes/mock-openai.mjs'
 
@@ -87,6 +87,9 @@ const attachDir = mkdtempSync(join(tmpdir(), 'chaudecal-e2e-files-'))
 // Each app writes the notifications it would have shown into its own file.
 const noticeDir = mkdtempSync(join(tmpdir(), 'chaudecal-e2e-notices-'))
 const noticeFile = { hub: join(noticeDir, 'hub.jsonl'), client: join(noticeDir, 'client.jsonl') }
+// The hub's "home folder" for the folder browser, so the test never lists or photographs a real one.
+const homeDir = mkdtempSync(join(tmpdir(), 'chaudecal-e2e-home-'))
+for (const name of ['Desktop', 'Documents', 'projects/website', 'projects/api']) mkdirSync(join(homeDir, name), { recursive: true })
 const notices = (name) => (existsSync(noticeFile[name]) ? readFileSync(noticeFile[name], 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
 const notesFile = join(attachDir, 'notes.md')
 writeFileSync(notesFile, '# Notes\nThe launch is on Friday.\n')
@@ -113,7 +116,7 @@ try {
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false },
       hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true }
     },
-    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub }
+    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir }
   )
   await a.page.waitForFunction(async () => {
     const s = await window.api.state()
@@ -282,22 +285,44 @@ try {
   assert((await b.page.textContent('.composer-foot')).includes('Runs on Hub PC'), 'the message box should say where the work runs')
   ok('a conversation typed on the second device is answered by the assistant on the hub')
 
-  // The working folder for such a conversation is a folder on the hub, given by its path.
+  // The working folder for such a conversation is a folder on the hub. B browses the hub's folders to choose it.
+  const folderNames = () => b.page.$$eval(tid('hub-folder-item'), (els) => els.map((el) => el.textContent.trim()))
+  const folderPath = () => b.page.inputValue(tid('hub-folder-input'))
+  const openFolder = async (name, inside) => {
+    await b.page.click(`${tid('hub-folder-item')}:has-text("${name}")`)
+    await b.page.waitForFunction(([sel, want]) => document.querySelector(sel)?.value === want, [tid('hub-folder-input'), inside])
+  }
   await b.page.click(tid('mode-picker'))
   await b.page.click(tid('mode-edit'))
   await b.page.click(tid('hub-folder-picker'))
-  await b.page.fill(tid('hub-folder-input'), join(attachDir, 'not-here'))
+  await b.page.waitForSelector(`${tid('hub-folder-item')}:has-text("projects")`)
+  assert((await folderPath()) === homeDir, `the browser should open on the hub's home folder, got ${await folderPath()}`)
+  assert(JSON.stringify(await folderNames()) === JSON.stringify(['Desktop', 'Documents', 'projects']), `unexpected folders: ${await folderNames()}`)
+  await openFolder('projects', join(homeDir, 'projects'))
+  await b.page.waitForSelector(`${tid('hub-folder-item')}:has-text("website")`)
+  assert(JSON.stringify(await folderNames()) === JSON.stringify(['api', 'website']), `unexpected folders: ${await folderNames()}`)
+  await shot(b.page, '13-folder-on-the-hub')
+  await openFolder('api', join(homeDir, 'projects', 'api'))
+  await b.page.click(tid('hub-folder-up'))
+  await b.page.waitForSelector(`${tid('hub-folder-item')}:has-text("website")`)
+  await b.page.click(`${tid('hub-folder-place')}:has-text("Home")`)
+  await b.page.waitForSelector(`${tid('hub-folder-item')}:has-text("Documents")`)
+  ok("the second device browses the hub's folders")
+
+  // A path can still be typed. A wrong one is refused by the hub, and a right one shows what is inside it.
+  await b.page.fill(tid('hub-folder-input'), join(homeDir, 'not-here'))
   await b.page.click(tid('hub-folder-save'))
   await b.page.waitForSelector(tid('hub-folder-error'))
-  await b.page.fill(tid('hub-folder-input'), attachDir)
-  await shot(b.page, '13-folder-on-the-hub')
+  await b.page.fill(tid('hub-folder-input'), join(homeDir, 'projects'))
+  await b.page.waitForSelector(`${tid('hub-folder-item')}:has-text("website")`)
+  await openFolder('website', join(homeDir, 'projects', 'website'))
   await b.page.click(tid('hub-folder-save'))
-  await b.page.waitForFunction((name) => document.querySelector('[data-testid="hub-folder-picker"]')?.textContent.includes(name), basename(attachDir))
-  assert((await a.page.evaluate((id) => window.api.getWorkspace(id), remoteConv)) === attachDir, 'the hub should now use that folder for the conversation')
+  await b.page.waitForFunction(() => document.querySelector('[data-testid="hub-folder-picker"]')?.textContent.includes('website'))
+  assert((await a.page.evaluate((id) => window.api.getWorkspace(id), remoteConv)) === join(homeDir, 'projects', 'website'), 'the hub should now use that folder for the conversation')
   await sendMessage(b.page, 'List the files. [tool]')
   await waitForReply(b.page, 'claude', 'List the files.')
   await shot(b.page, '14-running-on-the-hub')
-  ok('the folder on the hub is chosen from the second device, and a wrong path is refused')
+  ok('the chosen folder is used on the hub, and a wrong path is refused')
 
   // Claude asks before it runs a command. The question appears on B while the hub waits, and the answer goes back.
   await sendMessage(b.page, 'Now run the tests. [deny]')
@@ -360,4 +385,5 @@ try {
   releases.close()
   rmSync(attachDir, { recursive: true, force: true })
   rmSync(noticeDir, { recursive: true, force: true })
+  rmSync(homeDir, { recursive: true, force: true })
 }

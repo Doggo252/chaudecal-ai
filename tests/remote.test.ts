@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import type { Blob, Conversation, Message, ProviderId, ProviderStatus, RunWireEvent, Settings } from '@shared/types'
 import { Store } from '../src/main/store'
 import { ChatEngine } from '../src/main/chat'
@@ -10,7 +10,7 @@ import { CodexProvider } from '../src/main/providers/codex'
 import { LocalProvider } from '../src/main/providers/local'
 import { HubServer } from '../src/main/sync/hubServer'
 import { HubClient } from '../src/main/sync/hubClient'
-import { checkFolder, cleanSendInput, createRunHost, RemoteRuns } from '../src/main/sync/remoteRuns'
+import { checkFolder, cleanSendInput, createRunHost, folderPlaces, listFolders, MAX_FOLDERS, RemoteRuns } from '../src/main/sync/remoteRuns'
 import { makeAttachment } from '../src/main/attachments'
 import { canRunFakes, tempDir, testSettings, until } from './helpers'
 
@@ -20,6 +20,7 @@ const cleanup: (() => Promise<void> | void)[] = []
 afterEach(async () => {
   for (const fn of cleanup.splice(0).reverse()) await fn()
   delete process.env.FAKE_LOG
+  delete process.env.CHAUDECAL_E2E_HOME
   delete process.env.FAKE_DELAY_MS
 })
 
@@ -114,6 +115,62 @@ describe('remote run requests', () => {
     expect(checkFolder('projects/app').error).toContain('full path')
     expect(checkFolder(join(dir, 'missing')).error).toContain('does not exist')
   })
+
+  /** A small home folder: two projects, the usual folders, a hidden folder, a file and a link. */
+  function home() {
+    const dir = tempDir()
+    for (const name of ['Desktop', 'Documents', 'projects/website', 'projects/api', 'projects/item10', 'projects/item2', 'projects/.git', 'elsewhere']) mkdirSync(join(dir, name), { recursive: true })
+    writeFileSync(join(dir, 'projects', 'notes.txt'), 'not a folder')
+    symlinkSync(join(dir, 'elsewhere'), join(dir, 'projects', 'linked'))
+    symlinkSync(join(dir, 'projects', 'notes.txt'), join(dir, 'projects', 'linked-file'))
+    return dir
+  }
+
+  it.skipIf(!canRunFakes)('lists the folders inside a folder, and nothing else', () => {
+    const dir = home()
+    const projects = join(dir, 'projects')
+    const listing = listFolders(projects, dir)
+    expect(listing.path).toBe(projects)
+    expect(listing.parent).toBe(dir)
+    // Sorted the way a person reads them. Files, hidden folders and links to files are left out.
+    expect(listing.folders.map((f) => f.name)).toEqual(['api', 'item2', 'item10', 'linked', 'website'])
+    expect(listing.folders[0]).toEqual({ name: 'api', path: join(projects, 'api') })
+    expect(listing.error).toBeUndefined()
+    expect(listing.truncated).toBeUndefined()
+    expect(listFolders(join(projects, 'api'), dir)).toMatchObject({ path: join(projects, 'api'), parent: projects, folders: [] })
+  })
+
+  it.skipIf(!canRunFakes)('starts in the home folder and offers the usual places', () => {
+    const dir = home()
+    for (const start of [undefined, '', '   ']) expect(listFolders(start, dir).path).toBe(dir)
+    expect(listFolders(undefined, dir).folders.map((f) => f.name)).toEqual(['Desktop', 'Documents', 'elsewhere', 'projects'])
+    expect(folderPlaces(dir, 'darwin')).toEqual([
+      { name: 'Home', path: dir },
+      { name: 'Desktop', path: join(dir, 'Desktop') },
+      { name: 'Documents', path: join(dir, 'Documents') },
+      { name: 'Computer', path: '/' }
+    ])
+    // Windows has drives in place of one top folder.
+    expect(folderPlaces(dir, 'win32').some((p) => p.name === 'Computer')).toBe(false)
+    // The top of the file system has nothing above it.
+    expect(listFolders('/', dir)).toMatchObject({ path: '/', parent: undefined })
+  })
+
+  it.skipIf(!canRunFakes)('explains a path that cannot be listed, and still offers places to start from', () => {
+    const dir = home()
+    expect(listFolders('projects', dir)).toMatchObject({ path: '', folders: [], error: expect.stringContaining('full path') })
+    expect(listFolders(join(dir, 'missing'), dir).error).toContain('does not exist')
+    expect(listFolders(join(dir, 'projects', 'notes.txt'), dir).error).toContain('does not exist')
+    expect(listFolders(join(dir, 'missing'), dir).places[0]).toEqual({ name: 'Home', path: dir })
+  })
+
+  it.skipIf(!canRunFakes)('stops at a sensible number of folders and says so', () => {
+    const dir = tempDir()
+    for (let i = 0; i < MAX_FOLDERS + 5; i++) mkdirSync(join(dir, `f${i}`))
+    const listing = listFolders(dir, dir)
+    expect(listing.folders).toHaveLength(MAX_FOLDERS)
+    expect(listing.truncated).toBe(true)
+  })
 })
 
 describe.skipIf(!canRunFakes)('running assistants on the hub from another device', () => {
@@ -175,6 +232,33 @@ describe.skipIf(!canRunFakes)('running assistants on the hub from another device
     expect(hub.engine.workspace(conv.id)).toBe(dir)
     expect(await remote.setWorkspace(conv.id, '')).toEqual({ path: '' })
     expect(hub.engine.workspace(conv.id)).toBe('')
+  })
+
+  it("browses the hub's folders from the other device", async () => {
+    const { remote, hub, dir, conversation } = await setup()
+    mkdirSync(join(dir, 'projects', 'website'), { recursive: true })
+    process.env.CHAUDECAL_E2E_HOME = dir
+    // With no path the hub answers with its own home folder.
+    const start = await remote.listFolders()
+    expect(start.path).toBe(dir)
+    expect(start.places[0]).toEqual({ name: 'Home', path: dir })
+    expect(start.folders.map((f) => f.name)).toContain('projects')
+    const projects = await remote.listFolders(start.folders.find((f) => f.name === 'projects')!.path)
+    expect(projects).toMatchObject({ path: join(dir, 'projects'), parent: dir, folders: [{ name: 'website', path: join(dir, 'projects', 'website') }] })
+    expect((await remote.listFolders(join(dir, 'missing'))).error).toContain('does not exist')
+    // What was found by browsing is accepted as the working folder.
+    const conv = conversation({ mode: 'edit' })
+    expect(await remote.setWorkspace(conv.id, projects.folders[0].path)).toEqual({ path: join(dir, 'projects', 'website') })
+    expect(hub.engine.workspace(conv.id)).toBe(join(dir, 'projects', 'website'))
+    expect(dirname(hub.engine.workspace(conv.id))).toBe(projects.path)
+  })
+
+  it('does not list folders for a device unless the hub allows remote work', async () => {
+    const { remote, dir } = await setup((s) => (s.hub.allowRemoteRuns = false))
+    const listing = await remote.listFolders(dir)
+    expect(listing.folders).toEqual([])
+    expect(listing.path).toBe('')
+    expect(listing.error).toMatch(/turned off/)
   })
 
   it('can be stopped from the other device', async () => {
