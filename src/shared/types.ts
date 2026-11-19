@@ -228,6 +228,8 @@ export interface Settings {
   keepRunningInBackground: boolean
   startAtLogin: boolean
   checkForUpdates: boolean
+  /** Show a system notification when a reply is ready or an assistant is waiting for an answer. */
+  notifications: boolean
 }
 
 export const DEFAULT_HUB_PORT = 47600
@@ -257,7 +259,8 @@ export function defaultSettings(deviceName: string): Settings {
     autoFailover: false,
     keepRunningInBackground: true,
     startAtLogin: false,
-    checkForUpdates: true
+    checkForUpdates: true,
+    notifications: true
   }
 }
 

@@ -121,6 +121,9 @@ function General() {
 
       <div className="group-title">Background and updates</div>
       <div className="group">
+        <Row title="Notify me when I am in another app" sub="Shows a notification when a reply is ready or an assistant has stopped to ask for permission. Only for messages sent from this computer, and only while this window is not in front.">
+          <Toggle checked={s.notifications} onChange={(v) => save({ notifications: v })} label="Notify me when I am in another app" testId="notifications-toggle" />
+        </Row>
         <Row title="Keep running when the window is closed" sub="When this machine is the hub, closing the window leaves the app in the system tray so your other devices can still sync. A Mac keeps the app running either way.">
           <Toggle checked={s.keepRunningInBackground} onChange={(v) => save({ keepRunningInBackground: v })} label="Keep running when the window is closed" />
         </Row>

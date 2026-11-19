@@ -233,6 +233,21 @@ a {
 .conv .spinner {
   flex: none;
 }
+/* An assistant in this conversation is waiting for permission. */
+.conv-ask {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--warn);
+  animation: ask-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ask-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
 .conv-meta {
   flex: none;
   color: var(--text-muted);

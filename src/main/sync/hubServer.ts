@@ -76,6 +76,11 @@ export class HubServer {
   private pendingStream = new Map<string, { conversationId: string; timer?: ReturnType<typeof setTimeout>; sentAt: number; latest?: RunWireEvent }>()
 
   /** Send live progress of a run to every connected device. */
+  /** How many devices are connected and listening right now. */
+  listeners(): number {
+    return this.subscribers.size
+  }
+
   broadcastRun(event: RunWireEvent): void {
     if (!this.subscribers.size || !this.runs?.enabled()) return
     const write = (e: RunWireEvent) => {

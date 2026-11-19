@@ -6,7 +6,7 @@
 
 import { _electron as electron } from 'playwright-core'
 import { createRequire } from 'node:module'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -84,6 +84,10 @@ const hubPort = await freePort()
 
 // Files for the attachment check: a real image and a small text file.
 const attachDir = mkdtempSync(join(tmpdir(), 'chaudecal-e2e-files-'))
+// Each app writes the notifications it would have shown into its own file.
+const noticeDir = mkdtempSync(join(tmpdir(), 'chaudecal-e2e-notices-'))
+const noticeFile = { hub: join(noticeDir, 'hub.jsonl'), client: join(noticeDir, 'client.jsonl') }
+const notices = (name) => (existsSync(noticeFile[name]) ? readFileSync(noticeFile[name], 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
 const notesFile = join(attachDir, 'notes.md')
 writeFileSync(notesFile, '# Notes\nThe launch is on Friday.\n')
 const attachFiles = [join(root, 'build/icon.png'), notesFile].join(delimiter)
@@ -109,7 +113,7 @@ try {
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false },
       hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true }
     },
-    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl }
+    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub }
   )
   await a.page.waitForFunction(async () => {
     const s = await window.api.state()
@@ -236,7 +240,7 @@ try {
     chatgpt: { cliPath: fakeCodex },
     local: { endpoints: [], summarize: false },
     hub: { remoteUrl: `127.0.0.1:${hubPort}`, remoteToken: token }
-  })
+  }, { CHAUDECAL_E2E_NOTIFY: noticeFile.client })
   await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 4, null, { timeout: 15000 })
   ok('a second device pairs with the hub and receives every conversation')
 
@@ -300,12 +304,24 @@ try {
   await b.page.waitForSelector(tid('approval-card'), { timeout: 15000 })
   const question = await b.page.textContent(tid('approval-card'))
   assert(question.includes('Claude wants to run a command') && question.includes('npm test'), `the card should say what Claude wants to do, got: ${question}`)
+  await b.page.waitForSelector(tid('conversation-asking'))
   await shot(b.page, '15-claude-asks-first')
   await b.page.click(tid('approve-once'))
   await waitForReply(b.page, 'claude', 'I ran the tests')
   assert((await b.page.$(tid('approval-card'))) === null, 'the question should be gone once answered')
   assert((await b.page.$(tid('denial-card'))) === null, 'nothing should be offered again after the turn')
+  assert((await b.page.$(tid('conversation-asking'))) === null, 'the sidebar should stop marking the conversation as waiting')
   ok('Claude asks before running a command, and carries on once it is allowed')
+
+  // Notifications: the device that sent the message hears about the question and the reply. The hub, which did the work, stays quiet.
+  const mine = notices('client').filter((n) => n.conversationId === remoteConv)
+  const asked = mine.find((n) => n.title === 'Claude needs your answer')
+  assert(asked && asked.body.includes('Wants to run: npm test') && asked.body.includes('Run this one on the hub.'), `the second device should be told about the question, got ${JSON.stringify(mine)}`)
+  assert(mine.some((n) => n.title === 'Run this one on the hub.' && n.body.startsWith('Claude: ') && n.body.includes('I ran the tests')), `the second device should be told the reply is ready, got ${JSON.stringify(mine)}`)
+  assert(mine.indexOf(asked) < mine.length - 1, 'the question should be announced before the reply')
+  assert(!notices('hub').some((n) => n.conversationId === remoteConv), 'the hub should not announce a run that another device started and is watching')
+  assert(notices('hub').some((n) => n.body.startsWith('ChatGPT: ')), 'the hub should announce replies to its own messages')
+  ok('the device that asked is notified about a waiting question and a finished reply')
 
   // What B wrote shows up on A.
   await a.page.click(tid('new-chat'))
@@ -343,4 +359,5 @@ try {
   await runtime.close()
   releases.close()
   rmSync(attachDir, { recursive: true, force: true })
+  rmSync(noticeDir, { recursive: true, force: true })
 }

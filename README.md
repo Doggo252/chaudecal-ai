@@ -18,6 +18,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. Conversati
 - **Shared memory and prompts.** Notes about you and saved prompts that every assistant receives, so you never repeat yourself.
 - **Attachments.** Attach, paste or drop images and text files. Images go to whichever assistant is answering and follow the conversation when it switches. They sync between your machines too.
 - **Second opinion and branching.** One click asks another assistant to review an answer. Any answer can be branched into a separate conversation to try a different direction.
+- **Notifications.** Send a long task, switch to another app, and get a notification when the reply is ready or when the assistant has stopped to ask you something. Clicking it opens that conversation.
 - **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, artifacts, account settings). A web chat can be brought into the unified chat.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
 
@@ -136,6 +137,7 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 - **Attachments.** Use the paperclip, paste a screenshot, or drop files on the message box. Images can be PNG, JPEG, GIF or WebP up to 8 MB. Text files (code, Markdown, CSV and so on) are read into the message, so they travel in the context file. When a conversation moves to another assistant, its four most recent images are sent along.
 - **Second opinion.** Hover over the latest answer and click the speech bubbles. Another assistant with room left reads the conversation and reviews the answer. Your next message goes back to the assistant you were using.
 - **Branching.** Hover over any answer and click the branch icon. The conversation up to that answer is copied into a new one, and the original is left as it was.
+- **Notifications.** They appear only while the app is not the window in front, and only on the computer the message was sent from, so the hub PC stays quiet about work you started on the Mac. The Dock icon also shows a count (on Windows the taskbar button flashes) until you look at the app. A conversation that is waiting for your answer has an amber dot in the sidebar. Private chats never show their contents in a notification. Turn it all off under Settings, "General".
 - **At a limit.** By default the app asks before switching. Turn on "Switch automatically at a limit" under Settings, "General" to have it carry on with another assistant by itself when a limit is hit in the middle of a reply.
 - **Private chats.** A private conversation only ever uses local AI.
 - **Shortcuts.** New chat is Cmd or Ctrl+N. Search is Cmd or Ctrl+K. Settings is Cmd or Ctrl+comma.
@@ -147,7 +149,8 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 - Claude asking during a reply needs a recent Claude Code. With an older one the app notices and falls back to asking afterwards: a card lists what Claude was blocked from doing and offers "Allow and continue".
 - "Allow for this chat" is remembered on the machine doing the work, and for Claude it is forgotten when you choose a different folder. A long command made of several parts is asked about each time, because allowing it "for this chat" would have to allow every command.
 - A folder on the hub is chosen by typing its path. It cannot be browsed from the other device yet.
-- If the Mac disconnects while the PC is working, the PC finishes anyway, but an approval request raised in the meantime waits on the PC's own screen.
+- If the Mac disconnects while the PC is working, the PC finishes anyway. A permission question raised in the meantime waits on the PC's own screen, and the PC shows a notification about it. The Mac is not told about a reply that finished while it was disconnected.
+- The first notification makes macOS ask whether to allow them. If you say no, only the Dock count is shown.
 - Local models chat only. They do not edit files or run commands.
 - Updates are not installed for you. The sidebar shows "Update available" when a newer build is published, and clicking it opens the download page.
 - Sign-ins inside the website tabs are separate from the command line sign-ins and stay on each machine.
@@ -170,7 +173,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 21 checks |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 22 checks |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

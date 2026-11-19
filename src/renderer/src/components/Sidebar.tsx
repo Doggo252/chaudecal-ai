@@ -18,6 +18,7 @@ function groupLabel(ts: number, now: number): string {
 export function Sidebar() {
   const app = useUi((s) => s.app)
   const view = useUi((s) => s.view)
+  const asking = useUi((s) => s.approvals)
   const isMac = app?.platform === 'darwin'
 
   const groups = useMemo(() => {
@@ -60,7 +61,11 @@ export function Sidebar() {
             {g.items.map((c) => (
               <button type="button" key={c.id} className={`conv ${c.id === activeId ? 'active' : ''}`} data-testid="conversation" onClick={() => openChat(c.id)} title={c.title}>
                 <span className="conv-title">{c.title}</span>
-                {busy.has(c.id) && <span className="spinner" />}
+                {asking[c.id]?.length ? (
+                  <span className="conv-ask" data-testid="conversation-asking" title="Waiting for your answer" />
+                ) : (
+                  busy.has(c.id) && <span className="spinner" />
+                )}
                 {c.private && (
                   <span className="conv-meta" title="Private: local AI only">
                     <IconLock size={13} />

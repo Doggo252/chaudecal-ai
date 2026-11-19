@@ -98,6 +98,12 @@ The app turns either kind into one approval card. Two requests are answered with
 
 If the installed Claude Code does not know the option, the first attempt fails before producing anything. The app then runs the turn the earlier way, remembers that for the session, and lists blocked actions after the turn.
 
+### Notifications
+
+A run is announced by the device that sent the message, and only while its window is not in front. That device remembers which conversations it started a run in, so the hub says nothing about work another device asked for. The one exception is a permission question on the hub with no other device connected: the run would wait unnoticed, so the hub announces it.
+
+A reply is announced only if the run produced a new one, and one the user stopped is not announced. A question's notification is withdrawn when the question is answered or dropped. Private chats are announced without their title or contents.
+
 ### Sync
 
 Every conversation, message, memory note and saved prompt is a small record with an id, a last-changed time and the device that changed it. The newest change to a record wins. Because each message is its own record, two machines adding messages to the same conversation merge cleanly.
@@ -148,6 +154,7 @@ SQLite through Node's built-in driver, with full text search for the search box.
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
 | Notice when a newer build is published | Built, tested |
 | Remote work: a conversation typed on one device runs on the hub | Built, tested with two app instances. Not yet run between two real machines. |
+| Notifications for a finished reply or a waiting question, with a Dock count and a sidebar marker | Built. When and what to announce is tested, including across two app instances. A real notification was shown by the packaged Mac app. Not yet seen on Windows. |
 | Light and dark themes | Built, tested |
 | Mac installer | Built and launched |
 | Windows installer | Built by GitHub Actions. Not yet run on a real PC. |
@@ -163,8 +170,8 @@ An image is stored as its own record, so it syncs like a message does. Sync batc
 ### Next
 
 1. **Browse folders on the hub** from another device, where today the path is typed.
-2. **A notification when a long run on the hub finishes or stops to ask a question.**
-3. **PDF attachments.**
+2. **PDF attachments.**
+3. **Tell a device about replies that finished while it was away**, when it reconnects.
 4. **Answer Claude's own questions in the app.** When Claude wants to ask a multiple choice question, it is told to ask in its reply. A proper form would be nicer.
 5. **One-click updates.** The app already says when a newer build exists. Installing it without a trip to the download page needs signed builds.
 6. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.

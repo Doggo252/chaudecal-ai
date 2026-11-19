@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createServer } from 'node:http'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Attachment, Blob, Conversation, Message, ProviderId, ProviderStatus, Settings } from '@shared/types'
+import type { ApprovalRequest, Attachment, Blob, Conversation, Message, ProviderId, ProviderStatus, Settings } from '@shared/types'
 import { MAX_IMAGE_BYTES, MAX_TEXT_CHARS } from '@shared/types'
 import { messageBody, renderMessage, threadMessages } from '@shared/context'
 import { Store } from '../src/main/store'
@@ -14,6 +14,7 @@ import { LocalProvider, withImages } from '../src/main/providers/local'
 import { makeAttachment, sniffImage } from '../src/main/attachments'
 import { hidesOnClose, startedHidden } from '../src/main/background'
 import { checkForUpdate, isNewerBuild, parseTag } from '../src/main/updates'
+import { finishedNotice, questionNotice, shouldNotify } from '../src/main/notify'
 import { startMockOpenAI } from './fakes/mock-openai.mjs'
 import { canRunFakes, tempDir, testSettings } from './helpers'
 
@@ -239,6 +240,57 @@ describe.skipIf(!canRunFakes)('automatic failover', () => {
     const conv = engine.createConversation({ provider: 'claude', private: true })
     await engine.send({ conversationId: conv.id, text: 'Secret.', provider: 'chatgpt' })
     expect(last(conv.id).provider).toBe('local')
+  })
+})
+
+describe('notifications', () => {
+  const conv = (patch: Partial<Conversation> = {}) => ({ id: 'c1', title: 'Fix the build', ...patch }) as Conversation
+  const reply = (patch: Partial<Message> = {}) => ({ id: 'm1', conversationId: 'c1', role: 'assistant', provider: 'claude', status: 'complete', text: 'All done.', ...patch }) as Message
+
+  it('speaks up only on the device that asked, and only in the background', () => {
+    const base = { enabled: true, inBackground: true, startedHere: true, kind: 'finished' as const, hub: false, listeners: 0 }
+    expect(shouldNotify(base)).toBe(true)
+    expect(shouldNotify({ ...base, enabled: false })).toBe(false)
+    expect(shouldNotify({ ...base, inBackground: false })).toBe(false)
+    // The hub stays quiet about replies to messages that another device sent.
+    expect(shouldNotify({ ...base, startedHere: false, hub: true })).toBe(false)
+    expect(shouldNotify({ ...base, startedHere: false, hub: true, listeners: 1, kind: 'question' })).toBe(false)
+    // Unless a question would otherwise wait with nobody connected to see it.
+    expect(shouldNotify({ ...base, startedHere: false, hub: true, kind: 'question' })).toBe(true)
+    expect(shouldNotify({ ...base, startedHere: false, hub: false, kind: 'question' })).toBe(false)
+  })
+
+  it('says who answered and how the reply starts', () => {
+    expect(finishedNotice(conv(), reply({ text: '## Result\n\nThe **tests** pass.\n```\nnpm test\n```\nAll good.' }))).toEqual({ title: 'Fix the build', body: 'Claude: Result The tests pass. (code) All good.' })
+    const long = finishedNotice(conv(), reply({ provider: 'chatgpt', text: 'word '.repeat(100) }))!
+    expect(long.body.startsWith('ChatGPT: word word')).toBe(true)
+    expect(long.body.length).toBeLessThanOrEqual('ChatGPT: '.length + 140)
+    expect(long.body.endsWith('…')).toBe(true)
+    expect(finishedNotice(conv({ title: '' }), reply({ text: '' }))).toEqual({ title: 'Chaudecal AI', body: 'Claude has finished.' })
+    expect(finishedNotice(conv(), reply({ variantGroup: 'g1' }))?.body).toBe('The answers are ready to compare.')
+  })
+
+  it('explains a reply that failed, and says nothing about one the user stopped', () => {
+    expect(finishedNotice(conv(), reply({ status: 'error', error: { code: 'rate_limit', message: 'x' } }))?.body).toBe('Claude reached its limit before it could finish.')
+    expect(finishedNotice(conv(), reply({ status: 'error', error: { code: 'auth', message: 'x' } }))?.body).toBe('Claude needs you to sign in again.')
+    expect(finishedNotice(conv(), reply({ status: 'error', error: { code: 'unknown', message: 'The folder is gone.' } }))?.body).toBe('Claude could not finish: The folder is gone.')
+    expect(finishedNotice(conv(), reply({ status: 'stopped' }))).toBeUndefined()
+    expect(finishedNotice(conv(), undefined)).toBeUndefined()
+  })
+
+  it('describes a waiting question', () => {
+    const ask = (patch: Partial<ApprovalRequest>): ApprovalRequest => ({ id: 'r1', kind: 'command', summary: 'npm test', provider: 'claude', ...patch })
+    expect(questionNotice(conv(), ask({}))).toEqual({ title: 'Claude needs your answer', body: 'Wants to run: npm test\nIn "Fix the build"' })
+    expect(questionNotice(conv(), ask({ kind: 'file', summary: '/etc/hosts', provider: 'chatgpt' }))).toEqual({ title: 'ChatGPT needs your answer', body: 'Wants to change: /etc/hosts\nIn "Fix the build"' })
+    expect(questionNotice(conv(), ask({ kind: 'other', summary: 'cats', tool: 'Search notes' })).body).toBe('Wants to use Search notes: cats\nIn "Fix the build"')
+    expect(questionNotice(conv(), ask({ kind: 'other', summary: 'Skill', tool: 'Skill' })).body).toBe('Wants to use Skill\nIn "Fix the build"')
+  })
+
+  it('keeps the contents of a private chat out of notifications', () => {
+    const secret = conv({ private: true, title: 'My diagnosis' })
+    const done = finishedNotice(secret, reply({ provider: 'local', text: 'The secret answer.' }))!
+    const asked = questionNotice(secret, { id: 'r1', kind: 'command', summary: 'cat secrets.txt', provider: 'claude' })
+    for (const n of [done, asked]) expect(`${n.title} ${n.body}`).not.toMatch(/diagnosis|secret/i)
   })
 })
 

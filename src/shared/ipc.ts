@@ -95,6 +95,8 @@ export interface AppState {
   update?: UpdateInfo
   /** Present on a client that is connected to a hub. */
   remote?: RemoteInfo
+  /** A conversation to show straight away, because its notification was clicked while no window was open. */
+  open?: string
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] }
@@ -114,6 +116,8 @@ export interface AppEvents {
   update: UpdateInfo
   remote: RemoteInfo | undefined
   command: 'new-chat' | 'search' | 'settings'
+  /** Show this conversation. Sent when its notification is clicked. */
+  open: string
 }
 
 export interface Api {
@@ -224,4 +228,4 @@ export const API_METHODS = [
   'webCapture'
 ] as const satisfies readonly Exclude<keyof Api, 'on'>[]
 
-export const EVENT_CHANNELS = ['records', 'stream', 'busy', 'route', 'approval', 'denials', 'providers', 'hub', 'settings', 'web', 'update', 'remote', 'command'] as const satisfies readonly (keyof AppEvents)[]
+export const EVENT_CHANNELS = ['records', 'stream', 'busy', 'route', 'approval', 'denials', 'providers', 'hub', 'settings', 'web', 'update', 'remote', 'command', 'open'] as const satisfies readonly (keyof AppEvents)[]

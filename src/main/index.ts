@@ -1,6 +1,6 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, shell, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, shell, type MenuItemConstructorOptions } from 'electron'
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import type { Attachment, Blob, Conversation, HubStatus, LocalModel, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
@@ -22,6 +22,7 @@ import { WebTabs } from './webtabs'
 import { makeAttachment } from './attachments'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
 import { checkForUpdate } from './updates'
+import { finishedNotice, questionNotice, shouldNotify, type Notice } from './notify'
 
 /** Set by the build on GitHub. Zero for a build made on a developer's machine. */
 declare const __BUILD_NUMBER__: number
@@ -104,6 +105,93 @@ function showRunEvent(event: RunWireEvent): void {
   else if (event.type === 'route') send('route', { conversationId: event.conversationId, decision: event.decision })
   else if (event.type === 'approval') send('approval', { conversationId: event.conversationId, messageId: event.messageId, request: event.request, settled: event.settled })
   else send('denials', { conversationId: event.conversationId, messageId: event.messageId, denials: event.denials })
+  announce(event)
+}
+
+// Tests record notifications in a file instead of showing them, and count as being in the background.
+const notifyLog = process.env.CHAUDECAL_E2E_NOTIFY
+/** Conversations whose current run was started from this device, with the newest reply they had before it. */
+const startedHere = new Map<string, string | undefined>()
+/** Notifications about questions that are still waiting, by request id, so they can be withdrawn. */
+const asking = new Map<string, Notification>()
+/** Shown notifications are kept until they are dismissed, or their click would be lost. */
+const shown = new Set<Notification>()
+let pendingOpen: string | undefined
+/** Notifications since the window was last in front. Shown as the Dock badge. */
+let unseen = 0
+
+const lastReply = (conversationId: string): Message | undefined => store.messages(conversationId).findLast((m) => m.role === 'assistant')
+
+function inBackground(): boolean {
+  return !!notifyLog || !win || win.isDestroyed() || !win.isVisible() || win.isMinimized() || !win.isFocused()
+}
+
+/** Speaks up about a run when the app is in the background: a reply has arrived, or a question is waiting. */
+function announce(event: RunWireEvent): void {
+  if (event.type !== 'busy' && event.type !== 'approval') return
+  const id = event.conversationId
+  if (event.type === 'approval' && event.settled) {
+    asking.get(event.request.id)?.close()
+    asking.delete(event.request.id)
+    return
+  }
+  if (event.type === 'busy' && event.busy) return
+  const kind = event.type === 'busy' ? 'finished' : 'question'
+  const mine = startedHere.has(id)
+  const before = startedHere.get(id)
+  if (kind === 'finished') startedHere.delete(id)
+  if (!shouldNotify({ enabled: settings.notifications, inBackground: inBackground(), startedHere: mine, kind, hub: settings.hub.hostEnabled, listeners: hubServer.listeners() })) return
+  const conversation = store.get<Conversation>('conversation', id)
+  if (event.type === 'approval') {
+    const note = notify(id, questionNotice(conversation, event.request))
+    if (note) asking.set(event.request.id, note)
+    return
+  }
+  // Only a reply that this run produced is news. A run stopped before it wrote anything leaves the old one.
+  const reply = lastReply(id)
+  if (reply && reply.id !== before) notify(id, finishedNotice(conversation, reply))
+}
+
+function notify(conversationId: string, notice: Notice | undefined): Notification | undefined {
+  if (!notice) return undefined
+  if (notifyLog) {
+    appendFileSync(notifyLog, `${JSON.stringify({ conversationId, ...notice })}\n`)
+    return undefined
+  }
+  // The Dock badge (and on Windows a flashing taskbar button) still gets through if the system
+  // refuses the notification itself, which macOS does when notifications are turned off for the app.
+  unseen += 1
+  app.setBadgeCount(unseen)
+  if (process.platform === 'win32' && win && !win.isDestroyed()) win.flashFrame(true)
+  if (!Notification.isSupported()) return undefined
+  const note = new Notification({ title: notice.title, body: notice.body })
+  shown.add(note)
+  note.on('close', () => shown.delete(note))
+  note.on('failed', () => shown.delete(note))
+  note.on('click', () => {
+    shown.delete(note)
+    openConversation(conversationId)
+  })
+  note.show()
+  return note
+}
+
+/** The window is being looked at again, so nothing is waiting to be noticed. */
+function noticed(): void {
+  unseen = 0
+  app.setBadgeCount(0)
+  if (win && !win.isDestroyed()) win.flashFrame(false)
+}
+
+function openConversation(conversationId: string): void {
+  if (!win || win.isDestroyed()) {
+    // The new window asks for its starting state, and finds the conversation to open there.
+    pendingOpen = conversationId
+    createWindow()
+    return
+  }
+  showWindow()
+  send('open', conversationId)
 }
 
 function showWindow(): void {
@@ -219,7 +307,9 @@ function appState(): AppState {
 
 const api: Omit<Api, 'on'> = {
   async state() {
-    return appState()
+    const open = pendingOpen
+    pendingOpen = undefined
+    return { ...appState(), open }
   },
   async messages(conversationId) {
     return store.messages(conversationId)
@@ -235,8 +325,16 @@ const api: Omit<Api, 'on'> = {
     store.deleteConversation(id)
   },
   async send(input) {
-    if (runsOnHub(input.conversationId)) await remote.send(input)
-    else await engine.send(input)
+    // Remember that this device asked, so it is the one that announces the reply.
+    startedHere.set(input.conversationId, lastReply(input.conversationId)?.id)
+    try {
+      if (runsOnHub(input.conversationId)) await remote.send(input)
+      else await engine.send(input)
+    } catch (e) {
+      // Refused before it started. A run that is already going keeps its own entry.
+      if (!engine.isBusy(input.conversationId) && !remote.isBusy(input.conversationId)) startedHere.delete(input.conversationId)
+      throw e
+    }
   },
   async stop(conversationId) {
     if (remote.isBusy(conversationId)) remote.stop(conversationId)
@@ -501,6 +599,7 @@ function createWindow(): void {
     e.preventDefault()
     win?.hide()
   })
+  win.on('focus', noticed)
   win.on('closed', () => {
     webTabs.dispose()
     win = undefined
@@ -524,6 +623,8 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(async () => {
+  // Windows only shows notifications from an app that names itself the way its installer did.
+  if (process.platform === 'win32') app.setAppUserModelId('com.doggo252.chaudecal')
   const dataDir = app.getPath('userData')
   mkdirSync(dataDir, { recursive: true })
   store = new Store(join(dataDir, 'chaudecal.db'))

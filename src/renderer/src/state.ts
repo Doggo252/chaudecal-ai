@@ -205,9 +205,14 @@ export async function boot(): Promise<void> {
     else if (command === 'search') setState({ dialog: { kind: 'search' } })
     else setState({ view: { kind: 'settings' } })
   })
+  api.on('open', (conversationId) => {
+    if (state.app?.conversations.some((c) => c.id === conversationId)) openChat(conversationId)
+  })
 
   const app = await api.state()
   setState({ app, draft: newDraft(app) })
+  // Opened by clicking a notification while no window was showing.
+  if (app.open && app.conversations.some((c) => c.id === app.open)) openChat(app.open)
 }
 
 export async function loadMessages(conversationId: string): Promise<void> {
