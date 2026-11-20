@@ -61,6 +61,50 @@ export function addTokens(usage: ProviderUsage, tokens: number, now: number): Pr
   return { ...fresh, tokensInWindow: fresh.tokensInWindow + Math.max(0, tokens), updatedAt: now }
 }
 
+// ----- Claude Code: the /usage command's text -----
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+/** A reset time as Claude Code writes it, "Nov 19, 8:09pm" or "8:09pm", in this computer's time. */
+export function claudeResetTime(text: string, now: number): number | undefined {
+  const m = /(?:([A-Za-z]{3})[a-z]*\s+(\d{1,2}),?\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i.exec(text)
+  if (!m) return undefined
+  const today = new Date(now)
+  let hour = Number(m[3]) % 12
+  if (m[5].toLowerCase() === 'pm') hour += 12
+  const month = m[1] ? MONTHS.indexOf(m[1].toLowerCase()) : today.getMonth()
+  if (month < 0) return undefined
+  const day = m[2] ? Number(m[2]) : today.getDate()
+  const at = new Date(today.getFullYear(), month, day, hour, Number(m[4] ?? 0)).getTime()
+  // A time with no date that has passed today is tomorrow; a date that has passed is next year.
+  if (at < now - 60_000) return m[1] ? new Date(today.getFullYear() + 1, month, day, hour, Number(m[4] ?? 0)).getTime() : at + 24 * 3600_000
+  return at
+}
+
+/**
+ * Reads what Claude Code's /usage command prints, for example
+ * "Current session: 75% used · resets Nov 19, 8:09pm (America/Los_Angeles)
+ *  Current week (all models): 22% used · resets Nov 26, 4:59am (America/Los_Angeles)".
+ * The command answers from the account without asking the model, so it costs nothing.
+ */
+export function limitsFromClaudeUsageText(text: string, now: number): { fiveHour?: Partial<LimitWindow>; weekly?: Partial<LimitWindow> } {
+  const out: { fiveHour?: Partial<LimitWindow>; weekly?: Partial<LimitWindow> } = {}
+  const read = (label: RegExp): Partial<LimitWindow> | undefined => {
+    const m = new RegExp(`${label.source}[^\\d%]*?(\\d+(?:\\.\\d+)?)%\\s*used([^\\n]*?)(?=Current |What's|$|\\n)`, 'i').exec(text)
+    if (!m) return undefined
+    const window: Partial<LimitWindow> = { usedPct: Number(m[1]) }
+    const reset = /resets\s+([^()\n]+)/i.exec(m[2])
+    const at = reset ? claudeResetTime(reset[1], now) : undefined
+    if (at) window.resetsAt = at
+    return window
+  }
+  const session = read(/Current session/)
+  const week = read(/Current week \(all models\)/)
+  if (session) out.fiveHour = session
+  if (week) out.weekly = week
+  return out
+}
+
 // ----- Claude Code: rate_limit_event.rate_limit_info -----
 
 export interface ClaudeRateLimitInfo {

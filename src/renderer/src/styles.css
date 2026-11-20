@@ -258,6 +258,12 @@ a {
 .conv .spinner {
   flex: none;
 }
+.conv-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  opacity: 0.85;
+}
 /* An assistant in this conversation is waiting for permission. */
 .conv-ask {
   flex: none;
@@ -1303,8 +1309,35 @@ a {
   background: var(--bg-hover);
 }
 .hit-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 600;
   font-size: calc(13px * var(--text-scale));
+}
+.hit-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hit-count {
+  margin-left: auto;
+  flex: none;
+  font-weight: 400;
+  font-size: calc(12px * var(--text-scale));
+  color: var(--text-muted);
+}
+.source-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-weight: 500;
+  font-size: calc(11px * var(--text-scale));
+  color: var(--text-soft);
 }
 .hit-snippet {
   font-size: calc(13px * var(--text-scale));

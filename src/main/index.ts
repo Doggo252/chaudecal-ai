@@ -5,6 +5,7 @@ import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import type { Attachment, Blob, Conversation, Project, ScheduledTask, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
 import { defaultSettings, MAC_LOCAL_NETWORK_SETTINGS, MAX_FILE_BYTES, newId } from '@shared/types'
+import { limitsFromClaudeUsageText } from '@shared/usage'
 import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo, type McpInput } from '@shared/ipc'
 import { cleanMcpName, mcpProblem } from '@shared/mcp'
 import { normalizeAccent, normalizeTextSize } from '@shared/theme'
@@ -285,6 +286,9 @@ const NOT_FROM_BROWSER = new Set([
   'captureSources',
   'captureSource',
   'openConfig',
+  'webSignedIn',
+  'webSignIn',
+  'webSignOut',
   'webShow',
   'webHide',
   'webNavigate',
@@ -364,6 +368,23 @@ async function applyHub(): Promise<void> {
     if (settings.hub.remoteUrl.trim()) hubClient.start()
   }
   send('hub', hubStatus())
+}
+
+let checkingClaudeUsage = false
+let lastClaudeUsage = 0
+/** Claude's plan usage, read with its /usage command (no model call). Not more than once a minute. */
+async function refreshClaudeUsage(): Promise<void> {
+  if (checkingClaudeUsage || Date.now() - lastClaudeUsage < 60_000 || dataOverride) return
+  if (!statuses.claude?.ready) return
+  checkingClaudeUsage = true
+  lastClaudeUsage = Date.now()
+  try {
+    const text = await claude.usage()
+    const limits = text ? limitsFromClaudeUsageText(text, Date.now()) : {}
+    if (limits.fiveHour || limits.weekly) engine.recordLimits('claude', limits)
+  } finally {
+    checkingClaudeUsage = false
+  }
 }
 
 let refreshing: Promise<void> | undefined
@@ -746,6 +767,11 @@ const api: Omit<Api, 'on'> = {
     send('hub', hubStatus())
   },
   async openExternal(url) {
+    // A test app writes the address down instead of opening the real browser.
+    if (dataOverride) {
+      appendFileSync(join(app.getPath('userData'), 'opened.log'), `${url}\n`)
+      return
+    }
     if (/^https?:\/\//i.test(url) || (process.platform === 'darwin' && url === MAC_LOCAL_NETWORK_SETTINGS)) await shell.openExternal(url)
   },
   async openConfig(which) {
@@ -806,6 +832,18 @@ const api: Omit<Api, 'on'> = {
   },
   async applyUpdate() {
     return updater.apply()
+  },
+  async webSignedIn(service) {
+    return webTabs.signedIn(service)
+  },
+  async webSignIn(service) {
+    const ok = await webTabs.signIn(service)
+    // Signing in is the moment to bring the chats in, when the user has asked for that.
+    if (ok && settings.webImport?.[service]) void webImporter.run(service)
+    return ok
+  },
+  async webSignOut(service) {
+    await webTabs.signOut(service)
   },
   async webImport(service) {
     if (service !== 'claude' && service !== 'chatgpt') throw new Error('Unknown site.')
@@ -996,7 +1034,11 @@ app.whenReady().then(async () => {
         route: (conversationId, decision) => both({ type: 'route', conversationId, decision }),
         approval: (conversationId, messageId, request, settled) => both({ type: 'approval', conversationId, messageId, request, settled }),
         denials: (conversationId, messageId, denials) => both({ type: 'denials', conversationId, messageId, denials }),
-        busy: (conversationId, busy) => both({ type: 'busy', conversationId, busy })
+        busy: (conversationId, busy) => {
+          both({ type: 'busy', conversationId, busy })
+          // After a Claude answer, its usage has moved.
+          if (!busy && store.get<Conversation>('conversation', conversationId)?.provider !== 'chatgpt') setTimeout(() => void refreshClaudeUsage(), 3000)
+        }
       }
     })(),
     { context: join(dataDir, 'context'), scratch: join(dataDir, 'workspace'), attachments: join(dataDir, 'attachments') },
@@ -1049,6 +1091,9 @@ app.whenReady().then(async () => {
   void refreshProviders()
   // Local runtimes come and go, and limits reset on their own schedule.
   setInterval(() => void refreshProviders(), 60_000)
+  // Claude's usage percentages, every ten minutes.
+  setTimeout(() => void refreshClaudeUsage(), 20_000)
+  setInterval(() => void refreshClaudeUsage(), 10 * 60_000)
   // New versions are looked for every hour, and when the computer wakes up.
   void lookForUpdate()
   setInterval(() => void lookForUpdate(), 60 * 60 * 1000)

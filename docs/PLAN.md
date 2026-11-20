@@ -194,6 +194,11 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Automatic failover at a limit (off by default) | Built, tested |
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
 | Updates that download in the background, are checked against the release's checksum, and install by themselves: on quit (the app stays closed), or once the user has been away 10 minutes with nothing running (the app comes back as it was), or on "Restart to update". Checked hourly and on wake. | Built, tested. The Mac path was run for real between two packaged versions (`node e2e/update-mac.mjs`). The Windows path runs the installer silently and is unchecked on a real PC. |
+| Search shows each chat once (best line, count of matches), with Markdown marks removed; chats from the websites are marked by service | Built, tested. |
+| ChatGPT's named places, hotels and things (its "entity" markers) keep their names when imported; chats imported before are read again | Built, tested against the marker format seen in a real imported chat. |
+| Claude usage percentages from Claude Code's /usage command (no model call, no saved session), every 10 minutes and after each answer | Built, tested against the text a real /usage printed. |
+| Website sign-in in a small window of its own from Settings; the sites are no longer shown in the main window | Built, tested against stand-in sites. |
+| Context window worked out from the model; the budget and window settings for Claude and ChatGPT are gone | Built, tested. |
 | On a Mac, a hub that is unreachable only for this app ("host unreachable" to a home address) is shown as macOS Local Network privacy, with a button to that settings page | Built, tested. Found on a real Mac, where macOS never asked. |
 | Renamed to Chaude, keeping the old data folder | Built |
 | Remote work: a conversation typed on one device runs on the hub | Built, tested with two app instances. Not yet run between two real machines. |

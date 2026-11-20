@@ -1,6 +1,7 @@
-// Embedded claude.ai and chatgpt.com. These are the real sites, so everything
-// they offer (cloud chats, projects, images, voice, account settings) is
-// available without leaving the app. Each keeps its own sign-in, stored on this
+// The app's own connection to claude.ai and chatgpt.com: one hidden page per site,
+// which the app asks for the user's own data the way the site's page does. The
+// sites are never shown in the main window. Signing in happens in a separate small
+// window with the real sign-in page. Each site keeps its own sign-in, stored on this
 // machine only. The user signs in themselves. This app never sees credentials.
 
 import { BrowserWindow, WebContentsView, session, shell } from 'electron'
@@ -31,6 +32,12 @@ export function siteOrigin(service: WebService): string {
   return TEST_ORIGINS[service] ?? (service === 'claude' ? 'https://claude.ai' : 'https://chatgpt.com')
 }
 
+function loginOf(service: WebService): string {
+  const test = TEST_ORIGINS[service]
+  if (test) return `${test}/login`
+  return service === 'claude' ? 'https://claude.ai/login' : 'https://chatgpt.com/auth/login'
+}
+
 function homeOf(service: WebService): string {
   return TEST_ORIGINS[service] ? `${TEST_ORIGINS[service]}/` : SERVICES[service].home
 }
@@ -56,6 +63,7 @@ export function belongsTo(service: WebService, url: string): boolean {
 export class WebTabs {
   private views = new Map<WebService, WebContentsView>()
   private shown?: WebService
+  private signIns = new Map<WebService, Promise<boolean>>()
 
   constructor(
     private window: () => BrowserWindow | undefined,
@@ -206,6 +214,77 @@ export class WebTabs {
       return { title: document.title, url: location.href, turns };
     })()`
     return wc.executeJavaScript(script, true)
+  }
+
+  /** Whether the user is signed in to the site in this app. */
+  async signedIn(service: WebService): Promise<boolean> {
+    try {
+      if (service === 'claude') {
+        const res = await this.request('claude', '/api/organizations')
+        if (res.status !== 200) return false
+        const orgs = JSON.parse(res.body) as unknown
+        return Array.isArray(orgs) && orgs.length > 0
+      }
+      const res = await this.request('chatgpt', '/api/auth/session')
+      return res.status === 200 && !!(JSON.parse(res.body) as { accessToken?: string }).accessToken
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Opens the site's real sign-in page in a small window of its own. It closes by
+   * itself once the sign-in has worked. Gives back whether the user is signed in.
+   */
+  signIn(service: WebService): Promise<boolean> {
+    const running = this.signIns.get(service)
+    if (running) return running
+    const job = new Promise<boolean>((resolve) => {
+      const partition = `persist:web-${service}`
+      const parent = this.window()
+      const win = new BrowserWindow({
+        width: 520,
+        height: 720,
+        title: `Sign in to ${service === 'claude' ? 'claude.ai' : 'chatgpt.com'}`,
+        autoHideMenuBar: true,
+        ...(parent ? { parent } : {}),
+        webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false }
+      })
+      win.webContents.setWindowOpenHandler(({ url }) => {
+        try {
+          const host = new URL(url).hostname
+          if (hostMatches(host, SERVICES[service].hosts) || hostMatches(host, AUTH_HOSTS)) return { action: 'allow', overrideBrowserWindowOptions: { width: 520, height: 720, autoHideMenuBar: true, webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false } } }
+        } catch {
+          // Not a URL this app will open.
+        }
+        return { action: 'deny' }
+      })
+      let finished = false
+      const finish = (ok: boolean) => {
+        if (finished) return
+        finished = true
+        clearInterval(timer)
+        if (!win.isDestroyed()) win.close()
+        // The hidden page picks up the new sign-in.
+        const view = this.views.get(service)
+        if (view && !view.webContents.isDestroyed()) view.webContents.reload()
+        resolve(ok)
+      }
+      const timer = setInterval(() => {
+        void this.signedIn(service).then((ok) => ok && finish(true))
+      }, 2000)
+      win.on('closed', () => void this.signedIn(service).then(finish))
+      void win.loadURL(loginOf(service))
+    }).finally(() => this.signIns.delete(service))
+    this.signIns.set(service, job)
+    return job
+  }
+
+  /** Forgets the sign-in for this site in this app. */
+  async signOut(service: WebService): Promise<void> {
+    await session.fromPartition(`persist:web-${service}`).clearStorageData()
+    const view = this.views.get(service)
+    if (view && !view.webContents.isDestroyed()) void view.webContents.loadURL(homeOf(service))
   }
 
   dispose(): void {

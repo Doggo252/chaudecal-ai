@@ -85,13 +85,32 @@ export function artifactBlock(language: string, title: string, content: string):
 
 // ---------- ChatGPT ----------
 
-/** Removes the private-use markers ChatGPT puts around citations, and the older bracket form. */
+/**
+ * ChatGPT wraps rich pieces of an answer in private-use markers:
+ * \ue200kind\ue202data\ue201. An "entity" is a named place, hotel, person or thing
+ * that ChatGPT shows as a link: its name stays. Citations, image groups, maps and
+ * product cards have nothing to show here, so they go. The older 【citation】 form goes too.
+ */
 export function cleanChatgptText(text: string): string {
   return text
-    .replace(/[^]*/g, '')
-    .replace(/【[^】]*】/g, '')
-    .replace(/[-]/g, '')
+    .replace(/\ue200([^\ue201]*)\ue201/g, (_all, inner: string) => {
+      const [kind, ...rest] = inner.split('\ue202')
+      if (kind === 'entity') {
+        try {
+          const parts = JSON.parse(rest.join('\ue202')) as unknown
+          if (Array.isArray(parts) && typeof parts[1] === 'string') return parts[1]
+        } catch {
+          // Not readable: dropped like the rest.
+        }
+      }
+      return ''
+    })
+    .replace(/\u3010[^\u3011]*\u3011/g, '')
+    .replace(/[\ue200-\ue2ff]/g, '')
 }
+
+/** Raised when the way chats are read changes, so chats already brought in are read again. */
+export const READER_VERSION: Record<Site, number> = { claude: 1, chatgpt: 2 }
 
 function chatgptText(content: Json): string {
   const type = str(content.content_type)

@@ -38,6 +38,18 @@ export function isNewer(incoming: { updatedAt: number; deviceId: string }, exist
   return incoming.deviceId > existing.deviceId
 }
 
+/** A search snippet without Markdown marks, so it reads like the message does on screen. */
+export function plainSnippet(text: string): string {
+  return text
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/(^|\s)#{1,6}\s+/g, '$1')
+    .replace(/\*\*|__|`{1,3}/g, '')
+    .replace(/\\([\\`*_{}\[\]()#+\-.!:|>~])/g, '$1')
+    .replace(/(^|\s)[-*>]\s+/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export class Store {
   private db: DatabaseSync
   private listeners = new Set<(records: SyncRecord[], origin: 'local' | 'remote') => void>()
@@ -291,28 +303,38 @@ export class Store {
     const convs = new Map(this.list<Conversation>('conversation').map((c) => [c.id, c]))
 
     const needle = terms.join(' ').toLowerCase()
-    for (const c of convs.values()) {
-      if (c.title.toLowerCase().includes(needle)) {
-        hits.push({ conversationId: c.id, title: c.title, snippet: 'Title match', createdAt: c.updatedAt })
-        seen.add(c.id)
-      }
-    }
+    const titled = new Set<string>()
+    for (const c of convs.values()) if (c.title.toLowerCase().includes(needle)) titled.add(c.id)
 
     const match = terms.map((t) => `"${t}"*`).join(' ')
     let rows: { id: string; conv_id: string; snip: string }[] = []
     try {
       rows = this.db
         .prepare("select id, conv_id, snippet(msg_fts, 2, '[[', ']]', ' … ', 14) as snip from msg_fts where msg_fts match ? order by rank limit ?")
-        .all(match, limit) as typeof rows
+        .all(match, 2000) as typeof rows
     } catch {
       rows = []
     }
+    // One result per chat: its best matching message, and how many others match.
+    const byChat = new Map<string, SearchHit>()
     for (const r of rows) {
       const conv = convs.get(r.conv_id)
       if (!conv) continue
+      const hit = byChat.get(r.conv_id)
+      if (hit) {
+        hit.matches = (hit.matches ?? 1) + 1
+        continue
+      }
       const msg = this.get<Message>('message', r.id)
-      hits.push({ conversationId: r.conv_id, messageId: r.id, title: conv.title, snippet: r.snip, createdAt: msg?.createdAt ?? conv.updatedAt })
+      byChat.set(r.conv_id, { conversationId: r.conv_id, messageId: r.id, title: conv.title, snippet: plainSnippet(r.snip), createdAt: msg?.createdAt ?? conv.updatedAt, matches: 1, ...(conv.source ? { source: conv.source.service } : {}) })
     }
+    // Chats whose title matches come first, then the rest in order of how well they match.
+    for (const id of titled) {
+      const conv = convs.get(id)!
+      hits.push(byChat.get(id) ?? { conversationId: id, title: conv.title, snippet: '', createdAt: conv.updatedAt, ...(conv.source ? { source: conv.source.service } : {}) })
+      seen.add(id)
+    }
+    for (const hit of byChat.values()) if (!seen.has(hit.conversationId)) hits.push(hit)
     return hits.slice(0, limit)
   }
 }

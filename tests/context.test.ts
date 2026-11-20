@@ -117,13 +117,13 @@ describe('buildHandoff', () => {
 })
 
 describe('other helpers', () => {
-  it('caps a provider budget at its model window, leaving room for the reply', () => {
+  it('works out a model window from the model itself, leaving room for the reply', () => {
     const s = defaultSettings('test')
     expect(providerBudget('claude', s)).toBe(150_000)
+    expect(providerBudget('claude', s, 'claude-opus-4-7[1m]')).toBe(750_000)
     expect(providerBudget('chatgpt', s)).toBe(300_000)
+    expect(providerBudget('chatgpt', s, 'gpt-4o')).toBe(96_000)
     expect(providerBudget('local', s)).toBe(12_000)
-    s.contextBudgetTokens = 50_000
-    expect(providerBudget('chatgpt', s)).toBe(50_000)
   })
 
   it('gives a stateless model full history when it fits and a digest when it does not', () => {

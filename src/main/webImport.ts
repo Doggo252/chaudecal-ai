@@ -9,7 +9,7 @@
 
 import type { Conversation, Message } from '@shared/types'
 import type { WebImportStatus, WebService } from '@shared/ipc'
-import { conversationIdFor, messageIdFor, siteApi, type ImportedChat, type RemoteSummary } from '@shared/webImport'
+import { conversationIdFor, messageIdFor, READER_VERSION, siteApi, type ImportedChat, type RemoteSummary } from '@shared/webImport'
 import type { Store } from './store'
 
 export type Requester = (service: WebService, path: string, headers?: Record<string, string>) => Promise<{ status: number; body: string }>
@@ -124,7 +124,8 @@ export class WebImporter {
         const id = conversationIdFor(service, summary.remoteId)
         const existing = this.store.get<Conversation>('conversation', id)
         const deleted = this.store.isDeleted('conversation', id)
-        if (!deleted && !(existing && existing.source?.remoteUpdatedAt === summary.updatedAt)) {
+        const current = existing && existing.source?.remoteUpdatedAt === summary.updatedAt && (existing.source.reader ?? 1) >= READER_VERSION[service]
+        if (!deleted && !current) {
           const chat = api.readChat(await fetch(api.chatPath(session, summary.remoteId)), summary, this.options.origin(service))
           if (chat.messages.length && this.save(chat)) changed++
           await sleep(this.options.pauseMs)
@@ -146,7 +147,7 @@ export class WebImporter {
         of,
         count: this.count(service),
         lastRun: Date.now(),
-        message: signedOut ? `Not signed in to ${site} in the app. Open the ${site} tab in the sidebar, sign in, then try again.` : e instanceof Error ? e.message : String(e)
+        message: signedOut ? `Not signed in to ${site} in the app. Sign in with the button above, then try again.` : e instanceof Error ? e.message : String(e)
       })
     }
   }
@@ -159,7 +160,7 @@ export class WebImporter {
     // A title the user changed in the app wins over the site's.
     const renamed = existing && existing.source && existing.title !== existing.source.remoteTitle
     const title = renamed ? existing.title : chat.title
-    const source = { service: chat.service, remoteId: chat.remoteId, url: chat.url, remoteUpdatedAt: chat.updatedAt, remoteTitle: chat.title }
+    const source = { service: chat.service, remoteId: chat.remoteId, url: chat.url, remoteUpdatedAt: chat.updatedAt, remoteTitle: chat.title, reader: READER_VERSION[chat.service] }
     const conv: Conversation = existing
       ? { ...existing, title, source, updatedAt: Math.max(existing.updatedAt, chat.updatedAt) }
       : { id, title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, provider: chat.service, models: {}, mode: 'chat', source }

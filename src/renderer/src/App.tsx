@@ -6,7 +6,6 @@ import { ChatView } from './components/ChatView'
 import { SearchDialog, SwitchDialog } from './components/Dialogs'
 import { SettingsView } from './components/Settings'
 import { Sidebar } from './components/Sidebar'
-import { WebView } from './components/WebView'
 import { ProjectView } from './components/ProjectView'
 import { isWeb } from './webApi'
 import { IconMenu } from './icons'
@@ -55,7 +54,6 @@ export function App() {
       <Sidebar />
       <main className="main">
         {view.kind === 'chat' && <ChatView key={view.conversationId ?? 'new'} conversationId={view.conversationId} focusMessageId={view.focusMessageId} />}
-        {view.kind === 'web' && <WebView key={view.service} service={view.service} />}
         {view.kind === 'settings' && <SettingsView tab={view.tab} />}
         {view.kind === 'project' && <ProjectView key={view.projectId} projectId={view.projectId} />}
       </main>

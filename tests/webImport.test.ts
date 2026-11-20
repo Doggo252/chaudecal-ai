@@ -21,6 +21,9 @@ describe('reading what the sites send', () => {
   it('removes ChatGPT citation markers', () => {
     expect(cleanChatgptText('Alfama citeturn0search0 is old.')).toBe('Alfama  is old.')
     expect(cleanChatgptText('See 【4:0†source】 here')).toBe('See  here')
+    // A named place or hotel keeps its name; picture groups and maps go.
+    expect(cleanChatgptText('1. \ue200entity\ue202["city","Lonavala","Maharashtra"]\ue201 / Khandala')).toBe('1. Lonavala / Khandala')
+    expect(cleanChatgptText('**\ue200entity\ue202["hotel","Taj Madikeri",0]\ue201 \u2014 Coorg**\ue200image_group\ue202{"query":["x"]}\ue201')).toBe('**Taj Madikeri \u2014 Coorg**')
   })
 
   it('writes artifacts with a fence their content cannot close', () => {
@@ -144,7 +147,7 @@ describe('bringing chats in', () => {
     sites.state.signedIn.chatgpt = false
     const out = await importer.run('chatgpt')
     expect(out).toMatchObject({ state: 'signed-out' })
-    expect(out.message).toMatch(/Open the chatgpt.com tab in the sidebar, sign in/)
+    expect(out.message).toMatch(/Sign in with the button above/)
     sites.state.signedIn.chatgpt = true
     sites.state.limitOnce.add('chatgpt /backend-api/conversation/g-trip')
     expect(await importer.run('chatgpt')).toMatchObject({ state: 'done', changed: 4 })

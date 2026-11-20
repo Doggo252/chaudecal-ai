@@ -22,7 +22,7 @@ import type {
   SyncRecord
 } from '@shared/types'
 
-export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'web'; service: WebService } | { kind: 'settings'; tab?: string } | { kind: 'project'; projectId: string }
+export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'settings'; tab?: string } | { kind: 'project'; projectId: string }
 
 /** Choices made before a conversation exists. */
 export interface Draft {

@@ -69,6 +69,19 @@ export class ClaudeProvider implements Provider {
     return { provider: 'claude', installed: true, ready, detail, version, models }
   }
 
+  /** The plan's usage, from Claude Code's /usage command. It answers from the account without a model call. */
+  async usage(): Promise<string | undefined> {
+    const bin = this.bin()
+    if (!bin) return undefined
+    const res = await runCli(bin, ['-p', '/usage', '--output-format', 'json', '--no-session-persistence'], 30_000)
+    try {
+      const result = (JSON.parse(res.stdout) as { result?: unknown }).result
+      return typeof result === 'string' ? result : undefined
+    } catch {
+      return undefined
+    }
+  }
+
   clearAuthFailure(): void {
     this.authFailed = false
   }

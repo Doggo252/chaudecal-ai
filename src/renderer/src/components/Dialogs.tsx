@@ -7,7 +7,7 @@ import { formatTokens } from '@shared/tokens'
 import { headroom } from '@shared/usage'
 import { switchTarget } from '@shared/router'
 import { openSearchHit, setState, toast, useUi } from '../state'
-import { Modal, ProviderDot, PROVIDERS } from './ui'
+import { Modal, ProviderDot, PROVIDERS, SourceTag } from './ui'
 
 function Snippet({ text }: { text: string }) {
   // The backend marks matches with [[ and ]].
@@ -83,7 +83,11 @@ export function SearchDialog() {
           {!query.trim() && recent.length > 0 && <div className="menu-title">Recent</div>}
           {list.map((h, i) => (
             <button type="button" key={`${h.conversationId}:${h.messageId ?? 't'}:${i}`} className={`hit ${i === active ? 'active' : ''}`} data-testid="search-hit" onMouseEnter={() => setActive(i)} onClick={() => openSearchHit(h)}>
-              <div className="hit-title">{h.title}</div>
+              <div className="hit-title">
+                <span className="hit-name">{h.title}</span>
+                {h.source && <SourceTag service={h.source} />}
+                {(h.matches ?? 0) > 1 && <span className="hit-count">{h.matches} matches</span>}
+              </div>
               {h.snippet && (
                 <div className="hit-snippet">
                   <Snippet text={h.snippet} />

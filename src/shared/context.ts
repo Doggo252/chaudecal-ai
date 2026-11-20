@@ -192,11 +192,21 @@ export function buildHandoff(input: {
   return { variant, text, tokens: estimateTokens(text), totalMessages: messages.length, verbatimMessages: recent.length, condensed: earlier.length > 0 }
 }
 
-/** How many tokens of history may be sent to a provider in one request. */
-export function providerBudget(provider: ProviderId, settings: Settings): number {
-  const window =
-    provider === 'claude' ? settings.claude.contextTokens : provider === 'chatgpt' ? settings.chatgpt.contextTokens : settings.local.contextTokens
-  return Math.max(1000, Math.min(settings.contextBudgetTokens, Math.floor(window * (1 - WINDOW_RESERVE))))
+/**
+ * How much a model can read at once, in tokens, worked out from the model so
+ * nobody has to set it. Claude models read 200k, or a million in their 1M versions.
+ * ChatGPT's current models read 400k. Local models read what their runtime was set to.
+ */
+export function modelWindow(provider: ProviderId, model: string | undefined, settings: Settings): number {
+  const id = (model ?? '').toLowerCase()
+  if (provider === 'claude') return /\[1m\]|-1m$/.test(id) ? 1_000_000 : 200_000
+  if (provider === 'chatgpt') return /^gpt-4o|^o[13]-mini/.test(id) ? 128_000 : 400_000
+  return settings.local.contextTokens
+}
+
+/** How many tokens of history may be sent to a provider in one request, leaving room for the reply. */
+export function providerBudget(provider: ProviderId, settings: Settings, model?: string): number {
+  return Math.max(1000, Math.floor(modelWindow(provider, model, settings) * (1 - WINDOW_RESERVE)))
 }
 
 export interface SessionState {

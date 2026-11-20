@@ -585,18 +585,6 @@ try {
   await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="assistant-message"][data-provider="local"]')].some((el) => el.textContent.includes('Local model here')), null, { timeout: 15000 })
   ok('messages written on the second device sync back to the hub')
 
-  // The embedded sites. Off by default because it loads the real pages over the network.
-  if (process.env.E2E_WEB === '1') {
-    for (const [service, host] of [['claude', 'claude.ai'], ['chatgpt', 'chatgpt.com']]) {
-      const seen = b.page.evaluate((svc) => new Promise((res) => window.api.on('web', (w) => w.service === svc && /^https:/.test(w.url) && !w.loading && res(w.url))), service)
-      await b.page.click(tid(`web-${service}`))
-      const url = await Promise.race([seen, new Promise((_, rej) => setTimeout(() => rej(new Error(`${host} did not load`)), 45000))])
-      assert(new URL(url).hostname.endsWith(host) || /auth|login/.test(url), `expected ${host}, got ${url}`)
-      console.log(`       ${service} tab loaded ${new URL(url).origin}${new URL(url).pathname}`)
-    }
-    ok('claude.ai and chatgpt.com load inside the app')
-    await b.page.click(tid('new-chat'))
-  }
 
   // Theme: an accent color recolors the main buttons, the switches and the user's own messages, and is remembered.
   const css = (page, sel, prop) => page.$eval(sel, (el, p) => getComputedStyle(el)[p], prop)
@@ -793,7 +781,15 @@ try {
   await a.page.click(tid('web-import-now-chatgpt'))
   await a.page.waitForSelector(`${tid('web-import-chatgpt')}[data-state="signed-out"]`, { timeout: 30000 })
   assert((await a.page.content()).includes('Not signed in to chatgpt.com in the app'), 'a missing sign-in should be explained')
+  // Signing in happens in a small window of its own, which closes by itself once it has worked.
+  await a.page.waitForSelector(`${tid('web-account-chatgpt')}[data-state="out"]`)
+  const signInWindow = a.app.waitForEvent('window')
+  await a.page.click(tid('web-sign-in-chatgpt'))
+  const signInPage = await signInWindow
+  assert(signInPage.url().endsWith('/login'), 'the sign-in window should show the sign-in page')
   sites.state.signedIn.chatgpt = true
+  await signInPage.waitForEvent('close', { timeout: 15000 })
+  await a.page.waitForSelector(`${tid('web-account-chatgpt')}[data-state="in"]`, { timeout: 15000 })
   await a.page.click(tid('web-import-now-chatgpt'))
   await a.page.waitForSelector(`${tid('web-import-chatgpt')}[data-state="done"]`, { timeout: 30000 })
   await a.page.click(tid('web-import-now-claude'))
@@ -823,14 +819,14 @@ try {
   await a.page.click(tid('artifact-close'))
   await shot(a.page, '32-imported-chat')
   // Back to the original on the site.
-  const opened = a.page.evaluate(() => new Promise((res) => window.api.on('web', (w) => w.url.includes('/chat/c-garden') && !w.loading && res(w.url))))
   await a.page.click(tid('conversation-menu'))
   await a.page.click(tid('open-source'))
-  await Promise.race([opened, new Promise((_, rej) => setTimeout(() => rej(new Error('the original chat did not open')), 15000))])
+  const openedLog = join(a.userData, 'opened.log')
+  await until(async () => existsSync(openedLog) && readFileSync(openedLog, 'utf8').includes('/chat/c-garden'), 'the original chat to open in the browser')
   await a.page.click(tid('new-chat'))
   // The other device gets them through sync, without signing in to anything.
   await b.page.waitForFunction(async () => (await window.api.state()).conversations.filter((c) => c.source).length === 6, null, { timeout: 15000 })
-  ok('chats from claude.ai and chatgpt.com come in through the website tabs and sync to the other device')
+  ok('sign in to the websites in a window of its own, and chats from claude.ai and chatgpt.com come in through that sign-in and sync to the other device')
 
   // Artifacts: Claude writes a web page, an image and a program. They open in a panel beside the conversation.
   const panelTitle = () => a.page.textContent(tid('artifact-title'))

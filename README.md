@@ -21,7 +21,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 - **Notifications.** Send a long task, switch to another app, and get a notification when the reply is ready or when the assistant has stopped to ask you something. Clicking it opens that conversation.
 - **Your own look.** Light, dark or matching the system, an accent color (seven presets or any color you pick), and four text sizes.
 - **Artifacts.** Web pages, React components, SVG images, Mermaid diagrams, documents and programs that an assistant writes open in a panel beside the conversation, with a live preview, versions, copy and download. They work with Claude, ChatGPT and local models alike.
-- **Your existing chats.** Your history on claude.ai and chatgpt.com comes into the app, including archived chats, ChatGPT project chats and Claude artifacts, and can stay up to date. It uses the sign-ins in the app's website tabs, so there is nothing else to set up.
+- **Your existing chats.** Your history on claude.ai and chatgpt.com comes into the app, including archived chats, ChatGPT project chats and Claude artifacts, and can stay up to date. Sign in to each site once under Settings, "Claude and ChatGPT": the site's own sign-in page opens in a small window and closes by itself. The sites are never shown inside the main window.
 - **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, account settings).
 - **Tools for both assistants (MCP).** Add a tool server once, for example for GitHub, your notes or a database, and Claude and ChatGPT can both use it. The list syncs between your machines.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
@@ -157,7 +157,7 @@ Notes for a Radeon RX 9070 XT (16 GB):
 - LM Studio is the easier first choice on AMD cards because its Vulkan engine works without extra setup. In LM Studio, open the Developer tab and start the server.
 - Ollama's support for AMD cards depends on the version. After loading a model, run `ollama ps` and check that it says GPU, not CPU.
 - Choose a model whose download is under about 13 GB so it fits in graphics memory with room left for the conversation. Larger models still run, but spill into system memory and slow down a lot.
-- The app assumes a 16,000 token window for local models. If you load a model with a larger window, raise "Context window" under Settings, "Local AI" to match.
+- The app assumes a local model can read 16,000 tokens at once. If you load a model with a larger context length, set "How much a local model can read at once" under Settings, "Local AI" to match. Claude and ChatGPT need nothing: the app works out how much their models read from the model itself.
 
 Turn on "Keep summaries up to date with local AI" to have a local model write the running summaries. This costs nothing against either plan. Without it the app builds summaries by extracting key lines.
 
@@ -214,7 +214,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - **Modes.** Chat is conversation only with web lookups. Plan lets the assistant read a folder and propose changes. Edit lets it change files in the folder. Auto also lets it run commands. Choose the folder with the folder button in the message box.
 - **Permission questions.** When an assistant wants to go beyond its mode (run a command in Edit mode, for example), the reply pauses and a card shows exactly what it wants to do. "Allow once" lets that one action through. "Allow for this chat" also stops it asking again for the same thing in this conversation. "Decline" tells the assistant no, and it carries on without it.
 - **Switching.** Click the switch button at the top of a conversation, pick the assistant, and choose what to hand over: the summary with recent messages (smaller, faster) or the full transcript (complete). The receiving assistant gets the file with your next message.
-- **The context files.** Both files are plain Markdown and are rewritten after every reply. Open them from the conversation menu to paste into anything else. The largest file is capped by the context budget in Settings (400,000 tokens by default) and by what the receiving model can take.
+- **The context files.** Both files are plain Markdown and are rewritten after every reply. Open them from the conversation menu to paste into anything else. The largest file is capped by what the receiving model can read at once.
 - **Attachments.** Use the paperclip, paste a screenshot, or drop files on the message box. Images can be PNG, JPEG, GIF or WebP up to 8 MB. Text files (code, Markdown, CSV and so on) are read into the message, so they travel in the context file. A PDF up to 32 MB is turned into text page by page and then travels the same way. When a conversation moves to another assistant, its four most recent images are sent along.
 - **Second opinion.** Hover over the latest answer and click the speech bubbles. Another assistant with room left reads the conversation and reviews the answer. Your next message goes back to the assistant you were using.
 - **Branching.** Hover over any answer and click the branch icon. The conversation up to that answer is copied into a new one, and the original is left as it was.
@@ -236,12 +236,14 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - **Artifacts.** When an assistant writes something you will want to look at or reuse, it appears in the reply as a card, and the panel beside the conversation opens by itself while it is written. Click any card to open it again. The kinds are web pages (HTML), React components (JSX or TSX, with Tailwind and npm packages), SVG images, Mermaid diagrams, Markdown documents and code in any language. Preview and Code switch between the running result and its source. When the assistant writes the same title again, it becomes a new version, and the arrows step between versions. If a preview hits an error, "Ask to fix" sends the error back to the assistant. Copy, download, and a button to let the panel fill the window are at the top. In a narrow window the panel covers the conversation instead of squeezing it; close it to go back. The app tells every assistant how to write artifacts; turn that off under Settings, "General", "Artifacts".
 - **At a limit.** By default the app asks before switching. Turn on "Switch automatically at a limit" under Settings, "General" to have it carry on with another assistant by itself when a limit is hit in the middle of a reply.
 - **Private chats.** A private conversation only ever uses local AI.
+- **Search.** Each chat shows once in search, with its best matching line and how many messages match. Chats from claude.ai and chatgpt.com are marked, here and in the sidebar, by a colored dot (orange for Claude, green for ChatGPT).
+- **Usage.** Claude's percentages come from Claude Code's own /usage command, which reads the account without asking the model, every ten minutes and after each answer. ChatGPT's come with every answer.
 - **Shortcuts.** New chat is Cmd or Ctrl+N. Search is Cmd or Ctrl+K. Settings is Cmd or Ctrl+comma.
 
 ## Limits of this version
 
-- ChatGPT makes pictures in the unified chat; Claude does not make pictures. Live voice conversations are only in the built-in website tabs.
-- Only the text of a PDF is read. Pictures, charts and scanned pages inside it are not, and a PDF that is all scans is refused with a note saying so. Use the claude.ai or chatgpt.com tab for those. A very long PDF is cut at about 200,000 characters (roughly 80 dense pages), and the message says which pages were left out.
+- ChatGPT makes pictures in the unified chat; Claude does not make pictures. Live voice conversations are only on the websites and in their apps.
+- Only the text of a PDF is read. Pictures, charts and scanned pages inside it are not, and a PDF that is all scans is refused with a note saying so. Use claude.ai or chatgpt.com for those. A very long PDF is cut at about 200,000 characters (roughly 80 dense pages), and the message says which pages were left out.
 - A local model only understands images if it is a vision model. Others will report an error or ignore the image.
 - Claude asking during a reply needs a recent Claude Code. With an older one the app notices and falls back to asking afterwards: a card lists what Claude was blocked from doing and offers "Allow and continue".
 - "Allow for this chat" is remembered on the machine doing the work, and for Claude it is forgotten when you choose a different folder. A long command made of several parts is asked about each time, because allowing it "for this chat" would have to allow every command.
@@ -264,7 +266,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - Artifacts are found in the text of replies, so an assistant that ignores the instructions writes ordinary code blocks instead. Real Claude and ChatGPT replies have not been checked with artifacts yet; the tests use a stand-in assistant.
 - Updating by itself works from the first version called Chaude onwards. Older versions only say that an update exists, so install Chaude once by hand.
 - The Mac update has been run for real between two packaged versions. The Windows update runs the new installer silently and has only been checked in code, not on a real PC yet. If it fails, the sidebar says so and the release page still works.
-- Sign-ins inside the website tabs are separate from the command line sign-ins and stay on each machine.
+- The app's sign-ins to claude.ai and chatgpt.com are separate from the command line sign-ins and stay on each machine.
 - The Windows build is produced and tested automatically, but it has not been used day to day yet. The tray icon, closing to the tray and starting at sign-in in particular have only been checked in code, not on a real PC. Please report anything odd.
 
 ## Development

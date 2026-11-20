@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Attachment, Message, Project, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
-import { messageBody, SECOND_OPINION_PROMPT, threadMessages } from '@shared/context'
+import { messageBody, modelWindow, SECOND_OPINION_PROMPT, threadMessages } from '@shared/context'
 import { estimateTokens, formatTokens } from '@shared/tokens'
 import { formatReset, limitWarning } from '@shared/usage'
 import { switchTarget } from '@shared/router'
@@ -123,6 +123,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const panel = openArtifact && conversation && openArtifact.conversationId === conversation.id ? openArtifact : undefined
   const thread = useMemo(() => threadMessages(stored), [stored])
   const contextTokens = useMemo(() => thread.reduce((n, m) => n + estimateTokens(m.role === 'user' ? messageBody(m) : m.text) + 6, 0), [thread])
+  const windowProvider = conversation?.provider === 'chatgpt' || conversation?.provider === 'local' ? conversation.provider : 'claude'
+  const windowTokens = modelWindow(windowProvider, conversation?.models[windowProvider] || app.settings[windowProvider].defaultModel, app.settings)
 
   const send = async (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean) => {
     try {
@@ -217,8 +219,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
               </button>
             )}
             <span className="topbar-spacer" />
-            <span className="ctx-meter" title="Size of this conversation against your context budget" data-testid="context-meter">
-              {formatTokens(contextTokens)} / {formatTokens(app.settings.contextBudgetTokens)} tokens
+            <span className="ctx-meter" title="How much of what the model can read at once this conversation fills. Past that, Chaude sends a summary of the older part." data-testid="context-meter">
+              {Math.min(100, Math.round((contextTokens / windowTokens) * 100))}% of memory used
             </span>
             <button type="button" className="chip" data-testid="open-switch" disabled={busy} onClick={() => openSwitch()} title="Continue this conversation with a different assistant">
               <IconSwitch size={15} /> Switch
@@ -249,8 +251,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                       onClick={() => {
                         const source = conversation.source!
                         close()
-                        setState({ view: { kind: 'web', service: source.service } })
-                        void window.api.webNavigate(source.service, source.url)
+                        void window.api.openExternal(source.url)
                       }}
                     >
                       Open on {conversation.source.service === 'claude' ? 'claude.ai' : 'chatgpt.com'}

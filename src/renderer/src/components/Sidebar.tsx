@@ -2,9 +2,8 @@ import { useMemo } from 'react'
 import type { Conversation, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
 import { openChat, setState, toast, useUi } from '../state'
-import { IconDownload, IconFolder, IconGlobe, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
+import { IconDownload, IconFolder, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
 import { Meter, ProviderDot } from './ui'
-import { isWeb } from '../webApi'
 
 function groupLabel(ts: number, now: number): string {
   const day = 24 * 60 * 60 * 1000
@@ -81,6 +80,7 @@ export function Sidebar() {
             <div className="side-group">{g.label}</div>
             {g.items.map((c) => (
               <button type="button" key={c.id} className={`conv ${c.id === activeId ? 'active' : ''}`} data-testid="conversation" onClick={() => openChat(c.id)} title={c.title}>
+                <span className={`conv-mark dot dot-${c.source?.service ?? (c.provider === 'chatgpt' ? 'chatgpt' : c.provider === 'local' ? 'local' : 'claude')}`} title={c.source ? (c.source.service === 'claude' ? 'From claude.ai' : 'From chatgpt.com') : PROVIDER_LABEL[c.provider === 'auto' ? 'claude' : c.provider]} />
                 <span className="conv-title">{c.title}</span>
                 {asking[c.id]?.length ? (
                   <span className="conv-ask" data-testid="conversation-asking" title="Waiting for your answer" />
@@ -104,13 +104,6 @@ export function Sidebar() {
       </nav>
 
       <div className="side-bottom">
-        <button type="button" className={`side-btn ${view.kind === 'web' && view.service === 'claude' ? 'active' : ''}`} data-testid="web-claude" onClick={() => (isWeb() ? void window.open('https://claude.ai', '_blank', 'noopener') : setState({ view: { kind: 'web', service: 'claude' } }))}>
-          <IconGlobe /> claude.ai
-        </button>
-        <button type="button" className={`side-btn ${view.kind === 'web' && view.service === 'chatgpt' ? 'active' : ''}`} data-testid="web-chatgpt" onClick={() => (isWeb() ? void window.open('https://chatgpt.com', '_blank', 'noopener') : setState({ view: { kind: 'web', service: 'chatgpt' } }))}>
-          <IconGlobe /> chatgpt.com
-        </button>
-
         <button type="button" className="usage-mini side-btn" style={{ display: 'grid' }} title="Open usage details" data-testid="usage-mini" onClick={() => setState({ view: { kind: 'settings', tab: 'usage' } })}>
           {(['claude', 'chatgpt'] as ProviderId[]).map((p) => {
             const w = app.usage[p].fiveHour

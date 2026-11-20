@@ -11,6 +11,16 @@ export function ProviderDot({ provider }: { provider: ProviderChoice }) {
   return <span className={`dot dot-${provider}`} aria-hidden="true" />
 }
 
+/** Marks a chat that lives on claude.ai or chatgpt.com. */
+export function SourceTag({ service }: { service: 'claude' | 'chatgpt' }) {
+  return (
+    <span className={`source-tag source-${service}`} title={service === 'claude' ? 'A claude.ai chat' : 'A chatgpt.com chat'}>
+      <span className={`dot dot-${service}`} aria-hidden="true" />
+      {service === 'claude' ? 'Claude' : 'ChatGPT'}
+    </span>
+  )
+}
+
 /** A button with a small menu that closes on outside click or Escape. */
 export function Popover(props: {
   label: ReactNode

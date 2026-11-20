@@ -62,6 +62,8 @@ export interface ConversationSource {
   remoteUpdatedAt: number
   /** The title on the site at the last import. A title changed in the app is kept. */
   remoteTitle: string
+  /** Which version of the app's reader brought it in. An older one means it is read again. */
+  reader?: number
 }
 
 export interface ToolCall {

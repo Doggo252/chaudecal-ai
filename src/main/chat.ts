@@ -212,7 +212,7 @@ export class ChatEngine {
     const conv = this.store.get<Conversation>('conversation', conversationId)
     if (!conv) return undefined
     const s = this.settings()
-    const budget = target ? providerBudget(target, s) : s.contextBudgetTokens
+    const budget = target ? providerBudget(target, s, conv.models[target]) : 400_000
     return buildHandoff({ conversation: conv, messages: threadMessages(this.store.messages(conversationId)), variant, budgetTokens: budget, profile: this.profileText() })
   }
 
@@ -374,7 +374,7 @@ export class ChatEngine {
     const model = conv.models[provider] ?? (provider === 'claude' ? s.claude.defaultModel : provider === 'chatgpt' ? s.chatgpt.defaultModel : s.local.defaultModel)
     // A research question gets its instructions on top of the usual ones.
     const system = [this.systemText(conv, provider), args.userMessage.research ? RESEARCH_GUIDE : ''].filter(Boolean).join('\n\n')
-    const budget = providerBudget(provider, s)
+    const budget = providerBudget(provider, s, model)
     const cwd = this.workspace(conv.id) || this.dirs.scratch
 
     // Compare answers are one-off: they never continue or create a provider session.

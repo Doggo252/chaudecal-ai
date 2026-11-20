@@ -66,6 +66,10 @@ export interface SearchHit {
   title: string
   snippet: string
   createdAt: number
+  /** How many messages in this chat match. */
+  matches?: number
+  /** Where the chat came from, so results can say so. */
+  source?: 'claude' | 'chatgpt'
 }
 
 export interface HandoffInfo {
@@ -253,6 +257,11 @@ export interface Api {
   webNavigate(service: WebService, url: string): Promise<void>
   /** Bring in this site's chats now, through its website tab's sign-in. */
   webImport(service: WebService): Promise<WebImportStatus>
+  /** Whether the app is signed in to the site. */
+  webSignedIn(service: WebService): Promise<boolean>
+  /** Opens the site's sign-in page in a small window. Gives back whether it worked. */
+  webSignIn(service: WebService): Promise<boolean>
+  webSignOut(service: WebService): Promise<void>
   webAction(service: WebService, action: 'back' | 'forward' | 'reload' | 'home'): Promise<void>
   /** Copy the chat currently open in a web tab into a new conversation in this app. */
   webCapture(service: WebService): Promise<{ conversationId?: string; error?: string }>
@@ -318,6 +327,9 @@ export const API_METHODS = [
   'captureSources',
   'captureSource',
   'openConfig',
+  'webSignedIn',
+  'webSignIn',
+  'webSignOut',
   'webShow',
   'webHide',
   'webNavigate',

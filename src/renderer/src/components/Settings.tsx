@@ -184,9 +184,6 @@ function General() {
 
       <div className="group-title">Context and limits</div>
       <div className="group">
-        <Row title="Context budget" sub="Largest running context file, in tokens. A handoff never sends more than the receiving model can take.">
-          <NumberField value={s.contextBudgetTokens} min={4000} max={2_000_000} onCommit={(n) => save({ contextBudgetTokens: n })} />
-        </Row>
         <Row title="Offer to switch at" sub="Percent of a 5-hour or weekly limit used before the app suggests continuing elsewhere.">
           <NumberField value={s.warnThresholdPct} min={10} max={99} onCommit={(n) => save({ warnThresholdPct: n })} />
         </Row>
@@ -237,7 +234,62 @@ function importText(st: WebImportStatus | undefined, web: string): string {
   if (st.state === 'running') return st.of ? `Bringing in chats: ${st.done ?? 0} of ${st.of} checked, ${st.changed ?? 0} new or changed.` : 'Looking for your chats.'
   if (st.state === 'signed-out' || st.state === 'error') return st.message ?? 'Something went wrong.'
   if (st.state === 'done') return `${chats(st.count)} from ${web} in the app. ${st.changed ? `${chats(st.changed)} new or changed` : 'Nothing new'} when checked ${ago(st.lastRun ?? Date.now())}.`
-  return st.count ? `${chats(st.count)} from ${web} in the app.` : `Brings in your chats from ${web} with the sign-in in its tab in this app. Sign in there first.`
+  return st.count ? `${chats(st.count)} from ${web} in the app.` : `Brings in your chats from ${web}. Sign in to ${web} above first.`
+}
+
+/** The app's own sign-in to claude.ai or chatgpt.com, made in a small window of its own. */
+function WebAccount({ provider }: { provider: 'claude' | 'chatgpt' }) {
+  const web = provider === 'claude' ? 'claude.ai' : 'chatgpt.com'
+  const [state, setStateLocal] = useState<'checking' | 'in' | 'out' | 'signing'>('checking')
+  // Checked again whenever an import finishes or finds the sign-in gone.
+  const importState = useUi((x) => x.app?.webImport?.[provider]?.state)
+  useEffect(() => {
+    let live = true
+    if (importState === 'running') return
+    void window.api.webSignedIn(provider).then((ok) => live && setStateLocal((now) => (now === 'signing' ? now : ok ? 'in' : 'out')))
+    return () => {
+      live = false
+    }
+  }, [provider, importState])
+  const sub =
+    state === 'in'
+      ? `Signed in. Chaude uses this for your ${web} chats and their history.`
+      : state === 'signing'
+        ? 'Finish signing in in the window that opened. It closes by itself.'
+        : state === 'out'
+          ? `Not signed in. Sign in to bring in your ${web} chats and keep them in step.`
+          : 'Checking.'
+  return (
+    <Row title={`${web} account`} sub={sub}>
+      <div className="inline" data-testid={`web-account-${provider}`} data-state={state}>
+        {state === 'in' ? (
+          <button
+            type="button"
+            className="btn btn-small"
+            onClick={() => {
+              if (!confirm(`Sign out of ${web} in Chaude? Your chats already in Chaude stay.`)) return
+              void window.api.webSignOut(provider).then(() => setStateLocal('out'))
+            }}
+          >
+            Sign out
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="btn btn-small btn-primary"
+            disabled={state === 'signing' || state === 'checking'}
+            data-testid={`web-sign-in-${provider}`}
+            onClick={() => {
+              setStateLocal('signing')
+              void window.api.webSignIn(provider).then((ok) => setStateLocal(ok ? 'in' : 'out'))
+            }}
+          >
+            {state === 'signing' ? 'Signing in' : `Sign in to ${web}`}
+          </button>
+        )}
+      </div>
+    </Row>
+  )
 }
 
 function WebHistory({ provider }: { provider: 'claude' | 'chatgpt' }) {
@@ -247,13 +299,9 @@ function WebHistory({ provider }: { provider: 'claude' | 'chatgpt' }) {
   const running = st?.state === 'running'
   return (
     <>
+      <WebAccount provider={provider} />
       <Row title={`Your chats on ${web}`} sub={importText(st, web)}>
         <div className="inline" data-testid={`web-import-${provider}`} data-state={st?.state ?? 'idle'}>
-          {st?.state === 'signed-out' && (
-            <button type="button" className="btn btn-small" onClick={() => setState({ view: { kind: 'web', service: provider } })}>
-              Open {web}
-            </button>
-          )}
           <button type="button" className="btn btn-small btn-primary" disabled={running} data-testid={`web-import-now-${provider}`} onClick={() => void window.api.webImport(provider)}>
             {running ? 'Importing' : 'Import now'}
           </button>
@@ -303,9 +351,6 @@ function Account({ provider }: { provider: 'claude' | 'chatgpt' }) {
         <Row title="Models" sub="Shown in the model picker. Separate with commas. Leave the picker on Default to let the service choose." stack>
           <Field className="input wide" value={s.models.join(', ')} placeholder={provider === 'chatgpt' ? 'Filled in from your account when signed in' : ''} onCommit={(v) => save({ [provider]: { models: v.split(',').map((m) => m.trim()).filter(Boolean) } })} />
         </Row>
-        <Row title="Model context window" sub="Tokens the model accepts. Raise it only if your plan's model really takes more.">
-          <NumberField value={s.contextTokens} min={8000} max={2_000_000} onCommit={(n) => save({ [provider]: { contextTokens: n } })} />
-        </Row>
         <Row title="Command line tool location" sub="Leave empty to find it automatically." stack>
           <Field className="input wide" value={s.cliPath} placeholder="Found automatically" onCommit={(v) => save({ [provider]: { cliPath: v.trim() } })} />
         </Row>
@@ -314,9 +359,6 @@ function Account({ provider }: { provider: 'claude' | 'chatgpt' }) {
           <div className="inline">
             <button type="button" className="btn btn-small" onClick={() => void window.api.openConfig(provider)}>
               Open config
-            </button>
-            <button type="button" className="btn btn-small" onClick={() => setState({ view: { kind: 'web', service: provider } })}>
-              Open {web}
             </button>
           </div>
         </Row>
@@ -416,7 +458,7 @@ function LocalAi() {
             ))}
           </select>
         </Row>
-        <Row title="Context window" sub="Tokens your local models are loaded with. Match the value set in Ollama or LM Studio.">
+        <Row title="How much a local model can read at once" sub="In tokens. Use the context length you picked in Ollama or LM Studio, so Chaude never sends a local model more than it can read. Claude and ChatGPT need nothing: Chaude knows theirs.">
           <NumberField value={s.contextTokens} min={2000} max={1_000_000} onCommit={(n) => save({ local: { contextTokens: n } })} />
         </Row>
         <Row title="Keep summaries up to date with local AI" sub="Conversation summaries for handoffs are written by a local model, so they never spend a paid limit.">
@@ -730,10 +772,10 @@ function Usage() {
         <button type="button" className="btn" onClick={() => void window.api.refreshProviders().then(() => toast('Usage refreshed'))}>
           Refresh
         </button>
-        <button type="button" className="btn" onClick={() => setState({ view: { kind: 'web', service: 'claude' } })}>
+        <button type="button" className="btn" onClick={() => void window.api.openExternal('https://claude.ai/settings/usage')}>
           Claude usage page
         </button>
-        <button type="button" className="btn" onClick={() => setState({ view: { kind: 'web', service: 'chatgpt' } })}>
+        <button type="button" className="btn" onClick={() => void window.api.openExternal('https://chatgpt.com/codex/settings/usage')}>
           ChatGPT usage page
         </button>
       </div>
