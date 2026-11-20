@@ -155,6 +155,11 @@ function Who({ m }: { m: Message }) {
       <ProviderDot provider={p} />
       <span className="name">{PROVIDER_LABEL[p]}</span>
       {m.model && <span>{shortModel(m.model)}</span>}
+      {m.onComputer && (
+        <span className="badge computer-badge" title="Done on your computer through Chaude. The website does not have this part.">
+          On this computer
+        </span>
+      )}
     </div>
   )
 }
@@ -235,6 +240,7 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
     <div className={`msg msg-user ${focus ? 'focus' : ''} ${editing ? 'editing' : ''}`} data-testid="user-message" data-message-id={m.id}>
       {!!m.attachments?.length && <AttachmentList items={m.attachments} />}
       {m.research && !editing && <span className="badge research-badge">Research</span>}
+      {m.onComputer && !editing && <span className="badge computer-badge">On this computer</span>}
       {editing ? (
         <div className="edit-box">
           <textarea

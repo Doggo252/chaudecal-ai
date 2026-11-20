@@ -137,6 +137,8 @@ export interface Message {
   research?: boolean
   /** Pictures the assistant made in this reply. Their bytes are blob records, like attached images. */
   images?: Attachment[]
+  /** In a regular chat: this turn was done on the user's computer, not on the website, so the site does not have it. */
+  onComputer?: boolean
 }
 
 /**

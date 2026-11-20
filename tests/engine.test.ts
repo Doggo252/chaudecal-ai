@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { ApprovalRequest, Conversation, Message, PermissionDenial, ProviderId, ProviderStatus, RouteDecision, Settings } from '@shared/types'
 import { threadMessages } from '@shared/context'
 import { Store } from '../src/main/store'
-import { ChatEngine } from '../src/main/chat'
+import { type WebChats, ChatEngine } from '../src/main/chat'
 import { Summarizer } from '../src/main/summarizer'
 import { ClaudeProvider } from '../src/main/providers/claude'
 import { CodexProvider } from '../src/main/providers/codex'
@@ -20,7 +20,7 @@ afterEach(async () => {
   delete process.env.FAKE_CLAUDE_NO_LIVE
 })
 
-async function setup(patch: (s: Settings) => void = () => {}) {
+async function setup(patch: (s: Settings) => void = () => {}, web?: WebChats) {
   const runtime = await startMockOpenAI()
   cleanup.push(() => runtime.close())
   const dir = tempDir()
@@ -47,12 +47,42 @@ async function setup(patch: (s: Settings) => void = () => {}) {
       busy: () => {}
     },
     { context: join(dir, 'context'), scratch: join(dir, 'workspace'), attachments: join(dir, 'attachments') },
-    new Summarizer(store, () => settings, local)
+    new Summarizer(store, () => settings, local),
+    web
   )
   const replies = (id: string) => store.messages(id).filter((m) => m.role === 'assistant')
   const last = (id: string): Message => replies(id)[replies(id).length - 1]
   return { store, settings, engine, seen, runtime, dir, replies, last }
 }
+
+describe.skipIf(!canRunFakes)('regular chats that use this computer', () => {
+  it('does one turn here with Claude Code, and tells the website about it with the next message', async () => {
+    const sent: string[] = []
+    const web: WebChats = {
+      send: async (i) => {
+        sent.push(i.text)
+        i.onChat?.('r1')
+        i.onText('Site answer.')
+        return { remoteId: 'r1' }
+      },
+      refresh: async () => {}
+    }
+    const { engine, last } = await setup(() => {}, web)
+    const conv = engine.createConversation({ provider: 'claude', kind: 'chat', mode: 'chat' })
+    await engine.send({ conversationId: conv.id, text: 'Hello site.' })
+    expect(sent).toEqual(['Hello site.'])
+    expect(last(conv.id)).toMatchObject({ text: 'Site answer.', provider: 'claude' })
+    await engine.send({ conversationId: conv.id, text: 'Tidy my downloads.', computer: true })
+    expect(last(conv.id)).toMatchObject({ provider: 'claude', onComputer: true, status: 'complete' })
+    expect(last(conv.id).text).toContain('Claude here')
+    expect(sent).toHaveLength(1)
+    await engine.send({ conversationId: conv.id, text: 'Thanks.' })
+    expect(sent[1]).toMatch(/^\(Meanwhile, on my computer, through Chaude:/)
+    expect(sent[1]).toContain('I asked: Tidy my downloads.')
+    expect(sent[1]).toContain('Result: Claude here')
+    expect(sent[1].endsWith('Thanks.')).toBe(true)
+  })
+})
 
 describe.skipIf(!canRunFakes)('conversation engine', () => {
   it('carries one conversation across Claude, ChatGPT and local AI', async () => {

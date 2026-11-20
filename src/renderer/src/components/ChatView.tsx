@@ -126,13 +126,13 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const windowProvider = conversation?.provider === 'chatgpt' || conversation?.provider === 'local' ? conversation.provider : 'claude'
   const windowTokens = modelWindow(windowProvider, conversation?.models[windowProvider] || app.settings[windowProvider].defaultModel, app.settings)
 
-  const send = async (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean) => {
+  const send = async (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean, computer?: boolean) => {
     try {
       const conv = conversation ?? (await createFromDraft())
       stick.current = true
       dismissRemoved(conv.id)
       const variant = getState().variants[conv.id]
-      await window.api.send({ conversationId: conv.id, text, compare, variant, attachments, ...(research ? { research } : {}) })
+      await window.api.send({ conversationId: conv.id, text, compare, variant, attachments, ...(research ? { research } : {}), ...(computer ? { computer } : {}) })
     } catch (e) {
       toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e))
     }
@@ -188,7 +188,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
     window.addEventListener('chaude-form-answer', answer)
     return () => window.removeEventListener('chaude-form-answer', answer)
   })
-  const composer = <Composer conversation={conversation} onSend={(t, c, a, r) => void send(t, c, a, r)} />
+  const composer = <Composer conversation={conversation} onSend={(t, c, a, r, pc) => void send(t, c, a, r, pc)} />
 
   return (
     <div className={`chat-split ${panel ? 'with-panel' : ''} ${panel?.wide ? 'panel-wide' : ''}`}>

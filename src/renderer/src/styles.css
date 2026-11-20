@@ -2890,3 +2890,11 @@ html.quick-window #root {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ---------- Turns of a regular chat done on this computer ---------- */
+.computer-badge {
+  margin-bottom: 4px;
+}
+.msg-who .computer-badge {
+  margin: 0 0 0 4px;
+}

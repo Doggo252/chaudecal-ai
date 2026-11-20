@@ -57,12 +57,14 @@ function shortPath(p: string): string {
   return parts.length ? parts[parts.length - 1] : p
 }
 
-export function Composer({ conversation, onSend }: { conversation?: Conversation; onSend: (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean) => void }) {
+export function Composer({ conversation, onSend }: { conversation?: Conversation; onSend: (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean, computer?: boolean) => void }) {
   const app = useUi((s) => s.app)!
   const draft = useUi((s) => s.draft)
   const [text, setText] = useState('')
   const [compare, setCompare] = useState<ProviderId[] | null>(null)
   const [research, setResearch] = useState(false)
+  // In a regular chat: do the next message on this computer instead of on the website.
+  const [computer, setComputer] = useState(false)
   const [workspace, setWorkspace] = useState('')
   const [attached, setAttachedState] = useState<Attachment[]>([])
   // Files can arrive several at a time (a drop, a paste), so the latest list is also kept outside React state.
@@ -162,7 +164,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     if ((!value && !attached.length) || busy) return
     setText('')
     setAttached([])
-    onSend(value, compare && compare.length > 1 ? compare : undefined, attached.length ? attached : undefined, research || undefined)
+    onSend(value, compare && compare.length > 1 ? compare : undefined, attached.length ? attached : undefined, research || undefined, (web && computer) || undefined)
     setResearch(false)
   }
 
@@ -660,6 +662,25 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
 
             <DictationButton onText={(t) => setText((prev) => (prev.trim() ? `${prev.trimEnd()} ${t}` : t))} />
 
+            {web && !isWeb() && (
+              <button
+                type="button"
+                className={`icon-btn ${computer ? 'chip on' : ''}`}
+                title={computer ? 'Use this computer is on: this message runs here, with access to your files and apps' : 'Use this computer for this message: files, commands and apps'}
+                aria-pressed={computer}
+                data-testid="computer-toggle"
+                onClick={() => setComputer((c) => !c)}
+              >
+                <IconComputer />
+              </button>
+            )}
+
+            {web && computer && (
+              <button type="button" className="chip" title={workspace || 'Choose the folder it works in'} data-testid="folder-picker" onClick={() => void pickFolder()}>
+                <IconFolder size={14} /> {workspace ? shortPath(workspace) : 'Choose folder'}
+              </button>
+            )}
+
             {!isWeb() && !web && <CaptureButton onAttached={addAttached} />}
 
             {!web && (
@@ -775,7 +796,9 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
           </div>
         </div>
         <div className="composer-foot">
-          {web
+          {web && computer
+            ? `This message runs on this computer with ${provider === 'chatgpt' ? 'Codex' : 'Claude Code'}. It asks before changing anything outside the folder, and the website hears about it with your next message.`
+            : web
             ? provider === 'chatgpt'
               ? 'This chat lives on chatgpt.com, so it shows up in the ChatGPT apps too.'
               : 'This chat lives on claude.ai, so it shows up in the Claude apps too.'

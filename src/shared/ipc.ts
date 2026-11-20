@@ -50,6 +50,8 @@ export interface SendInput {
   allow?: string[]
   /** Files to send with this message, as returned by pickAttachments or addAttachment. */
   attachments?: Attachment[]
+  /** In a regular chat: do this one on this computer, with Claude Code or Codex, instead of on the website. */
+  computer?: boolean
 }
 
 /** A tool server as the settings page sends it. Without an id it is a new one. */

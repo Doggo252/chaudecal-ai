@@ -56,6 +56,12 @@ import { imageFile } from './attachments'
 import { normalizeMcpServer } from './mcp'
 import type { Summarizer } from './summarizer'
 
+/** What was done on the user's computer in a regular chat, told to the website with the next message. */
+export function computerNote(messages: Message[]): string {
+  const lines = messages.map((m) => `${m.role === 'user' ? 'I asked' : 'Result'}: ${m.text.trim().replace(/\s+/g, ' ').slice(0, m.role === 'user' ? 400 : 800)}`)
+  return `(Meanwhile, on my computer, through Chaude:\n${lines.join('\n')})`
+}
+
 /** Regular chats go through claude.ai or chatgpt.com. See webChat.ts. */
 export interface WebChats {
   send(input: {
@@ -323,7 +329,7 @@ export class ChatEngine {
       prior = threadMessages(all.slice(0, lastUserIdx))
     } else {
       if (!userText && !attachments.length) return
-      userMessage = { id: newId(), conversationId: conv.id, role: 'user', text: userText, createdAt: Date.now(), deviceId: this.store.deviceId, status: 'complete', ...(input.research ? { research: true } : {}) }
+      userMessage = { id: newId(), conversationId: conv.id, role: 'user', text: userText, createdAt: Date.now(), deviceId: this.store.deviceId, status: 'complete', ...(input.research ? { research: true } : {}), ...(input.computer && kindOf(conv) === 'chat' ? { onComputer: true } : {}) }
       if (attachments.length) userMessage.attachments = attachments
       this.store.put('message', userMessage.id, userMessage)
       const patch: Partial<Conversation> = { updatedAt: Date.now() }
@@ -338,6 +344,12 @@ export class ChatEngine {
     this.events.busy(conv.id, true)
 
     try {
+      if (kindOf(conv) === 'chat' && userMessage.onComputer) {
+        // A regular chat that needs this computer: Claude Code or Codex does it here, with the chat so far as context.
+        const service: ProviderId = (conv.source?.service ?? conv.provider) === 'chatgpt' ? 'chatgpt' : 'claude'
+        await this.runTurn({ conv, provider: service, prior: threadMessages(all.filter((m) => m.id !== userMessage!.id)), userText, userMessage, active, variant: input.variant ?? 'summary', allow: input.allow, mode: 'edit', onComputer: true })
+        return
+      }
       if (kindOf(conv) === 'chat' && this.web) {
         await this.runWebTurn(conv, userMessage, userText, active, !!(input.edit || input.retry))
         return
@@ -389,11 +401,15 @@ export class ChatEngine {
     compareGroup?: string
     order?: number
     allow?: string[]
+    /** Instead of the conversation's own mode. */
+    mode?: RunMode
+    /** A regular chat's turn done on this computer. */
+    onComputer?: boolean
   }): Promise<Message> {
     const { conv, provider, prior, userText } = args
     const s = this.settings()
     const compare = !!args.compareGroup
-    const mode: RunMode = compare ? 'chat' : conv.mode
+    const mode: RunMode = compare ? 'chat' : (args.mode ?? conv.mode)
     const model = conv.models[provider] ?? (provider === 'claude' ? s.claude.defaultModel : provider === 'chatgpt' ? s.chatgpt.defaultModel : s.local.defaultModel)
     // A research question gets its instructions on top of the usual ones.
     const system = [this.systemText(conv, provider), args.userMessage.research ? RESEARCH_GUIDE : ''].filter(Boolean).join('\n\n')
@@ -419,7 +435,8 @@ export class ChatEngine {
       model: model || undefined,
       status: 'streaming',
       variantGroup: args.compareGroup,
-      selected: compare ? false : undefined
+      selected: compare ? false : undefined,
+      ...(args.onComputer ? { onComputer: true } : {})
     }
     this.events.stream(message)
 
@@ -548,6 +565,10 @@ export class ChatEngine {
     const before = this.store.messages(conv.id).filter((m) => m.createdAt < userMessage.createdAt || (m.createdAt === userMessage.createdAt && m.id < userMessage.id))
     const lastOnSite = [...before].reverse().find((m) => m.id.startsWith(prefix))
     const parentId = lastOnSite ? lastOnSite.id.slice(prefix.length) : undefined
+    // Work done on this computer since then is not on the site. A short note keeps the site's copy of the chat whole.
+    const offSite = before.filter((m) => m.onComputer && (!lastOnSite || m.createdAt > lastOnSite.createdAt) && m.status === 'complete' && m.text.trim())
+    const note = offSite.length ? computerNote(offSite) : ''
+    const sendText = note ? `${note}\n\n${userText}` : userText
     const reply: Message = {
       id: newId(),
       conversationId: conv.id,
@@ -573,7 +594,7 @@ export class ChatEngine {
         // An edited or repeated question starts a new branch from the message before it, on claude.ai.
         parentId: again && service === 'chatgpt' ? undefined : parentId,
         ...(conv.projectId?.startsWith(`web-${service}-p-`) ? { projectId: conv.projectId.slice(`web-${service}-p-`.length) } : {}),
-        text: userText,
+        text: sendText,
         model,
         signal: controller.signal,
         onText: (text) => {
