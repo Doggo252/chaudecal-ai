@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { LocalSessions, parseClaudeSession, parseCodexSession } from '../src/main/localSessions'
+import { Store } from '../src/main/store'
+import { tempDir } from './helpers'
+
+const line = (o: unknown) => JSON.stringify(o)
+const claudeFile = (sessionId: string, cwd: string) =>
+  [
+    line({ type: 'user', uuid: 'u1', sessionId, cwd, timestamp: '2026-11-01T10:00:00Z', message: { role: 'user', content: 'Fix the login bug.' } }),
+    line({ type: 'assistant', uuid: 'a1', sessionId, cwd, timestamp: '2026-11-01T10:00:05Z', message: { role: 'assistant', model: 'claude-opus-4-7', content: [{ type: 'thinking', thinking: 'hmm' }, { type: 'text', text: 'Looking at it.' }, { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'npm test' } }] } }),
+    line({ type: 'user', uuid: 'r1', sessionId, cwd, timestamp: '2026-11-01T10:00:09Z', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } }),
+    line({ type: 'assistant', uuid: 'a2', sessionId, cwd, timestamp: '2026-11-01T10:00:12Z', message: { role: 'assistant', content: [{ type: 'text', text: 'Fixed.' }] } }),
+    line({ type: 'user', uuid: 'u2', sessionId, cwd, timestamp: '2026-11-01T10:01:00Z', message: { role: 'user', content: '<command-name>/usage</command-name>\n<command-args></command-args>' } }),
+    line({ type: 'user', uuid: 'u3', sessionId, cwd, isMeta: true, timestamp: '2026-11-01T10:01:01Z', message: { role: 'user', content: 'Caveat: ignore' } }),
+    line({ type: 'assistant', uuid: 's1', isSidechain: true, sessionId, cwd, timestamp: '2026-11-01T10:01:02Z', message: { role: 'assistant', content: [{ type: 'text', text: 'A helper agent' }] } }),
+    line({ type: 'custom-title', customTitle: 'Login bug', sessionId })
+  ].join('\n')
+
+describe('Claude Code and Codex sessions on this computer', () => {
+  it('reads a Claude Code session: what was typed, one answer per turn with its steps, and the title', () => {
+    const s = parseClaudeSession(claudeFile('s-1', '/work/app'))!
+    expect(s).toMatchObject({ tool: 'claude-code', sessionId: 's-1', cwd: '/work/app', title: 'Login bug' })
+    expect(s.messages.map((m) => [m.role, m.text])).toEqual([
+      ['user', 'Fix the login bug.'],
+      ['assistant', 'Looking at it.\n\nFixed.'],
+      ['user', '/usage']
+    ])
+    expect(s.messages[1].tools).toEqual([expect.objectContaining({ summary: 'npm test', kind: 'command' })])
+    expect(s.messages[1].model).toBe('claude-opus-4-7')
+  })
+
+  it('reads a Codex session without the context Codex adds itself', () => {
+    const s = parseCodexSession(
+      [
+        line({ timestamp: '2026-11-01T10:00:00Z', type: 'session_meta', payload: { id: 'th-9', cwd: '/work/site' } }),
+        line({ timestamp: '2026-11-01T10:00:00Z', type: 'turn_context', payload: { model: 'gpt-6.2-sol' } }),
+        line({ timestamp: '2026-11-01T10:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '<environment_context>cwd</environment_context>' }] } }),
+        line({ timestamp: '2026-11-01T10:00:02Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Add a footer.' }] } }),
+        line({ timestamp: '2026-11-01T10:00:03Z', type: 'response_item', payload: { type: 'function_call', name: 'shell', arguments: JSON.stringify({ command: ['ls', '-la'] }), call_id: 'c1' } }),
+        line({ timestamp: '2026-11-01T10:00:04Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Added.' }] } })
+      ].join('\n')
+    )!
+    expect(s).toMatchObject({ tool: 'codex', sessionId: 'th-9', cwd: '/work/site', title: 'Add a footer.' })
+    expect(s.messages.map((m) => [m.role, m.text])).toEqual([
+      ['user', 'Add a footer.'],
+      ['assistant', 'Added.']
+    ])
+    expect(s.messages[1].tools?.[0]).toMatchObject({ summary: 'ls -la', kind: 'command' })
+  })
+
+  it('brings sessions in as code chats that continue the same session, skips its own, and never doubles a continued chat', () => {
+    const home = tempDir()
+    const appData = join(home, 'appdata')
+    mkdirSync(join(home, '.claude', 'projects', '-work-app'), { recursive: true })
+    writeFileSync(join(home, '.claude', 'projects', '-work-app', 's-1.jsonl'), claudeFile('s-1', '/work/app'))
+    writeFileSync(join(home, '.claude', 'projects', '-work-app', 's-2.jsonl'), claudeFile('s-2', join(appData, 'workspace')))
+    const store = new Store(join(home, 'db.sqlite'))
+    const cwd = new Map<string, string>()
+    const sessions = new LocalSessions(store, { home, appData, deviceName: 'Mac' }, (id, p) => cwd.set(id, p), (id) => cwd.get(id) ?? '')
+    expect(sessions.scan()).toBe(1)
+    const conv = store.get<any>('conversation', 'local-claude-s-1')
+    expect(conv).toMatchObject({ kind: 'code', provider: 'claude', title: 'Login bug', origin: { tool: 'claude-code', sessionId: 's-1', device: 'Mac' } })
+    expect(store.get('conversation', 'local-claude-s-2')).toBeUndefined()
+    expect(cwd.get('local-claude-s-1')).toBe('/work/app')
+    expect(store.kvGet<any>('session:local-claude-s-1:claude')).toMatchObject({ sessionId: 's-1' })
+    expect(sessions.scan()).toBe(0)
+    // Once continued here, the session file is not read into the chat again.
+    store.put('message', 'mine', { id: 'mine', conversationId: 'local-claude-s-1', role: 'user', text: 'More', createdAt: Date.now(), deviceId: 'd', status: 'complete' })
+    writeFileSync(join(home, '.claude', 'projects', '-work-app', 's-1.jsonl'), `${claudeFile('s-1', '/work/app')}\n${line({ type: 'user', uuid: 'u9', sessionId: 's-1', cwd: '/work/app', timestamp: '2026-11-02T10:00:00Z', message: { role: 'user', content: 'More' } })}`)
+    sessions.scan()
+    expect(store.messages('local-claude-s-1').filter((m) => m.text === 'More')).toHaveLength(1)
+    store.close()
+  })
+})

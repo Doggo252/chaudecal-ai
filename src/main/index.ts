@@ -27,6 +27,7 @@ import { normalizeMcpServer, testMcpServer } from './mcp'
 import { needsRenewal, renew, signIn as mcpBrowserSignIn } from './mcpAuth'
 import { guardFrames, previewPage, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { artifactCsp } from '@shared/artifactPolicy'
+import { LocalSessions } from './localSessions'
 import { WebChat } from './webChat'
 import { WebImporter } from './webImport'
 import { TaskRunner } from './tasks'
@@ -1129,6 +1130,21 @@ app.whenReady().then(async () => {
   // Bringing in chats from the websites waits a little, so starting up stays quick.
   setTimeout(importFromWebs, process.env.CHAUDECAL_USER_DATA ? 3_600_000 : 90_000)
   setInterval(importFromWebs, WEB_IMPORT_EVERY)
+  // Claude Code and Codex sessions on this computer, now and every ten minutes. Tests use their own home folder.
+  const sessionHome = process.env.CHAUDECAL_E2E_HOME || (dataOverride ? '' : homedir())
+  if (sessionHome) {
+    const localSessions = new LocalSessions(store, { home: sessionHome, appData: dataDir, deviceName: settings.deviceName }, (id, path) => engine.setWorkspace(id, path), (id) => engine.workspace(id))
+    const scanSessions = () => {
+      if (settings.localSessions === false) return
+      try {
+        localSessions.scan()
+      } catch {
+        // Tried again on the next round.
+      }
+    }
+    setTimeout(scanSessions, process.env.CHAUDECAL_E2E_HOME ? 500 : 30_000)
+    setInterval(scanSessions, process.env.CHAUDECAL_E2E_HOME ? 2000 : 10 * 60_000)
+  }
 
   app.on('activate', showWindow)
 })

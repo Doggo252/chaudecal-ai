@@ -95,6 +95,23 @@ const noticeFile = { hub: join(noticeDir, 'hub.jsonl'), client: join(noticeDir, 
 // The hub's "home folder" for the folder browser, so the test never lists or photographs a real one.
 const homeDir = mkdtempSync(join(tmpdir(), 'chaudecal-e2e-home-'))
 for (const name of ['Desktop', 'Documents', 'projects/website', 'projects/api']) mkdirSync(join(homeDir, name), { recursive: true })
+// A Claude Code session started in a terminal on the hub, before the app was opened.
+{
+  const cwd = join(homeDir, 'projects', 'website')
+  const sessionDir = join(homeDir, '.claude', 'projects', cwd.replace(/[^A-Za-z0-9]/g, '-'))
+  mkdirSync(sessionDir, { recursive: true })
+  const at = (s) => new Date(Date.now() - 3600_000 + s * 1000).toISOString()
+  writeFileSync(
+    join(sessionDir, 'term-session-1.jsonl'),
+    [
+      { type: 'user', uuid: 'tu1', sessionId: 'term-session-1', cwd, timestamp: at(0), message: { role: 'user', content: 'Make the header sticky.' } },
+      { type: 'assistant', uuid: 'ta1', sessionId: 'term-session-1', cwd, timestamp: at(5), message: { role: 'assistant', model: 'claude-fake-1', content: [{ type: 'text', text: 'Done, the header now stays put.' }, { type: 'tool_use', id: 'tt1', name: 'Edit', input: { file_path: 'site.css' } }] } },
+      { type: 'custom-title', customTitle: 'Sticky header', sessionId: 'term-session-1' }
+    ]
+      .map((l) => JSON.stringify(l))
+      .join('\n')
+  )
+}
 const notices = (name) => (existsSync(noticeFile[name]) ? readFileSync(noticeFile[name], 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [])
 const notesFile = join(attachDir, 'notes.md')
 writeFileSync(notesFile, '# Notes\nThe launch is on Friday.\n')
@@ -476,7 +493,8 @@ try {
     local: { endpoints: [], summarize: false },
     hub: { remoteUrl: `127.0.0.1:${hubPort}`, remoteToken: token }
   }, { CHAUDECAL_E2E_NOTIFY: noticeFile.client })
-  await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 6, null, { timeout: 15000 })
+  // Six chats written so far, and the Claude Code session from the hub's terminal.
+  await b.page.waitForFunction(() => document.querySelectorAll('[data-testid="conversation"]').length === 7, null, { timeout: 15000 })
   ok('a second device pairs with the hub and receives every conversation')
 
   await b.page.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
@@ -786,6 +804,17 @@ try {
   await a.page.waitForSelector(tid('send'))
   await a.page.click(tid('new-chat'))
   ok('quick ask starts a chat from the small box')
+
+  // A Claude Code session from a terminal shows up as a code chat, and carries on here.
+  await a.page.waitForSelector(`${tid('conversation')}:has-text("Sticky header")`, { timeout: 15000 })
+  await a.page.click(`${tid('conversation')}:has-text("Sticky header")`)
+  await a.page.waitForSelector(`${tid('assistant-message')}:has-text("the header now stays put")`)
+  assert(await a.page.$(`${tid('assistant-message')}:has-text("stays put") ${tid('step-group')}, ${tid('assistant-message')}:has-text("stays put") ${tid('tool-row')}`), 'the steps of the session come along')
+  await sendMessage(a.page, 'Also make it blue.')
+  await waitForReply(a.page, 'claude', 'You said: "Also make it blue."')
+  await b.page.waitForFunction(async () => (await window.api.state()).conversations.some((c) => c.origin?.sessionId === 'term-session-1'), null, { timeout: 15000 })
+  await a.page.click(tid('new-chat'))
+  ok('Claude Code sessions from this computer show up as code chats, carry on here, and sync')
 
   // Chats from claude.ai and chatgpt.com come in through the website tabs' sign-ins, and sync to the other device.
   await a.page.click(tid('open-settings'))

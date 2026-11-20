@@ -206,6 +206,12 @@ function General() {
         <Row title="Look for new versions" sub="Checks every hour, and when the computer wakes up.">
           <Toggle checked={s.checkForUpdates} onChange={(v) => save({ checkForUpdates: v })} label="Look for new versions" />
         </Row>
+        <Row
+          title="Bring in my Claude Code and Codex sessions"
+          sub="Sessions started on this computer in a terminal, an editor, or the Claude and ChatGPT desktop apps show up in the Code tab and sync to your other devices. Carrying one on here continues the same session."
+        >
+          <Toggle checked={s.localSessions !== false} onChange={(v) => save({ localSessions: v })} label="Bring in my Claude Code and Codex sessions" testId="local-sessions-toggle" />
+        </Row>
         <Row title="Quick ask from anywhere" sub={`${navigator.platform.toLowerCase().includes('mac') ? 'Option' : 'Alt'}+Space opens a small box over whatever you are doing. Type a question and press Enter: it starts a new chat here.`}>
           <Toggle checked={s.quickAsk} onChange={(v) => save({ quickAsk: v })} label="Quick ask from anywhere" testId="quick-ask-toggle" />
         </Row>

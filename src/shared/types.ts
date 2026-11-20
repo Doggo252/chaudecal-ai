@@ -59,6 +59,8 @@ export interface Conversation {
    * devices that run this app. Chats from the sites are regular chats.
    */
   kind?: ConversationKind
+  /** Brought in from a Claude Code or Codex session on one of the user's computers. */
+  origin?: { tool: 'claude-code' | 'codex'; sessionId: string; device: string }
 }
 
 export type ConversationKind = 'chat' | 'code'
@@ -388,6 +390,8 @@ export interface Settings {
   autoUpdate: boolean
   /** Option+Space (Alt+Space on Windows) opens a small box to ask something from anywhere. */
   quickAsk: boolean
+  /** Bring the Claude Code and Codex sessions on this computer into the Code tab. */
+  localSessions: boolean
   /** Show a system notification when a reply is ready or an assistant is waiting for an answer. */
   notifications: boolean
 }
@@ -427,6 +431,7 @@ export function defaultSettings(deviceName: string): Settings {
     checkForUpdates: true,
     autoUpdate: true,
     quickAsk: true,
+    localSessions: true,
     notifications: true
   }
 }
