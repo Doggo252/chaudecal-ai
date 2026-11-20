@@ -394,6 +394,50 @@ try {
   await a.page.fill(tid('composer-input'), '')
   ok('dictation turns a recording into text, and answers have a read-aloud button')
 
+  // ChatGPT makes a picture on the plan, shown in its answer with a way to save it.
+  await pickProvider(a.page, 'chatgpt')
+  await sendMessage(a.page, 'Draw a red square. [image]')
+  await waitForReply(a.page, 'chatgpt', 'Here is your picture')
+  await a.page.waitForSelector(`${last} ${tid('generated-image')}`)
+  assert(await a.page.$eval(`${last} ${tid('generated-image')}`, (img) => img.naturalWidth === 32), 'the picture should load')
+  ok('ChatGPT makes a picture, which shows in its answer')
+
+  // Research: the assistant searches widely and writes a report as a document.
+  await pickProvider(a.page, 'claude')
+  await a.page.click(tid('research-toggle'))
+  await sendMessage(a.page, 'Heat pumps?')
+  await waitForReply(a.page, 'claude', 'I researched it')
+  assert(await a.page.evaluate(() => [...document.querySelectorAll('[data-testid="user-message"]')].pop().textContent.includes('Research')), 'the question should be marked as research')
+  assert(await a.page.evaluate(() => [...document.querySelectorAll('.composer-row button')].every((b) => b.getBoundingClientRect().right <= document.querySelector('.composer').getBoundingClientRect().right + 1)), 'every button of the message box should fit beside the panel')
+  assert((await a.page.getAttribute(tid('research-toggle'), 'aria-pressed')) === 'false', 'research switches itself off after sending')
+
+  // An artifact can be edited and saved as a new version, which the assistant then sees.
+  await a.page.click(`${last} ${tid('artifact-card')}:has-text("Research: Heat pumps")`)
+  await a.page.click(tid('artifact-tab-code'))
+  await a.page.click(tid('artifact-edit'))
+  await a.page.fill(tid('artifact-editor'), '# Summary\n\nMy own corrected summary.')
+  await a.page.click(tid('artifact-save-edit'))
+  await a.page.waitForFunction(() => document.querySelector('[data-testid="artifact-version"]')?.textContent === '2 of 2')
+  assert((await a.page.textContent(tid('artifact-code'))).includes('My own corrected summary.'), 'the panel should show the edited version')
+  await a.page.waitForFunction(() => !![...document.querySelectorAll('[data-testid="user-message"]')].pop().querySelector('[data-testid="artifact-card"]'))
+  await shot(a.page, '43-edited-artifact')
+  await a.page.click(tid('artifact-close'))
+  ok('research writes a report, and an artifact can be edited into a new version')
+
+  // A form in a reply: its answers go back as the next message.
+  await sendMessage(a.page, 'Plan my trip. [form]')
+  await waitForReply(a.page, 'claude', 'A few questions first')
+  await a.page.waitForSelector(`${last} ${tid('chat-form')}`)
+  assert(await a.page.$eval(`${last} ${tid('chat-form-send')}`, (b) => b.disabled), 'a required answer should be needed first')
+  await a.page.fill(`${last} ${tid('chat-form')} input`, 'Next week')
+  await a.page.click(`${last} ${tid('chat-form')} button:has-text("Relaxed")`)
+  await shot(a.page, '44-chat-form')
+  await a.page.click(`${last} ${tid('chat-form-send')}`)
+  await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="user-message"]')].some((el) => el.textContent.includes('My answers to "Trip details"') && el.textContent.includes('Pace Relaxed')), null, { timeout: 15000 })
+  await a.page.waitForSelector(tid('send'))
+  assert((await a.page.$$eval(tid('chat-form-send'), (els) => els.length)) === 0, 'an answered form should not be sent twice')
+  ok('an assistant can ask with a form, and the answers come back as a message')
+
   // ---------- Device B: a client of the hub ----------
   const token = await a.page.evaluate(async () => (await window.api.state()).settings.hub.token)
   assert(token && token.length >= 10, 'hub should have generated a pairing code')

@@ -1,13 +1,19 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { parseForm } from '@shared/forms'
+import { ChatFormView } from './ChatForm'
 import type { ApprovalDecision, ApprovalRequest, Message, PermissionDenial, PlanStep, ProviderId, ToolCall } from '@shared/types'
 import type { FileDiff } from '@shared/diff'
 import { groupSteps, type StepGroup } from '@shared/steps'
+import { artifactBlocks, formBlocks } from '@shared/artifacts'
+
+const hasArtifact = (text: string) => /```|~~~/.test(text) && artifactBlocks(text).length > 0
 import { PROVIDER_LABEL } from '@shared/types'
 import { renderMarkdown } from '../markdown'
 import { setState, toast } from '../state'
 import { IconBranch, IconCheck, IconCopy, IconEdit, IconOpinion, IconRetry, IconSwitch } from '../icons'
 import { ProviderDot } from './ui'
-import { AttachmentList } from './Attachments'
+import { AttachmentList, GeneratedImages } from './Attachments'
 import { ReadAloudButton } from './Speech'
 
 function shortModel(model?: string): string {
@@ -16,9 +22,21 @@ function shortModel(model?: string): string {
   return m.replace(/^claude-/, '').replace(/-\d{8}$/, '')
 }
 
-const Prose = memo(function Prose({ text }: { text: string }) {
+const Prose = memo(function Prose({ text, answerable = false }: { text: string; answerable?: boolean }) {
   const html = useMemo(() => renderMarkdown(text), [text])
-  return <div className="prose" dangerouslySetInnerHTML={{ __html: html }} />
+  const forms = useMemo(() => formBlocks(text).map((b) => (b ? parseForm(b.json, b.title) : undefined)), [text])
+  const box = useRef<HTMLDivElement>(null)
+  // Forms are drawn into the places the reply's markdown left for them.
+  const [slots, setSlots] = useState<HTMLElement[]>([])
+  useLayoutEffect(() => {
+    setSlots(box.current ? [...box.current.querySelectorAll<HTMLElement>('.chat-form-slot')] : [])
+  }, [html])
+  return (
+    <>
+      <div className="prose" ref={box} dangerouslySetInnerHTML={{ __html: html }} />
+      {slots.map((el, i) => (forms[i] ? createPortal(<ChatFormView form={forms[i]!} answerable={answerable} />, el, `form-${i}`) : null))}
+    </>
+  )
 })
 
 function Counts({ added, removed }: { added: number; removed: number }) {
@@ -141,7 +159,7 @@ function Who({ m }: { m: Message }) {
   )
 }
 
-function AssistantBody({ m }: { m: Message }) {
+function AssistantBody({ m, answerable = false }: { m: Message; answerable?: boolean }) {
   const waiting = m.status === 'streaming' && !m.text && !(m.tools ?? []).some((t) => t.status === 'running')
   return (
     <>
@@ -153,7 +171,8 @@ function AssistantBody({ m }: { m: Message }) {
       )}
       {!!m.plan?.length && <Plan steps={m.plan} live={m.status === 'streaming'} />}
       {!!m.tools?.length && <Tools tools={m.tools} />}
-      {m.text && <Prose text={m.text} />}
+      {m.text && <Prose text={m.text} answerable={answerable && m.status === 'complete'} />}
+      {!!m.images?.length && <GeneratedImages items={m.images} />}
       {waiting && (
         <span className="typing" aria-label="Working">
           <i />
@@ -215,6 +234,7 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
   return (
     <div className={`msg msg-user ${focus ? 'focus' : ''} ${editing ? 'editing' : ''}`} data-testid="user-message" data-message-id={m.id}>
       {!!m.attachments?.length && <AttachmentList items={m.attachments} />}
+      {m.research && !editing && <span className="badge research-badge">Research</span>}
       {editing ? (
         <div className="edit-box">
           <textarea
@@ -241,6 +261,10 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
               Send
             </button>
           </div>
+        </div>
+      ) : m.text && hasArtifact(m.text) ? (
+        <div className="bubble bubble-rich">
+          <Prose text={m.text} />
         </div>
       ) : (
         m.text && <div className="bubble">{m.text}</div>
@@ -269,7 +293,7 @@ function AssistantMessage({ m, focus, onRetry, onSwitch, onBranch, onSecondOpini
   return (
     <div className={`msg msg-assistant ${focus ? 'focus' : ''}`} data-testid="assistant-message" data-provider={m.provider} data-message-id={m.id}>
       <Who m={m} />
-      <AssistantBody m={m} />
+      <AssistantBody m={m} answerable={isLast} />
       {m.status === 'error' && <ErrorBox m={m} onRetry={onRetry} onSwitch={onSwitch} />}
       {m.status !== 'streaming' && m.status !== 'error' && (
         <div className="msg-actions">

@@ -31,6 +31,7 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 - **On your phone.** The hub PC can serve Chaude to any browser on your home network or over Tailscale. Open it on your phone, enter the pairing code once, and add it to your home screen: it is the same app, with a phone layout, running its assistants on the PC.
 - **Quick ask and screenshots.** Option+Space (Alt+Space on Windows) opens a small box over whatever you are doing; type a question and it starts a new chat. The screen button in the message box attaches a screenshot of your screen or of one window.
 - **Export.** Save any chat as Markdown or as one web page that opens in any browser.
+- **Research, pictures and forms.** Research mode has the assistant search the web widely and write a report with its sources. ChatGPT makes pictures on your plan. An assistant can ask you several questions at once as a small form. Artifacts can be edited by hand and saved as a new version.
 - **Math, editing and voice.** Formulas are drawn properly. Any earlier question can be edited and asked again. Answers can be read aloud, and you can dictate a message.
 
 | Switching assistants | Comparing answers |
@@ -65,9 +66,9 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 | --- | --- |
 | ![Chaude in a phone browser, served by the hub](docs/screenshots/phone.png) | ![A project with its instructions, two files and its chats](docs/screenshots/project.png) |
 
-| A scheduled task | |
+| A scheduled task | A form in a reply |
 | --- | --- |
-| ![A scheduled task that runs every weekday at 9:00](docs/screenshots/scheduled-task.png) | |
+| ![A scheduled task that runs every weekday at 9:00](docs/screenshots/scheduled-task.png) | ![Claude asking with a form: a date and a choice](docs/screenshots/chat-form.png) |
 
 | A chat brought in from claude.ai | Bringing in your chats |
 | --- | --- |
@@ -223,6 +224,10 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - **Editing a question.** Hover over any of your messages and click the pencil. Change it and press Send: the answers after it are replaced by a new answer to the changed question. An assistant that saw the old version is given the conversation afresh, so it does not answer from the old one.
 - **What the assistant did.** In Plan, Edit and Auto modes, Claude's to-do list and ChatGPT's plan show as a checklist at the top of the answer. Steps of the same sort are grouped: click a group to see each step, and click a file edit to see the lines it removed and added.
 - **Math.** Formulas written as `$...$`, `$$...$$`, `\(...\)` or `\[...\]` are drawn as math. Prices such as "$5 and $10" stay text.
+- **Research.** Click the magnifying glass in the message box before sending. The assistant searches the web from several angles, reads the best sources, and writes a report as a document artifact with numbered sources, then a short answer. In Auto, research goes to Claude (or ChatGPT if Claude is not available), since local AI cannot search the web. It takes longer and uses more of your plan than a normal question.
+- **Pictures.** Ask ChatGPT for a picture ("draw...", "make an image of...") and it appears in the answer; Save keeps a copy. Pictures sync with the conversation. This uses your ChatGPT plan's image allowance.
+- **Editing an artifact.** In the panel's Code view, click Edit, change it, and click "Save as new version". Your version appears as a message of yours and becomes the newest version; the assistant sees it next time you write, so changes you ask for after that start from your edit.
+- **Forms.** When an assistant needs several answers or wants you to choose, it may send a small form. Fill it in and press its button: your answers go back as your next message.
 - **Read aloud and dictation.** The speaker button under an answer reads it with your computer's own voice, leaving out code and formulas. The microphone in the message box records you and turns it into text, using a speech-to-text server you set up under Settings, "Local AI" (any server that works like OpenAI's, for example one running Whisper). Without one, use your computer's own dictation in the message box: Fn twice on a Mac, Windows key + H on Windows.
 - **Notifications.** They appear only while the app is not the window in front, and only on the computer the message was sent from, so the hub PC stays quiet about work you started on the Mac. The Dock icon also shows a count (on Windows the taskbar button flashes) until you look at the app. A conversation that is waiting for your answer has an amber dot in the sidebar. Private chats never show their contents in a notification. Turn it all off under Settings, "General".
 - **Theme.** Under Settings, "General", choose Light, Dark or Match system, and an accent color. The accent is used for the main buttons, the send button, the switches, the text selection and a tint on your own messages. The last swatch opens a color picker for any color, and the text on it turns dark or white to stay readable. Text size has four steps, from Small to Extra large, and changes every piece of text in the app at once. The look is a setting of each machine, so the Mac and the PC can differ.
@@ -233,7 +238,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 
 ## Limits of this version
 
-- Image generation and voice are available through the built-in website tabs, not through the unified chat.
+- ChatGPT makes pictures in the unified chat; Claude does not make pictures. Live voice conversations are only in the built-in website tabs.
 - Only the text of a PDF is read. Pictures, charts and scanned pages inside it are not, and a PDF that is all scans is refused with a note saying so. Use the claude.ai or chatgpt.com tab for those. A very long PDF is cut at about 200,000 characters (roughly 80 dense pages), and the message says which pages were left out.
 - A local model only understands images if it is a vision model. Others will report an error or ignore the image.
 - Claude asking during a reply needs a recent Claude Code. With an older one the app notices and falls back to asking afterwards: a card lists what Claude was blocked from doing and offers "Allow and continue".
@@ -277,7 +282,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 42 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 45 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 

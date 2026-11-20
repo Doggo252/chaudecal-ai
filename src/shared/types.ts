@@ -112,6 +112,10 @@ export interface Message {
   attachments?: Attachment[]
   /** The assistant's checklist for this reply, as it last stood. */
   plan?: PlanStep[]
+  /** The user asked for research: a broad web search and a report with sources. */
+  research?: boolean
+  /** Pictures the assistant made in this reply. Their bytes are blob records, like attached images. */
+  images?: Attachment[]
 }
 
 /**
@@ -519,6 +523,8 @@ export type RunEvent =
   | { type: 'thinking'; delta: string }
   | { type: 'tool'; tool: ToolCall }
   | { type: 'plan'; steps: PlanStep[] }
+  /** A picture the assistant made, as base64. */
+  | { type: 'image'; base64: string; mime: string; prompt?: string }
   | { type: 'session'; sessionId: string }
   | { type: 'model'; model: string }
   | { type: 'usage'; usage: MessageUsage }

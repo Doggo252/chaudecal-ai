@@ -412,7 +412,9 @@ describe.skipIf(!canRunFakes)('ChatGPT with tool servers', () => {
   it('sends no tool settings when there are no servers', async () => {
     const { start, opened } = make()
     await start('hello', []).handle.done
-    expect(opened()[0].params).toMatchObject({ approvalPolicy: 'never', config: null })
+    // Only the image generation switch, no tool servers.
+    expect(opened()[0].params).toMatchObject({ approvalPolicy: 'never', config: { features: { image_generation: true } } })
+    expect(opened()[0].params.config.mcp_servers).toBeUndefined()
   })
 
   it('says in the chat when a server could not start, and carries on', async () => {

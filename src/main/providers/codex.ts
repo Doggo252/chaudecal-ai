@@ -86,7 +86,7 @@ export function codexItemToTool(item: Json): ToolCall | undefined {
     case 'webSearch':
       return { id: item.id, name: 'Web search', summary: String(item.query ?? '').slice(0, 200), status: 'done', kind: 'web' }
     case 'imageGeneration':
-      return { id: item.id, name: 'Image', summary: 'generated an image', status: 'done' }
+      return { id: item.id, name: 'Image', summary: String(item.revisedPrompt ?? 'Making a picture').slice(0, 200), status: item.failure ? 'error' : status(item.status), kind: 'other' }
     default:
       return undefined
   }
@@ -354,6 +354,9 @@ export class CodexProvider implements Provider {
         }
         const tool = codexItemToTool(item)
         if (tool) run.emit({ type: 'tool', tool: method === 'item/started' ? { ...tool, status: 'running' } : tool })
+        if (method === 'item/completed' && item.type === 'imageGeneration' && typeof item.result === 'string' && item.result.length > 100) {
+          run.emit({ type: 'image', base64: item.result, mime: item.result.startsWith('/9j/') ? 'image/jpeg' : 'image/png', prompt: typeof item.revisedPrompt === 'string' ? item.revisedPrompt : undefined })
+        }
         return
       }
       case 'thread/tokenUsage/updated': {
@@ -470,7 +473,8 @@ export class CodexProvider implements Provider {
       const sandbox = base.sandbox
       const approvalPolicy = askForTools ? 'on-request' : base.approvalPolicy
       const developerInstructions = [request.mode === 'chat' ? CHAT_ONLY : '', request.system].filter((s) => s.trim()).join('\n\n') || null
-      const config = mcp.length ? { mcp_servers: codexMcpConfig(mcp, process.platform, homedir()) } : null
+      // Image generation is a switch in Codex. With it on, ChatGPT can make pictures on the plan, as on chatgpt.com.
+      const config = { features: { image_generation: true }, ...(mcp.length ? { mcp_servers: codexMcpConfig(mcp, process.platform, homedir()) } : {}) }
       const common = { model: request.model || null, cwd: request.cwd, approvalPolicy, sandbox, developerInstructions, config }
       const started = request.sessionId
         ? await this.request<Json>('thread/resume', { threadId: request.sessionId, excludeTurns: true, ...common })

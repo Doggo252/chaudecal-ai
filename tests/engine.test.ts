@@ -130,6 +130,31 @@ describe.skipIf(!canRunFakes)('conversation engine', () => {
     expect(last(outside.id).text).not.toContain('I know the project')
   })
 
+  it('keeps pictures ChatGPT makes, with image generation switched on', async () => {
+    const { engine, store, last } = await setup()
+    const conv = engine.createConversation({ provider: 'chatgpt' })
+    await engine.send({ conversationId: conv.id, text: 'Draw a red square. [image]' })
+    const reply = last(conv.id)
+    expect(reply.text).toContain('Here is your picture')
+    expect(reply.images).toMatchObject([{ name: 'image-1.png', mime: 'image/png', kind: 'image' }])
+    expect(store.get<{ base64: string }>('blob', reply.images![0].id)?.base64.startsWith('iVBOR')).toBe(true)
+    expect(reply.tools).toMatchObject([{ name: 'Image', summary: 'A small red square', status: 'done' }])
+    store.deleteConversation(conv.id)
+    expect(store.get('blob', reply.images![0].id)).toBeUndefined()
+  })
+
+  it('sends a research question in Auto to an assistant that can search, with the research instructions', async () => {
+    const { engine, store, last } = await setup((s) => {
+      s.routing.preferLocalForShort = true
+    })
+    const conv = engine.createConversation({ provider: 'auto' })
+    await engine.send({ conversationId: conv.id, text: 'Heat pumps?', research: true })
+    const reply = last(conv.id)
+    expect(reply.provider).toBe('claude')
+    expect(reply.text).toContain('```markdown title="Research: Heat pumps"')
+    expect(store.messages(conv.id).find((m) => m.role === 'user')?.research).toBe(true)
+  })
+
   it('keeps both context files on disk, ready to hand over', async () => {
     const { engine, last } = await setup()
     const conv = engine.createConversation({ provider: 'claude' })

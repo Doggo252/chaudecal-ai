@@ -86,7 +86,8 @@ function PreviewFrame({ v, run, onError }: { v: ArtifactVersion; run: number; on
   return <iframe ref={frame} key={url} className={`artifact-frame kind-${v.kind}`} src={url} sandbox="allow-scripts" title={v.title} data-testid="artifact-frame" />
 }
 
-export function ArtifactPanel({ open, messages, onAskFix }: { open: OpenArtifact; messages: Message[]; onAskFix?: (title: string, error: string) => void }) {
+export function ArtifactPanel({ open, messages, onAskFix, onSaveEdit }: { open: OpenArtifact; messages: Message[]; onAskFix?: (title: string, error: string) => void; onSaveEdit?: (v: ArtifactVersion, content: string) => void }) {
+  const [draft, setDraft] = useState<string>()
   const artifacts = useMemo(() => collectArtifacts(messages), [messages])
   const found = findArtifact(artifacts, open.messageId, open.index)
   const [run, setRun] = useState(0)
@@ -94,6 +95,7 @@ export function ArtifactPanel({ open, messages, onAskFix }: { open: OpenArtifact
   const v = found ? found.artifact.versions[found.version] : undefined
   const versionKey = v ? `${v.messageId}:${v.index}` : ''
   useEffect(() => setError(undefined), [versionKey, run])
+  useEffect(() => setDraft(undefined), [versionKey])
 
   if (!found || !v) {
     return (
@@ -156,6 +158,30 @@ export function ArtifactPanel({ open, messages, onAskFix }: { open: OpenArtifact
             </button>
           </div>
         )}
+        {!showPreview && v.complete && onSaveEdit && draft === undefined && (
+          <button type="button" className="btn btn-small" data-testid="artifact-edit" onClick={() => setDraft(v.content)}>
+            Edit
+          </button>
+        )}
+        {draft !== undefined && (
+          <>
+            <button type="button" className="btn btn-small" onClick={() => setDraft(undefined)}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-small btn-primary"
+              data-testid="artifact-save-edit"
+              disabled={draft === v.content}
+              onClick={() => {
+                onSaveEdit?.(v, draft)
+                setDraft(undefined)
+              }}
+            >
+              Save as new version
+            </button>
+          </>
+        )}
         {showPreview && hasPreview(v.kind) && (
           <button type="button" className="icon-btn" title="Run the preview again" data-testid="artifact-reload" onClick={() => setRun((n) => n + 1)}>
             <IconReload size={15} />
@@ -208,7 +234,9 @@ export function ArtifactPanel({ open, messages, onAskFix }: { open: OpenArtifact
         </div>
       )}
       <div className="artifact-body">
-        {!showPreview ? (
+        {draft !== undefined ? (
+          <textarea className="artifact-editor" data-testid="artifact-editor" spellCheck={false} value={draft} onChange={(e) => setDraft(e.target.value)} />
+        ) : !showPreview ? (
           <CodeView v={v} />
         ) : v.kind === 'markdown' ? (
           <div className="artifact-doc">

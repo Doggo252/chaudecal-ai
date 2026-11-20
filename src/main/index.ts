@@ -696,6 +696,9 @@ const api: Omit<Api, 'on'> = {
     if (problem) return { ok: false, tools: [], error: problem }
     return testMcpServer(server, app.getVersion())
   },
+  async addMessage(conversationId, text) {
+    return engine.addUserMessage(String(conversationId), String(text ?? '')).id
+  },
   async artifactView(html) {
     return previewUrl(html)
   },

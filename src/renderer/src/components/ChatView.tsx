@@ -11,7 +11,8 @@ import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList } from './Messages'
 import { ArtifactPanel, closeArtifact, declined, PANEL_COVERS } from './ArtifactPanel'
 import { conversationHtml, conversationMarkdown } from '../export'
-import { artifactBlocks } from '@shared/artifacts'
+import { artifactBlocks, type ArtifactVersion } from '@shared/artifacts'
+import { artifactBlock } from '@shared/webImport'
 import { MenuItem, Popover, ProviderDot } from './ui'
 
 const EMPTY: Message[] = []
@@ -107,17 +108,29 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
     const text = `The artifact "${title}" shows this error in its preview:\n\n${error}\n\nPlease fix it and write the artifact again in full with the same title.`
     void window.api.send({ conversationId: conversation.id, text, variant: getState().variants[conversation.id] }).catch((e) => toast(String(e.message ?? e)))
   }
+  const saveArtifactEdit = (v: ArtifactVersion, content: string) => {
+    if (!conversation) return
+    const text = `I changed "${v.title}":\n\n${artifactBlock(v.language === 'react' ? 'jsx' : v.language, v.title, content)}`
+    void window.api
+      .addMessage(conversation.id, text)
+      .then((messageId) => {
+        stick.current = true
+        setState((s) => ({ artifact: s.artifact ? { ...s.artifact, messageId, index: 0, follow: false, tab: 'code' } : null }))
+        toast('Saved as a new version')
+      })
+      .catch((e) => toast(String(e.message ?? e)))
+  }
   const panel = openArtifact && conversation && openArtifact.conversationId === conversation.id ? openArtifact : undefined
   const thread = useMemo(() => threadMessages(stored), [stored])
   const contextTokens = useMemo(() => thread.reduce((n, m) => n + estimateTokens(m.role === 'user' ? messageBody(m) : m.text) + 6, 0), [thread])
 
-  const send = async (text: string, compare?: ProviderId[], attachments?: Attachment[]) => {
+  const send = async (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean) => {
     try {
       const conv = conversation ?? (await createFromDraft())
       stick.current = true
       dismissRemoved(conv.id)
       const variant = getState().variants[conv.id]
-      await window.api.send({ conversationId: conv.id, text, compare, variant, attachments })
+      await window.api.send({ conversationId: conv.id, text, compare, variant, attachments, ...(research ? { research } : {}) })
     } catch (e) {
       toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e))
     }
@@ -164,7 +177,14 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   }
 
   const empty = !messages.length
-  const composer = <Composer conversation={conversation} onSend={(t, c, a) => void send(t, c, a)} />
+
+  // The answers to a form in a reply go back as the user's next message.
+  useEffect(() => {
+    const answer = (e: Event) => void send((e as CustomEvent<string>).detail)
+    window.addEventListener('chaude-form-answer', answer)
+    return () => window.removeEventListener('chaude-form-answer', answer)
+  })
+  const composer = <Composer conversation={conversation} onSend={(t, c, a, r) => void send(t, c, a, r)} />
 
   return (
     <div className={`chat-split ${panel ? 'with-panel' : ''} ${panel?.wide ? 'panel-wide' : ''}`}>
@@ -440,7 +460,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
         </>
       )}
       </div>
-      {panel && <ArtifactPanel open={panel} messages={messages} onAskFix={busy ? undefined : askFix} />}
+      {panel && <ArtifactPanel open={panel} messages={messages} onAskFix={busy ? undefined : askFix} onSaveEdit={busy ? undefined : saveArtifactEdit} />}
     </div>
   )
 }

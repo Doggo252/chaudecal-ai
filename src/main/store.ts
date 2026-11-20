@@ -211,7 +211,7 @@ export class Store {
     const messages = this.messages(id)
     const elsewhere = this.db.prepare("select count(*) as n from records where kind = 'message' and deleted = 0 and conv_id != ? and data like ?")
     for (const m of messages) {
-      for (const a of m.attachments ?? []) {
+      for (const a of [...(m.attachments ?? []), ...(m.images ?? [])]) {
         if (a.kind !== 'image') continue
         // A branch of this conversation may still show the same image.
         const used = (elsewhere.get(id, `%"id":"${a.id}"%`) as { n: number }).n

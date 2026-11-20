@@ -82,6 +82,7 @@ function defaultTitle(kind: ArtifactKind, code: string): string {
 /** Whether a fenced code block is an artifact, and which kind. Undefined for an ordinary code block. */
 export function classifyFence(info: string | undefined, code: string): ArtifactSpec | undefined {
   const { language, title } = parseFenceInfo(info)
+  if (language === 'form') return undefined
   const titled = !!title
   const body = code.trimStart()
   let kind: ArtifactKind | undefined
@@ -170,7 +171,7 @@ export function artifactKey(block: Pick<ArtifactBlock, 'title' | 'titled' | 'ind
 export function collectArtifacts(messages: ArtifactSource[]): Artifact[] {
   const byKey = new Map<string, Artifact>()
   for (const m of messages) {
-    if (m.role !== 'assistant' || !m.text) continue
+    if ((m.role !== 'assistant' && m.role !== 'user') || !m.text) continue
     for (const block of artifactBlocks(m.text)) {
       const key = artifactKey(block, m.id)
       let artifact = byKey.get(key)
@@ -260,4 +261,13 @@ export function artifactFileName(v: Pick<ArtifactVersion, 'kind' | 'language' | 
   const ext =
     v.kind === 'html' ? 'html' : v.kind === 'svg' ? 'svg' : v.kind === 'mermaid' ? 'mmd' : v.kind === 'markdown' ? 'md' : v.kind === 'react' ? (v.language === 'tsx' || v.language === 'ts' || v.language === 'typescript' ? 'tsx' : 'jsx') : (EXTENSIONS[v.language] ?? 'txt')
   return `${base}.${ext}`
+}
+
+/** The form blocks in a message's text, in order, as their language "form" fences. An unreadable one is undefined. */
+export function formBlocks(text: string): ({ title?: string; json: string } | undefined)[] {
+  if (!/(```|~~~)\s*form/.test(text)) return []
+  return walk(new Lexer({ gfm: true }).lex(text), [])
+    .map((t) => t as Token & { lang?: string; text: string; codeBlockStyle?: string })
+    .filter((t) => t.codeBlockStyle !== 'indented' && parseFenceInfo(t.lang).language === 'form')
+    .map((t) => ({ title: parseFenceInfo(t.lang).title, json: t.text }))
 }

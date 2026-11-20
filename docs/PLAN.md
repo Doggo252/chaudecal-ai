@@ -187,6 +187,7 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Export a chat as Markdown or as a web page | Built, tested |
 | The app in a phone or browser, served by the hub at /app with the pairing code, with a phone layout and home-screen support | Built, tested in a phone-sized browser window against the hub. Not yet tried on a real phone. |
 | Browser sign-in to hosted tool servers (MCP authorization: discovery, registering the app, PKCE, renewal), and ready-made tool servers | Built, tested against a stand-in server that does the whole flow. Notion's and Linear's real sign-in details were checked to match; not yet signed in with a real account. |
+| Research mode, ChatGPT pictures, editing an artifact into a new version, and forms in replies | Built, tested against stand-ins. ChatGPT image generation was checked against the real Codex: with its image_generation switch on, it made a picture on the plan and sent it back. |
 | Quick ask box from a global shortcut, and screenshots of the screen or a window | Built, tested with a pretend screen. The real shortcut and capture are unchecked. |
 | Editing an earlier question and asking it again | Built, tested |
 | Read aloud with the system voices, and dictation through a speech-to-text server | Built, tested with a pretend microphone and a stand-in server. Not tried with a real Whisper server. |
@@ -218,7 +219,6 @@ A PDF is read in the app, page by page, with a marker at the start of each page,
 2. **Scanned PDFs and pictures inside PDFs.** Today only the text of a PDF is read. Pages with no text could be sent as images.
 3. **Tell a device about replies that finished while it was away**, when it reconnects.
 4. **Create a new folder on the hub** from the folder browser.
-5. **Answer Claude's own questions in the app.** When Claude wants to ask a multiple choice question, it is told to ask in its reply. A proper form would be nicer.
 6. **Signed builds**, so neither system warns on first launch. This needs paid developer accounts.
 
 ### Suggested features

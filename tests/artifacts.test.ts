@@ -104,19 +104,20 @@ describe('artifacts across a conversation', () => {
     ]
     const artifacts = collectArtifacts(messages)
     expect(artifacts.map((a) => [a.title, a.versions.length])).toEqual([
-      ['Greeting page', 3],
+      ['Greeting page', 4],
       ['Diagram', 1],
       ['Diagram', 1]
     ])
     const greeting = artifacts[0]
-    expect(greeting.versions.map((v) => v.content)).toEqual(['<h1>One</h1>', '<h1>Two</h1>', '<h1>Three</h1>'])
-    expect(greeting.versions.map((v) => v.messageId)).toEqual(['m1', 'm3', 'm4'])
+    // A version the user saved (an edit of theirs) counts too, in its place.
+    expect(greeting.versions.map((v) => v.content)).toEqual(['<h1>One</h1>', '<p>written by the user</p>', '<h1>Two</h1>', '<h1>Three</h1>'])
+    expect(greeting.versions.map((v) => v.messageId)).toEqual(['m1', 'u2', 'm3', 'm4'])
     // A closed fence is finished even while the rest of the reply is still coming.
-    expect(greeting.versions[2].complete).toBe(true)
+    expect(greeting.versions[3].complete).toBe(true)
     expect(collectArtifacts([msg('m5', `${F}html title="X"\n<p>`, { status: 'streaming' })])[0].versions[0].complete).toBe(false)
     expect(collectArtifacts([msg('m5', `${F}html title="X"\n<p>`, { status: 'complete' })])[0].versions[0].complete).toBe(true)
 
-    expect(findArtifact(artifacts, 'm3', 0)).toMatchObject({ artifact: { title: 'Greeting page' }, version: 1 })
+    expect(findArtifact(artifacts, 'm3', 0)).toMatchObject({ artifact: { title: 'Greeting page' }, version: 2 })
     expect(findArtifact(artifacts, 'm3', 1)?.artifact.versions[0].content).toBe('graph TD; C-->D')
     expect(findArtifact(artifacts, 'm9', 0)).toBeUndefined()
   })

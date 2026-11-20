@@ -1190,6 +1190,17 @@ a {
 .composer-row .spacer {
   flex: 1;
 }
+/* The buttons on the right stay together, and move to a line of their own when the box is narrow. */
+.composer-row {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
 .send {
   width: 34px;
   height: 34px;
@@ -2618,10 +2629,13 @@ html.quick-window #root {
     flex-basis: 100%;
     height: 0;
   }
+  .composer-actions {
+    width: 100%;
+  }
   .composer-foot {
     display: none;
   }
-  .composer-row .send {
+  .composer-actions .send {
     margin-left: auto;
   }
   /* Phones zoom into text boxes under 16 pixels. */
@@ -2629,4 +2643,98 @@ html.quick-window #root {
   input {
     font-size: max(16px, 1em);
   }
+}
+
+/* ---------- Pictures an assistant made ---------- */
+
+.generated-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+.generated-image {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+.generated-image img {
+  display: block;
+  max-width: min(420px, 100%);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.generated-image.placeholder {
+  width: 240px;
+  height: 240px;
+  border-radius: 12px;
+  background: var(--bg-code);
+}
+.research-badge {
+  margin-bottom: 4px;
+}
+
+/* ---------- Editing an artifact ---------- */
+
+.artifact-editor {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  outline: none;
+  resize: none;
+  padding: 14px 16px;
+  background: var(--bg-code);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.55;
+  tab-size: 2;
+}
+.bubble-rich {
+  white-space: normal;
+}
+.bubble-rich .prose > :last-child {
+  margin-bottom: 0;
+}
+.bubble-rich .artifact-card {
+  margin: 6px 0 2px;
+}
+
+/* ---------- Forms in the chat ---------- */
+
+.chat-form {
+  margin: 6px 0 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  display: grid;
+  gap: 12px;
+  font-size: calc(14px * var(--text-scale));
+}
+.chat-form-title {
+  font-weight: 600;
+}
+.chat-form-field {
+  display: grid;
+  gap: 6px;
+}
+.chat-form-label {
+  color: var(--text-soft);
+}
+.chat-form-required {
+  color: var(--bad);
+}
+.chat-form-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chat-form-options .chip {
+  border: 1px solid var(--border);
+}
+.chat-form-foot {
+  display: flex;
+  justify-content: flex-end;
 }

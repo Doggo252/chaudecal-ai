@@ -71,3 +71,37 @@ export async function fileToBase64(file: File): Promise<string> {
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
   return btoa(binary)
 }
+
+/** Pictures an assistant made: shown large, each with a way to save it. */
+export function GeneratedImages({ items }: { items: Attachment[] }) {
+  if (!items.length) return null
+  return (
+    <div className="generated-images" data-testid="generated-images">
+      {items.map((a) => (
+        <GeneratedImage a={a} key={a.id} />
+      ))}
+    </div>
+  )
+}
+
+function GeneratedImage({ a }: { a: Attachment }) {
+  const [url, setUrl] = useState<string>()
+  useEffect(() => {
+    let live = true
+    void imageUrl(a.id).then((u) => live && setUrl(u))
+    return () => {
+      live = false
+    }
+  }, [a.id])
+  if (!url) return <span className="generated-image placeholder" title="This picture has not synced to this machine yet" />
+  return (
+    <figure className="generated-image">
+      <a href={url} target="_blank" rel="noreferrer">
+        <img src={url} alt={a.name} data-testid="generated-image" />
+      </a>
+      <a className="btn btn-small" href={url} download={a.name}>
+        Save
+      </a>
+    </figure>
+  )
+}

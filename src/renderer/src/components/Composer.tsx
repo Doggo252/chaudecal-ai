@@ -7,7 +7,7 @@ import { createFromDraft, getState, setState, toast, useUi, type Draft } from '.
 import { DictationButton } from './Speech'
 import { CaptureButton } from './Capture'
 import { isWeb } from '../webApi'
-import { IconBook, IconChevron, IconClip, IconColumns, IconComputer, IconFolder, IconLock, IconSend, IconStop } from '../icons'
+import { IconBook, IconChevron, IconClip, IconColumns, IconComputer, IconFolder, IconLock, IconSearch, IconSend, IconStop } from '../icons'
 import { AttachmentList, fileToBase64 } from './Attachments'
 import { HubFolder } from './HubFolder'
 import { MenuItem, Popover, ProviderDot, PROVIDERS, providerName } from './ui'
@@ -24,11 +24,12 @@ function shortPath(p: string): string {
   return parts.length ? parts[parts.length - 1] : p
 }
 
-export function Composer({ conversation, onSend }: { conversation?: Conversation; onSend: (text: string, compare?: ProviderId[], attachments?: Attachment[]) => void }) {
+export function Composer({ conversation, onSend }: { conversation?: Conversation; onSend: (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean) => void }) {
   const app = useUi((s) => s.app)!
   const draft = useUi((s) => s.draft)
   const [text, setText] = useState('')
   const [compare, setCompare] = useState<ProviderId[] | null>(null)
+  const [research, setResearch] = useState(false)
   const [workspace, setWorkspace] = useState('')
   const [attached, setAttachedState] = useState<Attachment[]>([])
   // Files can arrive several at a time (a drop, a paste), so the latest list is also kept outside React state.
@@ -98,7 +99,8 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     if ((!value && !attached.length) || busy) return
     setText('')
     setAttached([])
-    onSend(value, compare && compare.length > 1 ? compare : undefined, attached.length ? attached : undefined)
+    onSend(value, compare && compare.length > 1 ? compare : undefined, attached.length ? attached : undefined, research || undefined)
+    setResearch(false)
   }
 
   const addAttached = (result: AttachResult) => {
@@ -383,6 +385,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
             )}
 
             <span className="spacer" />
+            <div className="composer-actions">
 
             <DictationButton onText={(t) => setText((prev) => (prev.trim() ? `${prev.trimEnd()} ${t}` : t))} />
 
@@ -424,6 +427,18 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               onClick={() => change({ private: !isPrivate })}
             >
               <IconLock />
+            </button>
+
+            <button
+              type="button"
+              className={`icon-btn ${research ? 'chip on' : ''}`}
+              title={research ? 'Research is on: the assistant searches widely and writes a report with sources' : 'Research: search widely and write a report with sources'}
+              aria-pressed={research}
+              data-testid="research-toggle"
+              disabled={isPrivate}
+              onClick={() => setResearch((r) => !r)}
+            >
+              <IconSearch />
             </button>
 
             <Popover
@@ -477,6 +492,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                 <IconSend />
               </button>
             )}
+            </div>
           </div>
         </div>
         <div className="composer-foot">

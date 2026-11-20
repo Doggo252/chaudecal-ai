@@ -27,6 +27,7 @@ import type {
   Settings
 } from '@shared/types'
 import { MAX_ATTACHMENTS, newId, PROVIDER_LABEL } from '@shared/types'
+import { FORM_GUIDE } from '@shared/forms'
 import {
   buildHandoff,
   composeChatMessages,
@@ -37,6 +38,7 @@ import {
   sharedSystemText,
   projectSystemText,
   ARTIFACT_GUIDE,
+  RESEARCH_GUIDE,
   threadMessages,
   titleFromText,
   type HandoffResult,
@@ -100,6 +102,17 @@ export class ChatEngine {
   }
 
   // ----- conversations -----
+
+  /** Adds a message of the user's without asking for a reply, for example an edited artifact. */
+  addUserMessage(conversationId: string, text: string): Message {
+    if (!this.store.get<Conversation>('conversation', conversationId)) throw new Error('That conversation no longer exists.')
+    if (this.active.has(conversationId)) throw new Error('This conversation is still answering.')
+    const message: Message = { id: newId(), conversationId, role: 'user', text: text.slice(0, 2_000_000), createdAt: Date.now(), deviceId: this.store.deviceId, status: 'complete' }
+    this.store.put('message', message.id, message)
+    this.updateConversation(conversationId, { updatedAt: Date.now() })
+    this.writeContextFiles(conversationId)
+    return message
+  }
 
   createConversation(partial: Partial<Conversation> = {}): Conversation {
     const s = this.settings()
@@ -190,7 +203,7 @@ export class ChatEngine {
     // A local model's window is small. Its files get about a quarter of it: as many characters as the window has tokens.
     const room = provider === 'local' ? Math.max(2000, providerBudget('local', this.settings())) : 400_000
     const projectText = projectSystemText(project, room)
-    return [shared, projectText, this.settings().artifacts === false ? '' : ARTIFACT_GUIDE].filter(Boolean).join('\n\n')
+    return [shared, projectText, this.settings().artifacts === false ? '' : `${ARTIFACT_GUIDE}\n\n${FORM_GUIDE}`].filter(Boolean).join('\n\n')
   }
 
   // ----- context files -----
@@ -228,11 +241,17 @@ export class ChatEngine {
     return { claude: !!st.claude?.ready, chatgpt: !!st.chatgpt?.ready, local: !!st.local?.ready }
   }
 
-  private choose(conv: Conversation, text: string, prior: Message[], override?: ProviderId): RouteDecision {
+  private choose(conv: Conversation, text: string, prior: Message[], override?: ProviderId, research?: boolean): RouteDecision {
     // Private comes first: nothing may send a private conversation to a cloud service.
     if (conv.private) return { provider: 'local', reason: 'This conversation is private, so it stays on local AI.' }
     if (override) return { provider: override, reason: '' }
     if (conv.provider !== 'auto') return { provider: conv.provider, reason: '' }
+    // Research needs the web, which local models do not have here.
+    if (research) {
+      const can = this.availability()
+      const pick = (['claude', 'chatgpt'] as const).find((p) => can[p])
+      if (pick) return { provider: pick, reason: `Auto chose ${PROVIDER_LABEL[pick]} for research, because it can search the web.` }
+    }
     const s = this.settings()
     const last = [...prior].reverse().find((m) => m.role === 'assistant' && m.provider)?.provider
     return route({
@@ -285,7 +304,7 @@ export class ChatEngine {
       prior = threadMessages(all.slice(0, lastUserIdx))
     } else {
       if (!userText && !attachments.length) return
-      userMessage = { id: newId(), conversationId: conv.id, role: 'user', text: userText, createdAt: Date.now(), deviceId: this.store.deviceId, status: 'complete' }
+      userMessage = { id: newId(), conversationId: conv.id, role: 'user', text: userText, createdAt: Date.now(), deviceId: this.store.deviceId, status: 'complete', ...(input.research ? { research: true } : {}) }
       if (attachments.length) userMessage.attachments = attachments
       this.store.put('message', userMessage.id, userMessage)
       const patch: Partial<Conversation> = { updatedAt: Date.now() }
@@ -304,7 +323,7 @@ export class ChatEngine {
         const group = newId()
         await Promise.all(input.compare.map((p, i) => this.runTurn({ conv, provider: p, prior, userText, userMessage: userMessage!, active, variant: 'summary', compareGroup: group, order: i })))
       } else {
-        const decision = this.choose(conv, userText, prior, input.provider)
+        const decision = this.choose(conv, userText, prior, input.provider, !!userMessage.research)
         if (decision.reason) this.events.route(conv.id, decision)
         const variant = input.variant ?? 'summary'
         const reply = await this.runTurn({ conv, provider: decision.provider, prior, userText, userMessage, active, variant, allow: input.allow })
@@ -353,7 +372,8 @@ export class ChatEngine {
     const compare = !!args.compareGroup
     const mode: RunMode = compare ? 'chat' : conv.mode
     const model = conv.models[provider] ?? (provider === 'claude' ? s.claude.defaultModel : provider === 'chatgpt' ? s.chatgpt.defaultModel : s.local.defaultModel)
-    const system = this.systemText(conv, provider)
+    // A research question gets its instructions on top of the usual ones.
+    const system = [this.systemText(conv, provider), args.userMessage.research ? RESEARCH_GUIDE : ''].filter(Boolean).join('\n\n')
     const budget = providerBudget(provider, s)
     const cwd = this.workspace(conv.id) || this.dirs.scratch
 
@@ -411,6 +431,14 @@ export class ChatEngine {
           message.plan = event.steps
           flush(true)
           break
+        case 'image': {
+          const id = newId()
+          const name = `image-${(message.images?.length ?? 0) + 1}.${event.mime === 'image/jpeg' ? 'jpg' : 'png'}`
+          this.store.put('blob', id, { id, name, mime: event.mime, base64: event.base64 } satisfies Blob)
+          message.images = [...(message.images ?? []), { id, name, mime: event.mime, size: Math.round((event.base64.length * 3) / 4), kind: 'image' }]
+          flush(true)
+          break
+        }
         case 'session':
           sessionId = event.sessionId
           break

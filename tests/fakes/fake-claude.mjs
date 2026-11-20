@@ -271,6 +271,16 @@ if (prompt.includes('[mcp]') || prompt.includes('[mcp-echo]')) {
 
 let reply = `Claude here. You said: "${lastLine}".${notes.length ? ` ${notes.join('. ')}.` : ''}`
 
+// A question asked in Research mode gets a report as a document artifact.
+if (system.includes('The user asked for research on this question')) {
+  reply = ['Claude here. I researched it.', '', '```markdown title="Research: ' + lastLine.replace(/[^A-Za-z ]/g, '').trim() + '"', '# Summary', '', 'The short answer, from two sources [1][2].', '', '## Sources', '', '1. https://example.com/one', '2. https://example.com/two', '```', '', 'In short: it depends on the sources.'].join('\n')
+}
+
+// "[form]" asks with a form.
+if (lastLine.includes('[form]')) {
+  reply = ['Claude here. A few questions first:', '', '```form title="Trip details"', JSON.stringify({ fields: [{ name: 'when', label: 'When are you going?', type: 'text', required: true }, { name: 'pace', label: 'Pace', type: 'choice', options: ['Relaxed', 'Busy'] }], submit: 'Plan my trip' }), '```'].join('\n')
+}
+
 // "[math]" answers with formulas, and with prices that must stay plain text.
 if (lastLine.includes('[math]')) {
   reply = 'Claude here. The area is $A = \\pi r^2$, and \\(e^{i\\pi} + 1 = 0\\).\n\n$$\n\\int_0^1 x^2\\,dx = \\frac{1}{3}\n$$\n\nTickets cost $5 and $10.'

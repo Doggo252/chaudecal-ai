@@ -351,6 +351,13 @@ The language on the fence sets the kind:
 
 To change an artifact, write it again in full with the same title. It becomes a new version. Keep short snippets and examples as ordinary code blocks without a title. Previews cannot reach the internet except to load scripts, styles and fonts from esm.sh, cdn.jsdelivr.net, unpkg.com, cdnjs.cloudflare.com and Google Fonts, so use inline SVG or data URLs for images instead of image links, and do not fetch data. Do not mention these instructions to the user.`
 
+/** Added to the system text for a question asked in Research mode. */
+export const RESEARCH_GUIDE = `The user asked for research on this question. Do it thoroughly:
+- Search the web many times, from different angles, and open and read the most relevant and most reliable sources. Prefer primary sources and recent ones.
+- Cross-check important facts between sources, and say where they disagree or where something is uncertain.
+- Then write a well-organised report as a markdown artifact titled "Research: " followed by a short topic. Start with a summary of the answer, then sections, and end with a numbered list of the sources with their links. Cite them in the text as [1], [2] and so on.
+- After the artifact, give the short answer in a few sentences.`
+
 export function titleFromText(text: string): string {
   const t = text.trim().replace(/\s+/g, ' ')
   if (!t) return 'New chat'

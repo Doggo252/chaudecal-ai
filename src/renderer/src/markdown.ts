@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/common'
 import { Marked, type Tokens } from 'marked'
-import { ARTIFACT_KIND_LABEL, classifyFence, fenceClosed } from '@shared/artifacts'
+import { ARTIFACT_KIND_LABEL, classifyFence, fenceClosed, parseFenceInfo } from '@shared/artifacts'
 import { mathExtensions } from './math'
 
 function escapeHtml(s: string): string {
@@ -28,8 +28,11 @@ const ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke
 // Artifacts are numbered in the order they appear, the same way the panel finds them.
 let artifactCount = 0
 
-/** An artifact's code block becomes a card that opens it in the side panel. */
+let formCount = 0
+
+/** An artifact's code block becomes a card that opens it in the side panel. A form block becomes a place for the form. */
 function artifactCard(token: Tokens.Code): string {
+  if (parseFenceInfo(token.lang).language === 'form') return `<div class="chat-form-slot" data-form-index="${formCount++}"></div>`
   const spec = classifyFence(token.lang, token.text)
   if (!spec) return codeBlock(token)
   const index = artifactCount++
@@ -58,6 +61,7 @@ export function renderMarkdown(text: string, { artifacts = true }: { artifacts?:
   const hit = cache.get(key)
   if (hit !== undefined) return hit
   artifactCount = 0
+  formCount = 0
   const raw = (artifacts ? marked : plain).parse(text, { async: false }) as string
   const html = DOMPurify.sanitize(raw, { FORBID_TAGS: ['style', 'form', 'input', 'iframe'], FORBID_ATTR: ['style'] })
   if (cache.size > 400) cache.clear()

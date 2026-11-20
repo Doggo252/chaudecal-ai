@@ -43,6 +43,8 @@ export interface SendInput {
   retry?: boolean
   /** Change this earlier question of the user's to `text`, drop everything after it, and answer it again. */
   edit?: string
+  /** Research mode: search the web broadly and write a report with sources. */
+  research?: boolean
   /** Extra permission rules the user just granted (Claude). */
   allow?: string[]
   /** Files to send with this message, as returned by pickAttachments or addAttachment. */
@@ -219,6 +221,8 @@ export interface Api {
   mcpSignIn(id: string): Promise<{ error?: string }>
   mcpSignOut(id: string): Promise<void>
 
+  /** Adds a message of the user's without asking for a reply. Gives back its id. */
+  addMessage(conversationId: string, text: string): Promise<string>
   /** Keeps a preview page for an artifact and gives back the address its frame loads. */
   artifactView(html: string): Promise<string>
   /** Saves an artifact to a file the user picks. Gives back the path, or an empty string when cancelled. */
@@ -300,6 +304,7 @@ export const API_METHODS = [
   'mcpSignIn',
   'mcpSignOut',
   'artifactView',
+  'addMessage',
   'saveArtifact',
   'hubDiscover',
   'hubNewToken',

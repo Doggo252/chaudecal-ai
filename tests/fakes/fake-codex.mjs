@@ -132,6 +132,16 @@ async function runTurn(threadId, text, imageCount = 0) {
       if (/not allowed|no tool server/.test(note)) break
     }
   }
+  // "[image]" makes a picture, the way Codex reports one when image generation is on.
+  if (lastLine.includes('[image]')) {
+    if (!thread.config?.features?.image_generation) notes.push('Image generation is off')
+    else {
+      const item = { type: 'imageGeneration', id: `ig-${randomUUID().slice(0, 6)}`, revisedPrompt: 'A small red square', transparentBackground: false, failure: null }
+      send({ method: 'item/started', params: { threadId, turnId, item: { ...item, status: 'in_progress', result: '' } } })
+      send({ method: 'item/completed', params: { threadId, turnId, item: { ...item, status: 'completed', result: 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAANUlEQVR4nO3NMQEAMAjEwKdq8K8HMZUQFracgKSmO5feaT0OFhwgB8gBcoAcIAfIAXKAHIR8xN0BbKPsVwsAAAAASUVORK5CYII=' } } })
+      notes.push('Here is your picture')
+    }
+  }
   // "[work]" works through a small task: a plan, a file change and a command.
   if (lastLine.includes('[work]')) {
     const plan = (done) => send({ method: 'turn/plan/updated', params: { threadId, turnId, explanation: null, plan: [
@@ -216,6 +226,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       const thread = { developerInstructions: params.developerInstructions, approvalPolicy: params.approvalPolicy, resumed: false }
       threads.set(threadId, thread)
       reply({ thread: { id: threadId }, model: params.model ?? 'gpt-fake-large' })
+      thread.config = params.config ?? {}
       startMcp(threadId, thread, params.config?.mcp_servers)
       return
     }
@@ -224,6 +235,7 @@ createInterface({ input: process.stdin }).on('line', (line) => {
       for (const client of Object.values(threads.get(params.threadId)?.mcp ?? {})) client.close()
       threads.set(params.threadId, thread)
       reply({ thread: { id: params.threadId }, model: params.model ?? 'gpt-fake-large' })
+      thread.config = params.config ?? {}
       startMcp(params.threadId, thread, params.config?.mcp_servers)
       return
     }
