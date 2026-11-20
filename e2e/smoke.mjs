@@ -403,15 +403,28 @@ try {
   ok('ChatGPT makes a picture, which shows in its answer')
 
   // Research: the assistant searches widely and writes a report as a document.
+  // The report opens in the panel, which covers the conversation in a narrow window, so these steps work with either layout.
+  // E2E_NARROW=1 runs them in a narrow window.
+  const [wideW, wideH] = await a.app.evaluate((e) => e.BrowserWindow.getAllWindows().find((w) => !w.isAlwaysOnTop()).getSize())
+  if (process.env.E2E_NARROW === '1') await a.app.evaluate((e) => e.BrowserWindow.getAllWindows().find((w) => !w.isAlwaysOnTop()).setSize(1000, 800))
+  const chatVisible = async () => {
+    if ((await a.page.$(tid('artifact-panel'))) && (await a.page.$eval('.chat-pane', (el) => getComputedStyle(el).display)) === 'none') await a.page.click(tid('artifact-close'))
+  }
+  const answered = async (text) => {
+    await a.page.waitForFunction((t) => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((el) => el.textContent.includes(t)), text, { timeout: 15000 })
+    await a.page.waitForFunction(async () => (await window.api.state()).busy.length === 0, null, { timeout: 15000 })
+  }
   await pickProvider(a.page, 'claude')
   await a.page.click(tid('research-toggle'))
   await sendMessage(a.page, 'Heat pumps?')
-  await waitForReply(a.page, 'claude', 'I researched it')
+  await answered('I researched it')
+  await chatVisible()
   assert(await a.page.evaluate(() => [...document.querySelectorAll('[data-testid="user-message"]')].pop().textContent.includes('Research')), 'the question should be marked as research')
   assert(await a.page.evaluate(() => [...document.querySelectorAll('.composer-row button')].every((b) => b.getBoundingClientRect().right <= document.querySelector('.composer').getBoundingClientRect().right + 1)), 'every button of the message box should fit beside the panel')
   assert((await a.page.getAttribute(tid('research-toggle'), 'aria-pressed')) === 'false', 'research switches itself off after sending')
 
   // An artifact can be edited and saved as a new version, which the assistant then sees.
+  await chatVisible()
   await a.page.click(`${last} ${tid('artifact-card')}:has-text("Research: Heat pumps")`)
   await a.page.click(tid('artifact-tab-code'))
   await a.page.click(tid('artifact-edit'))
@@ -425,8 +438,9 @@ try {
   ok('research writes a report, and an artifact can be edited into a new version')
 
   // A form in a reply: its answers go back as the next message.
+  await chatVisible()
   await sendMessage(a.page, 'Plan my trip. [form]')
-  await waitForReply(a.page, 'claude', 'A few questions first')
+  await answered('A few questions first')
   await a.page.waitForSelector(`${last} ${tid('chat-form')}`)
   assert(await a.page.$eval(`${last} ${tid('chat-form-send')}`, (b) => b.disabled), 'a required answer should be needed first')
   await a.page.fill(`${last} ${tid('chat-form')} input`, 'Next week')
@@ -434,8 +448,9 @@ try {
   await shot(a.page, '44-chat-form')
   await a.page.click(`${last} ${tid('chat-form-send')}`)
   await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="user-message"]')].some((el) => el.textContent.includes('My answers to "Trip details"') && el.textContent.includes('Pace Relaxed')), null, { timeout: 15000 })
-  await a.page.waitForSelector(tid('send'))
+  await a.page.waitForFunction(async () => (await window.api.state()).busy.length === 0, null, { timeout: 15000 })
   assert((await a.page.$$eval(tid('chat-form-send'), (els) => els.length)) === 0, 'an answered form should not be sent twice')
+  await a.app.evaluate((e, size) => e.BrowserWindow.getAllWindows().find((w) => !w.isAlwaysOnTop()).setSize(size[0], size[1]), [wideW, wideH])
   ok('an assistant can ask with a form, and the answers come back as a message')
 
   // ---------- Device B: a client of the hub ----------
