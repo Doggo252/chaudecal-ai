@@ -199,6 +199,13 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Claude usage percentages from Claude Code's /usage command (no model call, no saved session), every 10 minutes and after each answer | Built, tested against the text a real /usage printed. |
 | Website sign-in in a small window of its own from Settings; the sites are no longer shown in the main window | Built, tested against stand-in sites. |
 | Context window worked out from the model; the budget and window settings for Claude and ChatGPT are gone | Built, tested. |
+| Regular chats through claude.ai (asked directly, answer streamed) and chatgpt.com (typed into the site's hidden page, answer read from the chat), drawn by the app and read back from the site after each answer | Built, tested against stand-in sites. Not yet tried on the real sites. |
+| Chats and Code tabs; a new chat offers "Chat" or "Work and code" | Built, tested. |
+| Claude Code and Codex sessions from each computer as code chats that resume the same session | Built, tested; all 41 sessions on the development Mac read cleanly. |
+| Projects from claude.ai (instructions and files) and ChatGPT (name and instructions); imported chats land in them; new chats in a site project start there | Built, tested against stand-ins. Not yet tried on the real sites. |
+| Model lists with names, versions and descriptions from Claude Code (its initialize answer) and Codex (model/list); chatgpt.com's own list for its website chats; thinking levels | Built. The Claude Code and Codex lists were read from the real tools; chatgpt.com's is unchecked. |
+| Slash commands: /usage (shown by the app), /new, /search, /settings, and Claude Code's own | Built, tested. |
+| "Use this computer" in a regular chat, with a note to the website on the next message | Built, tested with stand-ins. |
 | On a Mac, a hub that is unreachable only for this app ("host unreachable" to a home address) is shown as macOS Local Network privacy, with a button to that settings page | Built, tested. Found on a real Mac, where macOS never asked. |
 | Renamed to Chaude, keeping the old data folder | Built |
 | Remote work: a conversation typed on one device runs on the hub | Built, tested with two app instances. Not yet run between two real machines. |

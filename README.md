@@ -6,6 +6,11 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 
 ## What it does
 
+The sidebar has two tabs:
+
+- **Chats** are regular chats on claude.ai and chatgpt.com. Chaude draws them in its own look, but they live on the website, so they show up in the Claude and ChatGPT apps on every device, with the website's own models, memory and tools. Your existing chats from both sites are here too, and carry on where they are.
+- **Code** chats work on your computer with Claude Code, Codex or a local model: they read and change files, run commands, and sync between the devices that run Chaude. Your Claude Code and Codex sessions from each computer (from a terminal, an editor, or the Claude and ChatGPT desktop apps) show up here and carry on in the same session.
+
 - **One chat, three assistants.** Pick Claude, ChatGPT or a local model for each message, or leave it on Auto and let the app choose.
 - **Uses your existing plans.** Claude runs through your Claude Pro sign-in and ChatGPT runs through your ChatGPT Plus sign-in. No API keys and no extra bills.
 - **Context that travels.** Every conversation keeps two running context files up to date: a summary with the recent messages, and the full transcript. Switch assistants at any time and choose which one to hand over.
@@ -21,8 +26,10 @@ One desktop app for Claude, ChatGPT and local AI, on Mac and Windows. (It used t
 - **Notifications.** Send a long task, switch to another app, and get a notification when the reply is ready or when the assistant has stopped to ask you something. Clicking it opens that conversation.
 - **Your own look.** Light, dark or matching the system, an accent color (seven presets or any color you pick), and four text sizes.
 - **Artifacts.** Web pages, React components, SVG images, Mermaid diagrams, documents and programs that an assistant writes open in a panel beside the conversation, with a live preview, versions, copy and download. They work with Claude, ChatGPT and local models alike.
-- **Your existing chats.** Your history on claude.ai and chatgpt.com comes into the app, including archived chats, ChatGPT project chats and Claude artifacts, and can stay up to date. Sign in to each site once under Settings, "Claude and ChatGPT": the site's own sign-in page opens in a small window and closes by itself. The sites are never shown inside the main window.
-- **The real websites, built in.** claude.ai and chatgpt.com open as tabs inside the app for anything the unified chat does not cover (image generation, voice, projects, account settings).
+- **Your existing chats and projects.** Your history on claude.ai and chatgpt.com comes into the app, including archived chats, Claude artifacts, and your projects (Claude's with their instructions and files, ChatGPT's with their instructions), and stays up to date. Sign in to each site once under Settings, "Claude and ChatGPT": the site's own sign-in page opens in a small window and closes by itself. The sites are never shown inside the main window.
+- **Use this computer from a regular chat.** The computer switch in a regular chat's message box does that one message here, with Claude Code or Codex, in a folder you choose. It is marked "On this computer" and stays in Chaude; the website hears about it in a short note with your next message.
+- **Real model lists.** The model picker shows the models your plan offers, by name and version, with a line on what each is for, and older ones under "More models". Code chats also have a thinking level, from Quick to Deepest.
+- **Commands.** Type "/" for a list. /usage shows how much of each plan is used and when it resets; /new, /search and /settings do what they say. In Claude code chats, Claude Code's own commands (like /compact) are listed too.
 - **Tools for both assistants (MCP).** Add a tool server once, for example for GitHub, your notes or a database, and Claude and ChatGPT can both use it. The list syncs between your machines.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
 - **See what the assistant did.** Its plan shows as a checklist that ticks itself off, its steps are grouped ("Ran 3 commands", "Edited 2 files +12 −3"), and every file edit opens to show the lines it changed.
@@ -175,13 +182,13 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 
 ### 6. Bring in your existing chats (optional)
 
-1. Click claude.ai in the sidebar and sign in on that page, the same way you would in a browser. Do the same for chatgpt.com.
-2. Open Settings, then "Claude and ChatGPT". Under each one, click "Import now" next to "Your chats on claude.ai" (or chatgpt.com). The first run can take a few minutes if you have many chats; the row shows how far it has got.
+1. Open Settings, then "Claude and ChatGPT", and click "Sign in to claude.ai". The site's own sign-in page opens in a small window; sign in the way you would in a browser, and the window closes by itself. Do the same for chatgpt.com.
+2. Under each one, click "Import now" next to "Your chats on claude.ai" (or chatgpt.com). The first run can take a few minutes if you have many chats; the row shows how far it has got.
 3. Turn on "Keep up to date" to have the app check for new and changed chats every 30 minutes while it is open.
 
 You only need to do this on one machine. The chats sync to your other devices like any other conversation. If you do it on both, nothing is duplicated.
 
-An imported chat can be continued here with any assistant: the app sends it the conversation so far, the same way it does when you switch assistants. "Open on claude.ai" (or chatgpt.com) in the conversation's menu goes back to the original.
+An imported chat is a regular chat: carrying it on here sends your message through the website, so it continues the very same chat there. "Open on claude.ai" (or chatgpt.com) in the conversation's menu opens the original in your browser.
 
 ### 7. Use it on your phone (optional)
 
