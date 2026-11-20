@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Attachment, Message, Project, ProviderId } from '@shared/types'
-import { PROVIDER_LABEL } from '@shared/types'
+import { kindOf, PROVIDER_LABEL } from '@shared/types'
 import { messageBody, modelWindow, SECOND_OPINION_PROMPT, threadMessages } from '@shared/context'
 import { estimateTokens, formatTokens } from '@shared/tokens'
 import { formatReset, limitWarning } from '@shared/usage'
 import { switchTarget } from '@shared/router'
-import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, setState, toast, useUi } from '../state'
+import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, setState, setTab, toast, useUi } from '../state'
 import { IconColumns, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
 import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList } from './Messages'
@@ -179,6 +179,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   }
 
   const empty = !messages.length
+  const webChat = !!conversation && kindOf(conversation) === 'chat'
+  const draftKind = useUi((x) => x.draft.kind)
 
   // The answers to a form in a reply go back as the user's next message.
   useEffect(() => {
@@ -219,12 +221,20 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
               </button>
             )}
             <span className="topbar-spacer" />
-            <span className="ctx-meter" title="How much of what the model can read at once this conversation fills. Past that, Chaude sends a summary of the older part." data-testid="context-meter">
-              {Math.min(100, Math.round((contextTokens / windowTokens) * 100))}% of memory used
-            </span>
-            <button type="button" className="chip" data-testid="open-switch" disabled={busy} onClick={() => openSwitch()} title="Continue this conversation with a different assistant">
-              <IconSwitch size={15} /> Switch
-            </button>
+            {webChat ? (
+              <span className="ctx-meter" title={conversation.source ? 'This chat lives on the website and stays in step with it' : 'Starts on the website with your first message'}>
+                {conversation.source?.service === 'chatgpt' || conversation.provider === 'chatgpt' ? 'On chatgpt.com' : 'On claude.ai'}
+              </span>
+            ) : (
+              <>
+                <span className="ctx-meter" title="How much of what the model can read at once this conversation fills. Past that, Chaude sends a summary of the older part." data-testid="context-meter">
+                  {Math.min(100, Math.round((contextTokens / windowTokens) * 100))}% of memory used
+                </span>
+                <button type="button" className="chip" data-testid="open-switch" disabled={busy} onClick={() => openSwitch()} title="Continue this conversation with a different assistant">
+                  <IconSwitch size={15} /> Switch
+                </button>
+              </>
+            )}
             <Popover align="right" className="icon-btn" title="More" label={<IconMore />} testId="conversation-menu">
               {(close) => (
                 <>
@@ -362,6 +372,18 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
       {empty ? (
         <div className="empty">
           <h1>{greeting()}</h1>
+          {!conversation && (
+            <div className="kind-pick" role="radiogroup" aria-label="Kind of chat">
+              <button type="button" role="radio" aria-checked={draftKind === 'chat'} className={draftKind === 'chat' ? 'on' : ''} data-testid="kind-chat" onClick={() => setTab('chat')}>
+                <b>Chat</b>
+                <span>Goes through claude.ai or chatgpt.com, so it shows up in the Claude and ChatGPT apps too.</span>
+              </button>
+              <button type="button" role="radio" aria-checked={draftKind === 'code'} className={draftKind === 'code' ? 'on' : ''} data-testid="kind-code" onClick={() => setTab('code')}>
+                <b>Work and code</b>
+                <span>Uses this computer: its files, commands and apps. Syncs between your devices running Chaude.</span>
+              </button>
+            </div>
+          )}
           {draftProject && (
             <div className="project-pill" data-testid="draft-project">
               <IconFolder size={14} /> In the project <b>{draftProject.name}</b>
@@ -371,6 +393,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
             </div>
           )}
           {composer}
+          {draftKind === 'code' && (
           <div className="starter-row">
             <button type="button" className="starter" onClick={() => setState((s) => ({ draft: { ...s.draft, provider: 'auto', private: false } }))}>
               <ProviderDot provider="auto" /> Let the app pick the assistant
@@ -385,6 +408,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
               <IconColumns size={14} /> Compare answers
             </button>
           </div>
+          )}
         </div>
       ) : (
         <>
@@ -399,7 +423,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
             }}
           >
             <div className="column">
-              <MessageList messages={messages} focusId={focusMessageId} onRetry={retry} onSwitch={() => openSwitch()} onBranch={(id) => void branch(id)} onSecondOpinion={opinionFrom ? secondOpinion : undefined} onEdit={busy ? undefined : editQuestion} />
+              <MessageList messages={messages} focusId={focusMessageId} onRetry={retry} onSwitch={() => openSwitch()} onBranch={(id) => void branch(id)} onSecondOpinion={opinionFrom && !webChat ? secondOpinion : undefined} onEdit={busy ? undefined : editQuestion} />
               {conversation &&
                 approvals?.map((a) => (
                   <ApprovalCard
@@ -430,7 +454,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
           </div>
           <div className="composer-wrap" style={{ paddingBottom: 0 }}>
             <div className="composer-col">
-              {warning && conversation && !dismissed[warningKey] && (
+              {warning && conversation && !webChat && !dismissed[warningKey] && (
                 <div className={`banner ${warning.status === 'exhausted' ? 'exhausted' : ''}`} data-testid="limit-banner">
                   <div className="banner-text">
                     <b>

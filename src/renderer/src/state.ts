@@ -19,13 +19,17 @@ import type {
   SavedPrompt,
   Project,
   ScheduledTask,
-  SyncRecord
+  SyncRecord,
+  ConversationKind
 } from '@shared/types'
+import { kindOf } from '@shared/types'
 
 export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'settings'; tab?: string } | { kind: 'project'; projectId: string }
 
 /** Choices made before a conversation exists. */
 export interface Draft {
+  /** A regular chat on claude.ai or chatgpt.com, or a work and code chat on this computer. */
+  kind: ConversationKind
   provider: ProviderChoice
   models: Partial<Record<ProviderId, string>>
   mode: RunMode
@@ -36,9 +40,22 @@ export interface Draft {
   projectId?: string
 }
 
-/** The starting choices for a new conversation. */
-export function newDraft(app: AppState): Draft {
-  return { provider: app.settings.defaultProvider, models: {}, mode: app.settings.defaultMode, private: false, runOnHub: app.settings.runOnHubByDefault && !!app.remote?.enabled }
+/** The starting choices for a new conversation of this kind. */
+export function newDraft(app: AppState, kind: ConversationKind = state.tab): Draft {
+  if (kind === 'chat') return { kind, provider: app.settings.defaultProvider === 'chatgpt' ? 'chatgpt' : 'claude', models: {}, mode: 'chat', private: false, runOnHub: false }
+  return { kind, provider: app.settings.defaultProvider, models: {}, mode: app.settings.defaultMode, private: false, runOnHub: app.settings.runOnHubByDefault && !!app.remote?.enabled }
+}
+
+const TAB_KEY = 'chaude.tab'
+
+/** Shows regular chats or work and code chats in the sidebar, and remembers which. */
+export function setTab(tab: ConversationKind): void {
+  try {
+    localStorage.setItem(TAB_KEY, tab)
+  } catch {
+    // Remembering is a nicety.
+  }
+  setState((s) => ({ tab, ...(s.view.kind === 'chat' && !s.view.conversationId && s.app ? { draft: newDraft(s.app, tab) } : {}) }))
 }
 
 export interface UiState {
@@ -61,6 +78,8 @@ export interface UiState {
   sideOpen?: boolean
   /** The artifact open in the side panel: the one written at that place in that message. */
   artifact: OpenArtifact | null
+  /** Which chats the sidebar lists: regular chats or work and code chats. */
+  tab: ConversationKind
 }
 
 export interface OpenArtifact {
@@ -83,12 +102,19 @@ let state: UiState = {
   approvals: {},
   denials: {},
   web: {},
-  draft: { provider: 'auto', models: {}, mode: 'chat', private: false, runOnHub: false },
+  draft: { kind: 'chat', provider: 'claude', models: {}, mode: 'chat', private: false, runOnHub: false },
   variants: {},
   dismissed: {},
   dialog: null,
   toast: '',
-  artifact: null
+  artifact: null,
+  tab: (() => {
+    try {
+      return localStorage.getItem(TAB_KEY) === 'code' ? 'code' : 'chat'
+    } catch {
+      return 'chat'
+    }
+  })()
 }
 
 const listeners = new Set<() => void>()
@@ -261,6 +287,9 @@ export function openChat(conversationId: string | undefined, focusMessageId?: st
   const patch: Partial<UiState> = { view: { kind: 'chat', conversationId, focusMessageId }, dialog: null, sideOpen: false }
   if (state.artifact && state.artifact.conversationId !== conversationId) patch.artifact = null
   if (!conversationId && app) patch.draft = newDraft(app)
+  // Opening a chat shows its tab in the sidebar.
+  const conv = conversationId ? app?.conversations.find((c) => c.id === conversationId) : undefined
+  if (conv) patch.tab = kindOf(conv)
   setState(patch)
   if (conversationId) void loadMessages(conversationId)
 }
@@ -280,7 +309,7 @@ export function dismissRemoved(conversationId: string): void {
 /** Turn the choices made on the new-chat screen into a saved conversation and open it. */
 export async function createFromDraft(): Promise<Conversation> {
   const d = state.draft
-  const conv = await window.api.createConversation({ provider: d.provider, models: d.models, mode: d.mode, private: d.private || undefined, runOnHub: d.runOnHub || undefined, projectId: d.projectId || undefined })
+  const conv = await window.api.createConversation({ kind: d.kind, provider: d.provider, models: d.models, mode: d.mode, private: d.private || undefined, runOnHub: d.runOnHub || undefined, projectId: d.projectId || undefined })
   setState((s) => ({ messages: { ...s.messages, [conv.id]: s.messages[conv.id] ?? [] }, view: { kind: 'chat', conversationId: conv.id } }))
   return conv
 }

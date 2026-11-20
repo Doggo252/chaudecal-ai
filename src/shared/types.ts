@@ -1,3 +1,4 @@
+import type { ModelInfo } from './models'
 import type { FileDiff } from './diff'
 import type { TaskSchedule } from './schedule'
 
@@ -51,6 +52,20 @@ export interface Conversation {
   source?: ConversationSource
   /** The project this chat belongs to. */
   projectId?: string
+  /**
+   * A regular chat lives on claude.ai or chatgpt.com: messages go through the
+   * site, so it stays in step with the Claude and ChatGPT apps everywhere. A code
+   * chat runs Claude Code or Codex on this computer and syncs between the
+   * devices that run this app. Chats from the sites are regular chats.
+   */
+  kind?: ConversationKind
+}
+
+export type ConversationKind = 'chat' | 'code'
+
+/** Which kind a conversation is, for conversations saved before kinds existed. */
+export function kindOf(c: Pick<Conversation, 'kind' | 'source'>): ConversationKind {
+  return c.kind ?? (c.source ? 'chat' : 'code')
 }
 
 export interface ConversationSource {
@@ -427,6 +442,10 @@ export interface ProviderStatus {
   detail: string
   version?: string
   models: string[]
+  /** The plan's models with names, descriptions and thinking levels, as the tool reports them. */
+  catalog?: ModelInfo[]
+  /** The tool's own commands, like /usage or /compact. */
+  commands?: { name: string; description: string }[]
 }
 
 export interface LocalModel {

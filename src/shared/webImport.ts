@@ -444,3 +444,10 @@ export const claude: SiteApi = {
 }
 
 export const siteApi: Record<Site, SiteApi> = { claude, chatgpt }
+
+/** A chat's name and times, from the chat itself rather than from the list of chats. */
+export function summaryFromChat(service: Site, json: unknown, remoteId: string): RemoteSummary {
+  const c = obj(json)
+  if (service === 'claude') return { remoteId, title: str(c.name) || 'Untitled', createdAt: toMillis(c.created_at), updatedAt: toMillis(c.updated_at) || toMillis(c.created_at) }
+  return { remoteId, title: str(c.title) || 'Untitled', createdAt: toMillis(c.create_time), updatedAt: toMillis(c.update_time) || toMillis(c.create_time) }
+}

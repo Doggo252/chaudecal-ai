@@ -26,7 +26,7 @@ import type {
   RunMode,
   Settings
 } from '@shared/types'
-import { MAX_ATTACHMENTS, newId, PROVIDER_LABEL } from '@shared/types'
+import { kindOf, MAX_ATTACHMENTS, newId, PROVIDER_LABEL } from '@shared/types'
 import { FORM_GUIDE } from '@shared/forms'
 import {
   buildHandoff,
@@ -55,6 +55,22 @@ import type { Provider, RunHandle, RunImage } from './providers/types'
 import { imageFile } from './attachments'
 import { normalizeMcpServer } from './mcp'
 import type { Summarizer } from './summarizer'
+
+/** Regular chats go through claude.ai or chatgpt.com. See webChat.ts. */
+export interface WebChats {
+  send(input: {
+    service: 'claude' | 'chatgpt'
+    remoteId?: string
+    parentId?: string
+    text: string
+    model?: string
+    signal: AbortSignal
+    onText: (text: string) => void
+    onChat?: (remoteId: string) => void
+  }): Promise<{ remoteId: string }>
+  /** Reads the chat back from the site into the app. */
+  refresh(service: 'claude' | 'chatgpt', remoteId: string): Promise<unknown>
+}
 
 export interface ChatEvents {
   /** A message changed while streaming. Not yet saved. */
@@ -87,7 +103,8 @@ export class ChatEngine {
     private statuses: () => Partial<Record<ProviderId, ProviderStatus>>,
     private events: ChatEvents,
     private dirs: { context: string; scratch: string; attachments: string },
-    private summarizer: Summarizer
+    private summarizer: Summarizer,
+    private web?: WebChats
   ) {
     mkdirSync(dirs.context, { recursive: true })
     mkdirSync(dirs.scratch, { recursive: true })
@@ -319,6 +336,10 @@ export class ChatEngine {
     this.events.busy(conv.id, true)
 
     try {
+      if (kindOf(conv) === 'chat' && this.web) {
+        await this.runWebTurn(conv, userMessage, userText, active, !!(input.edit || input.retry))
+        return
+      }
       if (input.compare && input.compare.length > 1) {
         const group = newId()
         await Promise.all(input.compare.map((p, i) => this.runTurn({ conv, provider: p, prior, userText, userMessage: userMessage!, active, variant: 'summary', compareGroup: group, order: i })))
@@ -510,6 +531,91 @@ export class ChatEngine {
     }
     this.updateConversation(conv.id, { updatedAt: Date.now() })
     return message
+  }
+
+  /**
+   * A regular chat: the message goes through claude.ai or chatgpt.com and the
+   * answer is shown as it is written. Then the chat is read back from the site, so
+   * the app holds exactly what the site holds, under the site's own message ids.
+   */
+  private async runWebTurn(conv: Conversation, userMessage: Message, userText: string, active: Active, again: boolean): Promise<void> {
+    const service: 'claude' | 'chatgpt' = conv.source?.service ?? (conv.provider === 'chatgpt' ? 'chatgpt' : 'claude')
+    const model = conv.models[service] || undefined
+    const prefix = `web-${service}-m-`
+    // The site's id of the message this one follows: the last message the site already has, before this question.
+    const before = this.store.messages(conv.id).filter((m) => m.createdAt < userMessage.createdAt || (m.createdAt === userMessage.createdAt && m.id < userMessage.id))
+    const lastOnSite = [...before].reverse().find((m) => m.id.startsWith(prefix))
+    const parentId = lastOnSite ? lastOnSite.id.slice(prefix.length) : undefined
+    const reply: Message = {
+      id: newId(),
+      conversationId: conv.id,
+      role: 'assistant',
+      text: '',
+      createdAt: Math.max(Date.now(), userMessage.createdAt + 1),
+      deviceId: this.store.deviceId,
+      provider: service,
+      ...(model ? { model } : {}),
+      status: 'streaming'
+    }
+    this.events.stream(reply)
+    const controller = new AbortController()
+    let finish!: () => void
+    const done = new Promise<void>((r) => (finish = r))
+    active.handles.push({ done, stop: () => controller.abort() })
+    let remoteId = conv.source?.remoteId
+    let last = 0
+    try {
+      const sent = await this.web!.send({
+        service,
+        remoteId,
+        // An edited or repeated question starts a new branch from the message before it, on claude.ai.
+        parentId: again && service === 'chatgpt' ? undefined : parentId,
+        text: userText,
+        model,
+        signal: controller.signal,
+        onText: (text) => {
+          reply.text = text
+          if (Date.now() - last > 60) {
+            last = Date.now()
+            this.events.stream({ ...reply })
+          }
+        },
+        onChat: (id) => {
+          if (remoteId === id) return
+          remoteId = id
+          const now = this.store.get<Conversation>('conversation', conv.id)
+          const url = service === 'claude' ? `https://claude.ai/chat/${id}` : `https://chatgpt.com/c/${id}`
+          this.updateConversation(conv.id, { kind: 'chat', source: { service, remoteId: id, url, remoteUpdatedAt: 0, remoteTitle: now?.title ?? conv.title } })
+        }
+      })
+      reply.status = 'complete'
+      reply.text = reply.text.trim()
+      this.store.put('message', reply.id, reply)
+      // Read the chat back from the site. Its copy replaces the two messages written here.
+      try {
+        await this.web!.refresh(service, sent.remoteId)
+        const now = this.store.messages(conv.id)
+        if (now.some((m) => m.id.startsWith(prefix) && m.role === 'assistant' && m.createdAt >= userMessage.createdAt - 60_000)) {
+          this.store.remove('message', reply.id)
+          if (!userMessage.id.startsWith(prefix)) this.store.remove('message', userMessage.id)
+        }
+      } catch {
+        // The answer stays as it was shown. The next import tidies it up.
+      }
+    } catch (e) {
+      const err = e as { message?: string; code?: string; resetsAt?: number }
+      if (err.code === 'stopped') reply.status = 'stopped'
+      else {
+        reply.status = 'error'
+        reply.error = { code: err.code === 'signed-out' ? 'auth' : err.code === 'limit' ? 'rate_limit' : 'unknown', message: err.message ?? String(e) }
+        if (err.code === 'limit') this.recordLimits(service, { fiveHour: { status: 'exhausted', usedPct: 100, ...(err.resetsAt ? { resetsAt: err.resetsAt } : {}) } })
+      }
+      if (reply.text || reply.status === 'error') this.store.put('message', reply.id, reply)
+      else this.events.stream({ ...reply })
+    } finally {
+      finish()
+      this.updateConversation(conv.id, { updatedAt: Date.now() })
+    }
   }
 
   /** Where to carry on when a reply failed on a usage limit and the user asked not to be stopped by that. */

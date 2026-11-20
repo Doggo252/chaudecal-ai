@@ -3,6 +3,7 @@
 // newline-delimited JSON-RPC on stdio and provides streaming text, approvals,
 // the model list and the plan's 5-hour and weekly limit numbers.
 
+import { codexCatalog, type ModelInfo } from '@shared/models'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { homedir } from 'node:os'
 import { codexMcpConfig, mcpToolLabel } from '@shared/mcp'
@@ -416,15 +417,18 @@ export class CodexProvider implements Provider {
       const plan = account.account.type === 'chatgpt' ? `${String(account.account.planType ?? '').replace(/^./, (c: string) => c.toUpperCase())} plan` : 'API key'
       await this.refreshModels()
       this.refreshLimits().catch(() => {})
-      return { provider: 'chatgpt', installed: true, ready: true, detail: `Signed in (${plan})`, version, models: [...new Set([...this.modelCache, ...configured])] }
+      return { provider: 'chatgpt', installed: true, ready: true, detail: `Signed in (${plan})`, version, models: [...new Set([...this.modelCache, ...configured])], ...(this.catalogCache.length ? { catalog: this.catalogCache } : {}) }
     } catch (e) {
       return { provider: 'chatgpt', installed: true, ready: false, detail: e instanceof Error ? e.message : String(e), version, models: configured }
     }
   }
 
+  private catalogCache: ModelInfo[] = []
+
   private async refreshModels(): Promise<void> {
     try {
-      const res = await this.request<Json>('model/list', {})
+      const res = await this.request<Json>('model/list', { includeHidden: true })
+      this.catalogCache = codexCatalog(res.data)
       const visible = (res.data ?? []).filter((m: Json) => !m.hidden)
       this.modelCache = visible.map((m: Json) => m.model ?? m.id)
       this.defaultModel = visible.find((m: Json) => m.isDefault)?.model ?? this.modelCache[0] ?? ''

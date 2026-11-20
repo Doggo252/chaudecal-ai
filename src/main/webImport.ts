@@ -9,7 +9,7 @@
 
 import type { Conversation, Message } from '@shared/types'
 import type { WebImportStatus, WebService } from '@shared/ipc'
-import { conversationIdFor, messageIdFor, READER_VERSION, siteApi, type ImportedChat, type RemoteSummary } from '@shared/webImport'
+import { conversationIdFor, messageIdFor, READER_VERSION, siteApi, summaryFromChat, type ImportedChat, type RemoteSummary } from '@shared/webImport'
 import type { Store } from './store'
 
 export type Requester = (service: WebService, path: string, headers?: Record<string, string>) => Promise<{ status: number; body: string }>
@@ -119,15 +119,16 @@ export class WebImporter {
       this.report({ ...started, of })
 
       let lastReport = 0
+      const known = this.index(service)
       for (const summary of summaries) {
         done++
-        const id = conversationIdFor(service, summary.remoteId)
+        const id = known.get(summary.remoteId) ?? conversationIdFor(service, summary.remoteId)
         const existing = this.store.get<Conversation>('conversation', id)
         const deleted = this.store.isDeleted('conversation', id)
         const current = existing && existing.source?.remoteUpdatedAt === summary.updatedAt && (existing.source.reader ?? 1) >= READER_VERSION[service]
         if (!deleted && !current) {
           const chat = api.readChat(await fetch(api.chatPath(session, summary.remoteId)), summary, this.options.origin(service))
-          if (chat.messages.length && this.save(chat)) changed++
+          if (chat.messages.length && this.save(chat, id)) changed++
           await sleep(this.options.pauseMs)
         }
         if (Date.now() - lastReport > 400 || done === summaries.length) {
@@ -152,9 +153,26 @@ export class WebImporter {
     }
   }
 
+  /** The app's conversation for each chat on the site, including chats started in this app. */
+  private index(service: WebService): Map<string, string> {
+    const out = new Map<string, string>()
+    for (const c of this.store.list<Conversation>('conversation')) if (c.source?.service === service) out.set(c.source.remoteId, c.id)
+    return out
+  }
+
+  /** Brings one chat in now, for example right after a message went through the site. */
+  async refreshOne(service: WebService, remoteId: string): Promise<boolean> {
+    const api = siteApi[service]
+    const session = await api.open((path, headers) => this.get(service, path, headers))
+    if (!session) throw new SignedOut()
+    const json = await this.get(service, api.chatPath(session, remoteId), session.headers)
+    const chat = api.readChat(json, summaryFromChat(service, json, remoteId), this.options.origin(service))
+    return this.save(chat, this.index(service).get(remoteId))
+  }
+
   /** Writes one chat. Gives back whether anything changed. */
-  save(chat: ImportedChat): boolean {
-    const id = conversationIdFor(chat.service, chat.remoteId)
+  save(chat: ImportedChat, knownId?: string): boolean {
+    const id = knownId ?? this.index(chat.service).get(chat.remoteId) ?? conversationIdFor(chat.service, chat.remoteId)
     if (this.store.isDeleted('conversation', id)) return false
     const existing = this.store.get<Conversation>('conversation', id)
     // A title the user changed in the app wins over the site's.
@@ -163,7 +181,7 @@ export class WebImporter {
     const source = { service: chat.service, remoteId: chat.remoteId, url: chat.url, remoteUpdatedAt: chat.updatedAt, remoteTitle: chat.title, reader: READER_VERSION[chat.service] }
     const conv: Conversation = existing
       ? { ...existing, title, source, updatedAt: Math.max(existing.updatedAt, chat.updatedAt) }
-      : { id, title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, provider: chat.service, models: {}, mode: 'chat', source }
+      : { id, title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, provider: chat.service, models: {}, mode: 'chat', source, kind: 'chat' }
 
     const before = new Map(this.store.messages(id).map((m) => [m.id, m]))
     const items: { kind: 'conversation' | 'message'; id: string; data: unknown }[] = [{ kind: 'conversation', id, data: conv }]

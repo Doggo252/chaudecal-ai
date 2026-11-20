@@ -27,6 +27,7 @@ import { normalizeMcpServer, testMcpServer } from './mcp'
 import { needsRenewal, renew, signIn as mcpBrowserSignIn } from './mcpAuth'
 import { guardFrames, previewPage, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { artifactCsp } from '@shared/artifactPolicy'
+import { WebChat } from './webChat'
 import { WebImporter } from './webImport'
 import { TaskRunner } from './tasks'
 import { captureSource, captureSources, hideQuick, setQuickShortcut, toggleQuick } from './quick'
@@ -65,6 +66,7 @@ let hubClient: HubClient
 let remote: RemoteRuns
 let webTabs: WebTabs
 let webImporter: WebImporter
+let webChat: WebChat
 let tasks: TaskRunner
 let local: LocalProvider
 let codex: CodexProvider
@@ -1042,9 +1044,15 @@ app.whenReady().then(async () => {
       }
     })(),
     { context: join(dataDir, 'context'), scratch: join(dataDir, 'workspace'), attachments: join(dataDir, 'attachments') },
-    summarizer
+    summarizer,
+    {
+      // Regular chats go through the websites with the app's own sign-in.
+      send: (input) => webChat.send(input),
+      refresh: (service, remoteId) => webImporter.refreshOne(service, remoteId)
+    }
   )
   webTabs = new WebTabs(() => win, (state) => send('web', state))
+  webChat = new WebChat(webTabs, process.env.CHAUDECAL_USER_DATA ? { pollMs: 200, timeoutMs: 60_000 } : undefined)
   updater = new Updater({
     dir: join(app.getPath('userData'), 'updates'),
     platform: process.platform,

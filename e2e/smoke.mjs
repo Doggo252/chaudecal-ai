@@ -58,6 +58,8 @@ async function launch(name, settings, env = {}) {
   page.on('pageerror', (e) => console.log(`  [${name}] page error: ${e.message}`))
   page.on('console', (m) => m.type() === 'error' && console.log(`  [${name}] console error: ${m.text()}`))
   await page.waitForSelector('[data-testid="new-chat"]', { timeout: 20000 })
+  // Most checks are about work and code chats. Regular chats on the websites have their own check.
+  await page.click('[data-testid="side-tab-code"]')
   return { app, page, userData, name }
 }
 
@@ -394,6 +396,16 @@ try {
   await a.page.fill(tid('composer-input'), '')
   ok('dictation turns a recording into text, and answers have a read-aloud button')
 
+  // The model picker shows the plan's models by name and version, with a line on what each is for.
+  await pickProvider(a.page, 'claude')
+  await a.page.click(tid('model-picker'))
+  await a.page.waitForSelector(`${tid('model-option')}:has-text("Opus 9.2")`, { timeout: 15000 })
+  assert((await a.page.textContent(`${tid('model-option')}:has-text("Opus 9.2")`)).includes('Most capable for complex work'), 'each model should say what it is for')
+  assert((await a.page.textContent(tid('model-picker'))).includes('Sonnet 9.1'), 'the default should name the model it stands for')
+  await shot(a.page, '45-models')
+  await a.page.keyboard.press('Escape')
+  ok('the model picker lists the plan models with versions and descriptions')
+
   // ChatGPT makes a picture on the plan, shown in its answer with a way to save it.
   await pickProvider(a.page, 'chatgpt')
   await sendMessage(a.page, 'Draw a red square. [image]')
@@ -699,6 +711,7 @@ try {
   await phone.waitForSelector(tid('side-toggle'), { timeout: 15000 })
   assert(await phone.evaluate(() => getComputedStyle(document.querySelector('.sidebar')).transform !== 'none'), 'on a phone the sidebar should start tucked away')
   await phone.click(tid('side-toggle'))
+  await phone.click(tid('side-tab-code'))
   await phone.click(`${tid('conversation')}:has-text("My cat is called Biscuit")`)
   await phone.waitForSelector(`${tid('assistant-message')}:has-text("Claude here")`)
   await phone.waitForFunction(() => getComputedStyle(document.querySelector('.sidebar')).transform !== 'none' && getComputedStyle(document.querySelector('.side-scrim')).opacity === '0')
@@ -810,6 +823,7 @@ try {
   })
   await a.page.screenshot({ path: join(shots, '31-web-import.png'), clip: box })
   // An imported Claude chat, with its artifact in two versions and the attached file.
+  await a.page.click(tid('side-tab-chat'))
   await a.page.click(`${tid('conversation')}:has-text("Garden plan")`)
   await a.page.waitForSelector(`${tid('artifact-card')}:has-text("Garden 'layout'")`)
   assert((await a.page.$$(tid('artifact-card'))).length === 3, 'the artifact appears twice (two versions) and the file once')
@@ -827,6 +841,37 @@ try {
   // The other device gets them through sync, without signing in to anything.
   await b.page.waitForFunction(async () => (await window.api.state()).conversations.filter((c) => c.source).length === 6, null, { timeout: 15000 })
   ok('sign in to the websites in a window of its own, and chats from claude.ai and chatgpt.com come in through that sign-in and sync to the other device')
+
+  // Regular chats go through the websites. The app draws them, the site keeps them, so they show up in the Claude and ChatGPT apps.
+  await a.page.click(tid('new-chat'))
+  await a.page.waitForSelector(`${tid('kind-chat')}[aria-checked="true"]`)
+  assert(!(await a.page.$(tid('mode-picker'))), 'a regular chat has no mode picker')
+  await shot(a.page, '46-new-chat-kinds')
+  const webAnswer = (text) => a.page.waitForFunction((t) => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((el) => el.textContent.includes(t)), text, { timeout: 20000 })
+  await sendMessage(a.page, 'Hello from the app.')
+  await webAnswer('Claude on the web here. You said: "Hello from the app."')
+  // Read back from the site: the chat has the site's name and the site's message ids.
+  await a.page.waitForFunction(async () => {
+    const s = await window.api.state()
+    const c = s.conversations.find((x) => x.source?.service === 'claude' && x.title.startsWith('Web: Hello'))
+    return c && c.kind === 'chat'
+  }, null, { timeout: 20000 })
+  await a.page.waitForSelector(tid('send'))
+  await sendMessage(a.page, 'And once more.')
+  await webAnswer('You said: "And once more."')
+  assert(sites.state.claudeParents.length === 2 && sites.state.claudeParents[0].startsWith('00000000') && sites.state.claudeParents[1].startsWith('wa-'), `the second message should follow the first answer on the site, got ${JSON.stringify(sites.state.claudeParents)}`)
+  await a.page.waitForFunction(() => document.querySelectorAll('[data-testid="assistant-message"]').length === 2, null, { timeout: 15000 })
+  await shot(a.page, '47-regular-chat')
+  ok('a regular chat goes through claude.ai and keeps the site copy')
+
+  await a.page.click(tid('new-chat'))
+  await a.page.click(tid('provider-picker'))
+  await a.page.click(tid('provider-chatgpt'))
+  await sendMessage(a.page, 'Hi ChatGPT.')
+  await webAnswer('ChatGPT on the web here. You said: "Hi ChatGPT."')
+  await a.page.waitForFunction(async () => (await window.api.state()).conversations.some((x) => x.source?.service === 'chatgpt' && x.source.remoteId.startsWith('g-web-')), null, { timeout: 20000 })
+  ok('a regular chat goes through chatgpt.com by typing into its own page')
+  await a.page.click(tid('side-tab-code'))
 
   // Artifacts: Claude writes a web page, an image and a program. They open in a panel beside the conversation.
   const panelTitle = () => a.page.textContent(tid('artifact-title'))

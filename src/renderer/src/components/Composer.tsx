@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Attachment, Conversation, ProviderChoice, ProviderId, RunMode } from '@shared/types'
-import { MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
+import { kindOf, MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
 import { headroom } from '@shared/usage'
 import type { AttachResult } from '@shared/ipc'
 import { createFromDraft, getState, setState, toast, useUi, type Draft } from '../state'
@@ -42,6 +42,9 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   const ref = useRef<HTMLTextAreaElement>(null)
   const busy = conversation ? app.busy.includes(conversation.id) : false
 
+  // A regular chat goes through claude.ai or chatgpt.com, so only the choices that make sense there are shown.
+  const web = (conversation ? kindOf(conversation) : draft.kind) === 'chat'
+  const onSite = !!conversation?.source
   const provider: ProviderChoice = conversation?.provider ?? draft.provider
   const mode: RunMode = conversation?.mode ?? draft.mode
   const isPrivate = conversation?.private ?? draft.private
@@ -145,7 +148,14 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
 
   const modelProvider: ProviderId | undefined = effective === 'auto' ? undefined : effective
   const currentModel = modelProvider ? (models[modelProvider] ?? '') : ''
-  const modelLabel = (m: string) => (m ? (m.includes('/') ? m.slice(m.indexOf('/') + 1) : m) : 'Default model')
+  // The plan's models as the tool describes them: a versioned name, one line on what each is for, older ones apart.
+  const catalog = modelProvider && modelProvider !== 'local' ? (providers[modelProvider]?.catalog ?? []) : []
+  const catalogDefault = catalog.find((m) => m.isDefault)
+  const modelLabel = (m: string) => {
+    if (!m) return catalogDefault ? (modelProvider === 'claude' ? catalogDefault.name : `Default (${catalogDefault.name})`) : 'Default model'
+    const known = catalog.find((x) => x.id === m)
+    return known ? known.name : m.includes('/') ? m.slice(m.indexOf('/') + 1) : m
+  }
 
   return (
     <div className="composer-wrap">
@@ -188,6 +198,38 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
             }}
           />
           <div className="composer-row">
+            {web ? (
+              <Popover
+                up
+                testId="provider-picker"
+                disabled={onSite}
+                title={onSite ? `This chat lives on ${provider === 'chatgpt' ? 'chatgpt.com' : 'claude.ai'}` : 'Where this chat lives'}
+                label={
+                  <>
+                    <ProviderDot provider={provider === 'chatgpt' ? 'chatgpt' : 'claude'} /> {provider === 'chatgpt' ? 'ChatGPT' : 'Claude'} {!onSite && <IconChevron size={13} />}
+                  </>
+                }
+              >
+                {(close) => (
+                  <>
+                    {(['claude', 'chatgpt'] as const).map((p) => (
+                      <MenuItem
+                        key={p}
+                        selected={provider === p}
+                        hint={p === 'claude' ? 'On claude.ai: shows up in the Claude apps too' : 'On chatgpt.com: shows up in the ChatGPT apps too'}
+                        testId={`provider-${p}`}
+                        onClick={() => {
+                          change({ provider: p })
+                          close()
+                        }}
+                      >
+                        <ProviderDot provider={p} /> {PROVIDER_LABEL[p]}
+                      </MenuItem>
+                    ))}
+                  </>
+                )}
+              </Popover>
+            ) : (
             <Popover
               up
               testId="provider-picker"
@@ -235,8 +277,9 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                 </>
               )}
             </Popover>
+            )}
 
-            {modelProvider && !compare && (
+            {modelProvider && !compare && !web && (
               <Popover
                 up
                 testId="model-picker"
@@ -251,15 +294,45 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                   <>
                     <MenuItem
                       selected={!currentModel}
-                      hint={modelProvider === 'local' ? 'First available local model' : 'Whatever the service picks for your plan'}
+                      hint={modelProvider === 'local' ? 'First available local model' : catalogDefault ? catalogDefault.description || 'What the service recommends for your plan' : 'Whatever the service picks for your plan'}
                       onClick={() => {
                         change({ models: { ...models, [modelProvider]: '' } })
                         close()
                       }}
                     >
-                      Default model
+                      {modelLabel('')}
                     </MenuItem>
-                    {modelList(modelProvider).map((m) => (
+                    {catalog.length > 0 &&
+                      (() => {
+                        const pick = (id: string) => {
+                          change({ models: { ...models, [modelProvider]: id } })
+                          close()
+                        }
+                        // Claude's own "default" entry is the same as the first item above.
+                        const listed = catalog.filter((m) => !(modelProvider === 'claude' && m.id === 'default'))
+                        const current = listed.filter((m) => !m.legacy)
+                        const older = listed.filter((m) => m.legacy)
+                        return (
+                          <>
+                            {current.map((m) => (
+                              <MenuItem key={m.id} selected={currentModel === m.id} hint={m.description} testId="model-option" onClick={() => pick(m.id)}>
+                                {m.name}
+                              </MenuItem>
+                            ))}
+                            {older.length > 0 && (
+                              <details className="menu-more" open={older.some((m) => m.id === currentModel)}>
+                                <summary data-testid="more-models">More models</summary>
+                                {older.map((m) => (
+                                  <MenuItem key={m.id} selected={currentModel === m.id} hint={m.description} testId="model-option" onClick={() => pick(m.id)}>
+                                    {m.name}
+                                  </MenuItem>
+                                ))}
+                              </details>
+                            )}
+                          </>
+                        )
+                      })()}
+                    {!catalog.length && modelList(modelProvider).map((m) => (
                       <MenuItem
                         key={m}
                         selected={currentModel === m}
@@ -272,13 +345,13 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                         {modelLabel(m)}
                       </MenuItem>
                     ))}
-                    {!modelList(modelProvider).length && <div className="menu-title">No models found yet</div>}
+                    {!catalog.length && !modelList(modelProvider).length && <div className="menu-title">No models found yet</div>}
                   </>
                 )}
               </Popover>
             )}
 
-            {!compare && effective !== 'local' && (
+            {!compare && !web && effective !== 'local' && (
               <Popover
                 up
                 testId="mode-picker"
@@ -342,7 +415,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               </Popover>
             )}
 
-            {(remote || onHub) && !app.settings.hub.hostEnabled && !compare && (
+            {(remote || onHub) && !app.settings.hub.hostEnabled && !compare && !web && (
               <Popover
                 up
                 testId="runs-on-picker"
@@ -389,11 +462,13 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
 
             <DictationButton onText={(t) => setText((prev) => (prev.trim() ? `${prev.trimEnd()} ${t}` : t))} />
 
-            {!isWeb() && <CaptureButton onAttached={addAttached} />}
+            {!isWeb() && !web && <CaptureButton onAttached={addAttached} />}
 
-            <button type="button" className="icon-btn" title="Attach images or text files" data-testid="attach" onClick={() => void window.api.pickAttachments().then(addAttached)}>
-              <IconClip />
-            </button>
+            {!web && (
+              <button type="button" className="icon-btn" title="Attach images or text files" data-testid="attach" onClick={() => void window.api.pickAttachments().then(addAttached)}>
+                <IconClip />
+              </button>
+            )}
 
             {app.prompts.length > 0 && (
               <Popover up align="right" className="icon-btn" title="Saved prompts" label={<IconBook />}>
@@ -418,6 +493,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               </Popover>
             )}
 
+            {!web && (
             <button
               type="button"
               className={`icon-btn ${isPrivate ? 'chip on' : ''}`}
@@ -428,7 +504,9 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
             >
               <IconLock />
             </button>
+            )}
 
+            {!web && (
             <button
               type="button"
               className={`icon-btn ${research ? 'chip on' : ''}`}
@@ -440,7 +518,9 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
             >
               <IconSearch />
             </button>
+            )}
 
+            {!web && (
             <Popover
               up
               align="right"
@@ -482,6 +562,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                 </>
               )}
             </Popover>
+            )}
 
             {busy ? (
               <button type="button" className="send" title="Stop" data-testid="stop" onClick={() => conversation && void window.api.stop(conversation.id)}>
@@ -496,7 +577,11 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
           </div>
         </div>
         <div className="composer-foot">
-          {compare
+          {web
+            ? provider === 'chatgpt'
+              ? 'This chat lives on chatgpt.com, so it shows up in the ChatGPT apps too.'
+              : 'This chat lives on claude.ai, so it shows up in the Claude apps too.'
+            : compare
             ? compare.length > 1
               ? `Comparing ${compare.map((p) => PROVIDER_LABEL[p]).join(', ')}`
               : 'Pick at least two assistants to compare'

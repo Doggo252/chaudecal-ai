@@ -11,6 +11,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { findBinary, lineReader, runCli, spawnCli } from '../env'
 import { createClaudeParser, readPermissionAsk, sessionRule, type ClaudeParser, type PermissionAsk } from './claudeParser'
 import type { Provider, RunHandle, RunRequest } from './types'
+import { claudeCatalog, type ModelInfo } from '@shared/models'
 
 /** Tools that only make sense in Claude Code's own window. Claude is told what to do instead. */
 const ANSWERED_HERE: Record<string, string> = {
@@ -66,7 +67,8 @@ export class ClaudeProvider implements Provider {
         detail = 'Signed in'
       }
     }
-    return { provider: 'claude', installed: true, ready, detail, version, models }
+    const catalog = ready ? await this.catalog() : undefined
+    return { provider: 'claude', installed: true, ready, detail, version, models, ...(catalog?.models.length ? { catalog: catalog.models, commands: catalog.commands } : {}) }
   }
 
   /** The plan's usage, from Claude Code's /usage command. It answers from the account without a model call. */
@@ -80,6 +82,57 @@ export class ClaudeProvider implements Provider {
     } catch {
       return undefined
     }
+  }
+
+  private catalogCache?: { at: number; models: ModelInfo[]; commands: { name: string; description: string }[] }
+
+  /**
+   * The plan's models and Claude Code's commands, from the answer Claude Code gives
+   * when a session starts. Nothing is sent to the model and no session is saved.
+   * Kept for an hour.
+   */
+  async catalog(): Promise<{ models: ModelInfo[]; commands: { name: string; description: string }[] } | undefined> {
+    if (this.catalogCache && Date.now() - this.catalogCache.at < 3600_000) return this.catalogCache
+    const bin = this.bin()
+    if (!bin) return undefined
+    const found = await new Promise<{ models: ModelInfo[]; commands: { name: string; description: string }[] } | undefined>((resolveFound) => {
+      let proc: ChildProcessWithoutNullStreams
+      try {
+        proc = spawnCli(bin, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--no-session-persistence'], this.tmpDir)
+      } catch {
+        resolveFound(undefined)
+        return
+      }
+      const timer = setTimeout(() => finish(undefined), 30_000)
+      function finish(value: { models: ModelInfo[]; commands: { name: string; description: string }[] } | undefined) {
+        clearTimeout(timer)
+        proc.kill()
+        resolveFound(value)
+      }
+      proc.on('error', () => finish(undefined))
+      proc.on('exit', () => finish(undefined))
+      proc.stderr.on('data', () => {})
+      proc.stdout.on(
+        'data',
+        lineReader((line) => {
+        let msg: { type?: string; response?: { response?: Record<string, unknown> } & Record<string, unknown> }
+        try {
+          msg = JSON.parse(line)
+        } catch {
+          return
+        }
+        if (msg.type !== 'control_response') return
+        const r = (msg.response?.response ?? msg.response ?? {}) as Record<string, unknown>
+        const commands = Array.isArray(r.commands)
+          ? (r.commands as Record<string, unknown>[]).map((c) => ({ name: String(c.name ?? ''), description: String(c.description ?? '') })).filter((c) => c.name)
+          : []
+        finish({ models: claudeCatalog(r.models), commands })
+        })
+      )
+      proc.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: 'catalog', request: { subtype: 'initialize' } })}\n`)
+    })
+    if (found?.models.length) this.catalogCache = { at: Date.now(), ...found }
+    return found ?? this.catalogCache
   }
 
   clearAuthFailure(): void {

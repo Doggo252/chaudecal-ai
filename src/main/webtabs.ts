@@ -93,7 +93,8 @@ export class WebTabs {
       const allowed = ['media', 'clipboard-sanitized-write', 'fullscreen', 'notifications']
       callback(fromService && allowed.includes(permission))
     })
-    const view = new WebContentsView({ webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false } })
+    // Never shown, but it keeps working at full speed while the app sends and reads messages through it.
+    const view = new WebContentsView({ webPreferences: { partition, contextIsolation: true, sandbox: true, nodeIntegration: false, backgroundThrottling: false } })
     const wc = view.webContents
     wc.setWindowOpenHandler(({ url }) => {
       try {
@@ -173,12 +174,109 @@ export class WebTabs {
    * site's own page does: with the tab's sign-in, and only from the site itself.
    * A status of 0 means the tab is not on the site (a sign-in page elsewhere) or the request failed.
    */
-  async request(service: WebService, path: string, headers: Record<string, string> = {}): Promise<{ status: number; body: string }> {
+  async request(service: WebService, path: string, headers: Record<string, string> = {}, init: { method?: string; body?: string } = {}): Promise<{ status: number; body: string }> {
     if (!path.startsWith('/')) throw new Error('Only paths on the site itself can be requested.')
     const wc = await this.settled(service)
     if (!belongsTo(service, wc.getURL()) || new URL(wc.getURL()).origin !== siteOrigin(service)) return { status: 0, body: '' }
-    const script = `fetch(${JSON.stringify(path)}, { credentials: 'include', headers: ${JSON.stringify(headers)} }).then(async (r) => ({ status: r.status, body: await r.text() }), (e) => ({ status: 0, body: String(e) }))`
+    const options = { credentials: 'include', headers, ...(init.method ? { method: init.method } : {}), ...(init.body !== undefined ? { body: init.body } : {}) }
+    const script = `fetch(${JSON.stringify(path)}, ${JSON.stringify(options)}).then(async (r) => ({ status: r.status, body: await r.text() }), (e) => ({ status: 0, body: String(e) }))`
     return (await wc.executeJavaScript(script, true)) as { status: number; body: string }
+  }
+
+  /**
+   * Like request, but the answer arrives in pieces as the site sends it, for
+   * replies that are written while you watch. The page hands each piece back
+   * through its console, tagged so nothing else on the page is mistaken for it.
+   * Gives back the status once the answer has ended.
+   */
+  async stream(
+    service: WebService,
+    path: string,
+    init: { method?: string; headers?: Record<string, string>; body?: string },
+    onChunk: (text: string) => void,
+    signal?: AbortSignal
+  ): Promise<{ status: number; error?: string }> {
+    if (!path.startsWith('/')) throw new Error('Only paths on the site itself can be requested.')
+    const wc = await this.settled(service)
+    if (!belongsTo(service, wc.getURL()) || new URL(wc.getURL()).origin !== siteOrigin(service)) return { status: 0, error: 'Not on the site.' }
+    const token = `chaude${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
+    const tag = `\u0001${token}:`
+    return new Promise((resolve) => {
+      let status = 0
+      let finished = false
+      const finish = (error?: string) => {
+        if (finished) return
+        finished = true
+        wc.off('console-message', listen)
+        signal?.removeEventListener('abort', abort)
+        resolve({ status, ...(error ? { error } : {}) })
+      }
+      const listen = (...args: unknown[]) => {
+        // Newer Electron passes one object with the message, older ones pass it third.
+        const first = args[0] as { message?: string }
+        const message = typeof first?.message === 'string' ? first.message : String(args[2] ?? '')
+        if (!message.startsWith(tag)) return
+        let part: { k: string; v: unknown }
+        try {
+          part = JSON.parse(message.slice(tag.length))
+        } catch {
+          return
+        }
+        if (part.k === 'status') status = Number(part.v)
+        else if (part.k === 'chunk') onChunk(String(part.v))
+        else if (part.k === 'end') finish()
+        else if (part.k === 'error') finish(String(part.v))
+      }
+      const abort = () => {
+        void wc.executeJavaScript(`window[${JSON.stringify(token)}] && window[${JSON.stringify(token)}].abort()`, true).catch(() => {})
+        finish('Stopped.')
+      }
+      wc.on('console-message', listen)
+      signal?.addEventListener('abort', abort)
+      const options = { method: init.method ?? 'GET', credentials: 'include', headers: init.headers ?? {}, ...(init.body !== undefined ? { body: init.body } : {}) }
+      const script = `(async () => {
+        const send = (k, v) => console.debug(${JSON.stringify(tag)} + JSON.stringify({ k, v }));
+        const controller = new AbortController();
+        window[${JSON.stringify(token)}] = controller;
+        try {
+          const r = await fetch(${JSON.stringify(path)}, { ...${JSON.stringify(options)}, signal: controller.signal });
+          send('status', r.status);
+          if (!r.ok || !r.body) { send('error', (await r.text()).slice(0, 2000)); return; }
+          const reader = r.body.getReader();
+          const decoder = new TextDecoder();
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            send('chunk', decoder.decode(value, { stream: true }));
+          }
+          send('end', 1);
+        } catch (e) {
+          send('error', String(e));
+        } finally {
+          delete window[${JSON.stringify(token)}];
+        }
+      })()`
+      void wc.executeJavaScript(script, true).catch((e) => finish(String(e)))
+    })
+  }
+
+  /** Runs a script in the site's hidden page and gives back its result. */
+  async run<T>(service: WebService, script: string): Promise<T> {
+    const wc = await this.settled(service)
+    return (await wc.executeJavaScript(script, true)) as T
+  }
+
+  /** Sends the hidden page to an address on the site and waits for it to load. */
+  async open(service: WebService, path: string): Promise<void> {
+    const url = `${siteOrigin(service)}${path}`
+    if (!belongsTo(service, url)) return
+    const wc = this.ensure(service).webContents
+    await wc.loadURL(url).catch(() => {})
+  }
+
+  /** The address the hidden page is on now. */
+  where(service: WebService): string {
+    return this.ensure(service).webContents.getURL()
   }
 
   /**

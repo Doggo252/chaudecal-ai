@@ -8,7 +8,7 @@ const iso = (s) => new Date(s * 1000).toISOString()
 const T = 1_760_000_000 // a fixed moment, in unix seconds
 
 export function makeSites() {
-  const state = { signedIn: { claude: true, chatgpt: true }, requests: [], limitOnce: new Set(), touched: 0 }
+  const state = { signedIn: { claude: true, chatgpt: true }, requests: [], limitOnce: new Set(), touched: 0, claudeParents: [] }
 
   // ---------- ChatGPT ----------
   const node = (id, parent, children, message) => ({ id, parent, children, message })
@@ -122,9 +122,91 @@ export function makeSites() {
   const json = (body, status = 200) => ({ status, body: JSON.stringify(body) })
 
   /** Answers one request the way the site would. */
-  function handle(service, path, headers = {}) {
-    state.requests.push(`${service} ${path}`)
+  // ---------- Regular chats written through the sites ----------
+  let made = 0
+  const nowIso = () => new Date().toISOString()
+
+  /** chatgpt.com's own page sends this when its send button is pressed. The answer is written over a moment. */
+  function chatgptPageSend(body) {
+    made++
+    const now = Date.now() / 1000
+    let id = body.conversation_id
+    if (!id || !chatgptChats[id]) {
+      id = `g-web-${made}`
+      chatgptChats[id] = { title: `Web chat ${made}`, create_time: now, update_time: now, current_node: 'root', mapping: { root: node('root', null, [], null) } }
+    }
+    const chat = chatgptChats[id]
+    const u = `wu-${made}`
+    const a = `wa-${made}`
+    chat.mapping[chat.current_node].children.push(u)
+    chat.mapping[u] = node(u, chat.current_node, [a], { ...msg(u, 'user', { content_type: 'text', parts: [body.text] }), create_time: now })
+    const answer = `ChatGPT on the web here. You said: "${body.text}".`
+    chat.mapping[a] = node(a, u, [], { ...msg(a, 'assistant', { content_type: 'text', parts: [''] }), create_time: now + 0.1, status: 'in_progress', end_turn: null, metadata: { model_slug: body.model || 'gpt-web' } })
+    chat.current_node = a
+    chat.update_time = now
+    setTimeout(() => (chat.mapping[a].message.content.parts = ['ChatGPT on the web here.']), 150)
+    setTimeout(() => {
+      chat.mapping[a].message.content.parts = [answer]
+      chat.mapping[a].message.status = 'finished_successfully'
+      chat.mapping[a].message.end_turn = true
+      chat.update_time = Date.now() / 1000
+    }, 500)
+    return id
+  }
+
+  /** claude.ai: a new chat, an answer streamed back, and a name for it. */
+  function claudeWrite(path, method, body) {
+    const create = /^\/api\/organizations\/org-1\/chat_conversations$/.exec(path)
+    if (create && method === 'POST') {
+      const b = JSON.parse(body || '{}')
+      claudeChats[b.uuid] = { uuid: b.uuid, name: b.name ?? '', created_at: nowIso(), updated_at: nowIso(), current_leaf_message_uuid: '00000000-0000-0000-0000-000000000000', chat_messages: [] }
+      return { status: 201, body: JSON.stringify(claudeChats[b.uuid]) }
+    }
+    const complete = /^\/api\/organizations\/org-1\/chat_conversations\/([^/]+)\/completion$/.exec(path)
+    if (complete && method === 'POST' && claudeChats[complete[1]]) {
+      const chat = claudeChats[complete[1]]
+      const b = JSON.parse(body || '{}')
+      made++
+      const h = `wh-${made}`
+      const a = `wa-${made}`
+      const answer = `Claude on the web here. You said: "${b.prompt}".`
+      chat.chat_messages.push({ uuid: h, parent_message_uuid: b.parent_message_uuid, index: chat.chat_messages.length, sender: 'human', created_at: nowIso(), content: [{ type: 'text', text: b.prompt }] })
+      chat.chat_messages.push({ uuid: a, parent_message_uuid: h, index: chat.chat_messages.length, sender: 'assistant', created_at: nowIso(), content: [{ type: 'text', text: answer }] })
+      chat.current_leaf_message_uuid = a
+      chat.updated_at = nowIso()
+      state.claudeParents.push(b.parent_message_uuid)
+      const words = answer.split(' ')
+      const thirds = [words.slice(0, 4).join(' '), ` ${words.slice(4, 8).join(' ')}`, ` ${words.slice(8).join(' ')}`]
+      const ev = (o) => `event: ${o.type}\ndata: ${JSON.stringify(o)}\n\n`
+      return {
+        status: 200,
+        contentType: 'text/event-stream',
+        chunks: [
+          ev({ type: 'message_start', message: { id: a } }),
+          ev({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+          ...thirds.map((t) => ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } })),
+          ev({ type: 'message_stop' })
+        ]
+      }
+    }
+    const title = /^\/api\/organizations\/org-1\/chat_conversations\/([^/]+)\/title$/.exec(path)
+    if (title && method === 'POST' && claudeChats[title[1]]) {
+      const b = JSON.parse(body || '{}')
+      claudeChats[title[1]].name = `Web: ${String(b.message_content).split(' ').slice(0, 4).join(' ')}`
+      return { status: 200, body: JSON.stringify({ title: claudeChats[title[1]].name }) }
+    }
+    return undefined
+  }
+
+  function handle(service, path, headers = {}, method = 'GET', body = '') {
+    state.requests.push(`${service} ${method === 'GET' ? '' : `${method} `}${path}`)
     const url = new URL(path, 'http://site')
+    if (service === 'chatgpt' && url.pathname === '/backend-api/fake-send' && method === 'POST') return json({ conversation_id: chatgptPageSend(JSON.parse(body || '{}')) })
+    if (service === 'claude' && method === 'POST') {
+      if (!state.signedIn.claude) return json({ error: 'unauthorized' }, 403)
+      const written = claudeWrite(url.pathname, method, body)
+      if (written) return written
+    }
     const key = `${service} ${url.pathname}`
     if (state.limitOnce.has(key)) {
       state.limitOnce.delete(key)
@@ -189,13 +271,39 @@ export function serveSite(sites, service) {
     if (path.startsWith('/api/') || path.startsWith('/backend-api/')) {
       const headers = {}
       if (req.headers.authorization) headers.Authorization = req.headers.authorization
-      const out = sites.handle(service, path, headers)
-      res.writeHead(out.status, { 'content-type': 'application/json' })
-      res.end(out.body)
+      let body = ''
+      req.on('data', (d) => (body += d))
+      req.on('end', async () => {
+        const out = sites.handle(service, path, headers, req.method ?? 'GET', body)
+        res.writeHead(out.status, { 'content-type': out.contentType ?? 'application/json' })
+        if (out.chunks) {
+          // An answer written while you watch.
+          for (const chunk of out.chunks) {
+            res.write(chunk)
+            await new Promise((r) => setTimeout(r, 40))
+          }
+          res.end()
+        } else res.end(out.body)
+      })
       return
     }
     res.writeHead(200, { 'content-type': 'text/html' })
-    res.end(`<!doctype html><title>${service} stand-in</title><h1>${service === 'claude' ? 'Claude' : 'ChatGPT'} stand-in</h1><p>${path}</p>`)
+    // chatgpt.com's page has a message box and a send button, which the app uses for regular chats.
+    const composer =
+      service === 'chatgpt'
+        ? `<div id="prompt-textarea" contenteditable="true"></div><button data-testid="send-button">Send</button>
+<script>
+document.querySelector('[data-testid="send-button"]').addEventListener('click', async () => {
+  const text = document.querySelector('#prompt-textarea').innerText.trim();
+  const m = /\\/c\\/([^/?#]+)/.exec(location.pathname);
+  const r = await fetch('/backend-api/fake-send', { method: 'POST', body: JSON.stringify({ conversation_id: m ? m[1] : null, text, model: new URLSearchParams(location.search).get('model') }) });
+  const out = await r.json();
+  document.querySelector('#prompt-textarea').textContent = '';
+  if (!m) history.pushState({}, '', '/c/' + out.conversation_id);
+});
+</script>`
+        : ''
+    res.end(`<!doctype html><title>${service} stand-in</title><h1>${service === 'claude' ? 'Claude' : 'ChatGPT'} stand-in</h1><p>${path}</p>${composer}`)
   })
   return new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => {

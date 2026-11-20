@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import type { Conversation, ProviderId } from '@shared/types'
-import { PROVIDER_LABEL } from '@shared/types'
-import { openChat, setState, toast, useUi } from '../state'
+import { kindOf, PROVIDER_LABEL } from '@shared/types'
+import { openChat, setState, setTab, toast, useUi } from '../state'
 import { IconDownload, IconFolder, IconLock, IconPin, IconPlus, IconSearch, IconSettings } from '../icons'
 import { Meter, ProviderDot } from './ui'
 
@@ -20,10 +20,11 @@ export function Sidebar() {
   const view = useUi((s) => s.view)
   const asking = useUi((s) => s.approvals)
   const isMac = app?.platform === 'darwin'
+  const tab = useUi((s) => s.tab)
 
   const groups = useMemo(() => {
     const now = Date.now()
-    const list = (app?.conversations ?? []).slice().sort((a, b) => b.updatedAt - a.updatedAt)
+    const list = (app?.conversations ?? []).filter((c) => kindOf(c) === tab).sort((a, b) => b.updatedAt - a.updatedAt)
     const out: { label: string; items: Conversation[] }[] = []
     const pinned = list.filter((c) => c.pinned)
     if (pinned.length) out.push({ label: 'Pinned', items: pinned })
@@ -34,7 +35,7 @@ export function Sidebar() {
       else out.push({ label, items: [c] })
     }
     return out
-  }, [app?.conversations])
+  }, [app?.conversations, tab])
 
   if (!app) return <aside className="sidebar" />
   const busy = new Set(app.busy)
@@ -45,8 +46,16 @@ export function Sidebar() {
     <aside className="sidebar">
       <div className="side-top drag">
         <div className="brand">Chaude</div>
+        <div className="side-tabs no-drag" role="tablist" aria-label="Kind of chat">
+          <button type="button" role="tab" aria-selected={tab === 'chat'} className={tab === 'chat' ? 'on' : ''} data-testid="side-tab-chat" title="Regular chats on claude.ai and chatgpt.com" onClick={() => setTab('chat')}>
+            Chats
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'code'} className={tab === 'code' ? 'on' : ''} data-testid="side-tab-code" title="Work and code chats that use this computer" onClick={() => setTab('code')}>
+            Code
+          </button>
+        </div>
         <button type="button" className={`side-btn ${view.kind === 'chat' && !activeId ? 'active' : ''}`} data-testid="new-chat" onClick={() => openChat(undefined)}>
-          <IconPlus /> New chat <kbd>{isMac ? '⌘N' : 'Ctrl N'}</kbd>
+          <IconPlus /> {tab === 'chat' ? 'New chat' : 'New code chat'} <kbd>{isMac ? '⌘N' : 'Ctrl N'}</kbd>
         </button>
         <button type="button" className="side-btn" data-testid="open-search" onClick={() => setState({ dialog: { kind: 'search' } })}>
           <IconSearch /> Search chats <kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
@@ -74,7 +83,11 @@ export function Sidebar() {
             <span className="conv-title">{p.name}</span>
           </button>
         ))}
-        {!groups.length && <div className="side-empty">Your conversations with Claude, ChatGPT and local AI will all appear here.</div>}
+        {!groups.length && (
+          <div className="side-empty">
+            {tab === 'chat' ? 'Your chats from claude.ai and chatgpt.com, and new ones you start here, appear here.' : 'Chats that work on this computer with Claude Code, Codex or local AI appear here.'}
+          </div>
+        )}
         {groups.map((g) => (
           <div key={g.label}>
             <div className="side-group">{g.label}</div>

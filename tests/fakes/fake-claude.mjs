@@ -61,12 +61,38 @@ let prompt = ''
 if (live) {
   prompt = (await nextLine()) ?? ''
 } else {
-  for (let line = await nextLine(); line !== undefined; line = await nextLine()) prompt += `${line}\n`
+  for (let line = await nextLine(); line !== undefined; line = await nextLine()) {
+    prompt += `${line}\n`
+    // A control request is answered straight away, while stdin stays open.
+    if (arg('--input-format') === 'stream-json' && line.includes('"control_request"')) break
+  }
   prompt += pending
 }
 
 // With --input-format stream-json the turn arrives as one JSON message that can carry images.
 let imageCount = 0
+// The app asks for the plan's models and commands with an initialize request, like the Agent SDK does.
+if (arg('--input-format') === 'stream-json' && JSON.parse(prompt.trim().split('\n')[0] || '{}').type === 'control_request') {
+  const req = JSON.parse(prompt.trim().split('\n')[0])
+  process.stdout.write(
+    `${JSON.stringify({
+      type: 'control_response',
+      response: {
+        subtype: 'success',
+        request_id: req.request_id,
+        response: {
+          commands: [{ name: 'usage', description: 'Show plan usage limits' }, { name: 'compact', description: 'Clear conversation history but keep a summary in context' }],
+          models: [
+            { value: 'default', displayName: 'Default (recommended)', description: 'Sonnet 9.1 · Best for everyday tasks', supportedEffortLevels: ['low', 'medium', 'high'] },
+            { value: 'opus', displayName: 'Opus', description: 'Opus 9.2 · Most capable for complex work' },
+            { value: 'claude-fake-old', displayName: 'Opus 8 (older)', description: 'Opus 8 · An older model' }
+          ]
+        }
+      }
+    })}\n`
+  )
+  process.exit(0)
+}
 if (arg('--input-format') === 'stream-json') {
   const content = JSON.parse(prompt.trim().split('\n')[0]).message.content
   imageCount = content.filter((c) => c.type === 'image' && c.source?.type === 'base64' && c.source.data).length
