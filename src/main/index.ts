@@ -23,6 +23,7 @@ import { Summarizer } from './summarizer'
 import { siteOrigin, WebTabs } from './webtabs'
 import { readAttachment } from './attachments'
 import { normalizeMcpServer, testMcpServer } from './mcp'
+import { needsRenewal, renew, signIn as mcpBrowserSignIn } from './mcpAuth'
 import { guardFrames, previewPage, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { artifactCsp } from '@shared/artifactPolicy'
 import { WebImporter } from './webImport'
@@ -371,7 +372,9 @@ function mcpFromInput(input: McpInput): McpServer {
     enabled: input.enabled ?? existing?.enabled ?? true,
     trusted: input.trusted ?? existing?.trusted ?? false,
     offOn: input.offOn ?? existing?.offOn ?? [],
-    createdAt: existing?.createdAt ?? Date.now()
+    createdAt: existing?.createdAt ?? Date.now(),
+    // A sign-in belongs to the address it was made for.
+    oauth: existing && existing.url === text(input.url) ? existing.oauth : undefined
   })
 }
 
@@ -396,6 +399,20 @@ function appState(): AppState {
     update: updater.info,
     remote: settings.hub.hostEnabled ? undefined : remote.info(),
     webImport: { claude: webImporter.status('claude'), chatgpt: webImporter.status('chatgpt') }
+  }
+}
+
+/** Renews browser sign-ins to tool servers that are about to run out, so a reply never meets an expired one. */
+async function freshMcpSignIns(): Promise<void> {
+  for (const server of store.list<McpServer>('mcp')) {
+    if (!needsRenewal(server.oauth)) continue
+    try {
+      const oauth = await renew(server.oauth!)
+      const latest = store.get<McpServer>('mcp', server.id)
+      if (latest) store.put('mcp', server.id, { ...latest, oauth })
+    } catch {
+      // The test button and the reply will say that the sign-in needs doing again.
+    }
   }
 }
 
@@ -426,6 +443,7 @@ const api: Omit<Api, 'on'> = {
     store.deleteConversation(id)
   },
   async send(input) {
+    await freshMcpSignIns()
     // Remember that this device asked, so it is the one that announces the reply.
     startedHere.set(input.conversationId, lastReply(input.conversationId)?.id)
     try {
@@ -651,6 +669,24 @@ const api: Omit<Api, 'on'> = {
     store.put('mcp', server.id, server)
     return { id: server.id }
   },
+  async mcpSignIn(id) {
+    const server = mcpServers().find((m) => m.id === id)
+    if (!server || server.kind !== 'url') return { error: 'Only a server with a web address can be signed in to.' }
+    try {
+      // Tests follow the sign-in page themselves instead of opening a browser.
+      const open = process.env.CHAUDECAL_E2E_FETCH_SIGNIN ? async (address: string) => void (await fetch(address)) : (address: string) => shell.openExternal(address)
+      const oauth = await mcpBrowserSignIn(server.url, open)
+      const latest = store.get<McpServer>('mcp', id)
+      if (latest) store.put('mcp', id, { ...latest, oauth })
+      return {}
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+  },
+  async mcpSignOut(id) {
+    const latest = store.get<McpServer>('mcp', id)
+    if (latest?.oauth) store.put('mcp', id, { ...latest, oauth: undefined })
+  },
   async deleteMcpServer(id) {
     store.remove('mcp', id)
   },
@@ -873,7 +909,10 @@ app.whenReady().then(async () => {
     app.getVersion(),
     createRunHost(
       {
-        send: (input) => engine.send(input),
+        send: async (input) => {
+          await freshMcpSignIns()
+          return engine.send(input)
+        },
         stop: (id) => engine.stop(id),
         respondApproval: (c, m, a, d) => engine.respondApproval(c, m, a, d),
         workspace: (id) => engine.workspace(id),
@@ -976,8 +1015,9 @@ app.whenReady().then(async () => {
     {
       createConversation: (p) => engine.createConversation(p),
       // A task's run counts as started on this machine, so its answer is announced like any other.
-      send: (input) => {
+      send: async (input) => {
         startedHere.set(input.conversationId, lastReply(input.conversationId)?.id)
+        await freshMcpSignIns()
         return engine.send(input)
       },
       isBusy: (id) => engine.isBusy(id)

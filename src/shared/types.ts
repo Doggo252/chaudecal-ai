@@ -247,6 +247,19 @@ export interface SyncRecord<T = unknown> {
  * A tool server that speaks the Model Context Protocol. Claude and ChatGPT both use the same list.
  * The server is started (or called) by the machine that runs the assistant.
  */
+/** A browser sign-in to a hosted tool server: the token, and what is needed to renew it. */
+export interface McpOAuth {
+  accessToken: string
+  refreshToken?: string
+  /** When the token runs out, if the server said. */
+  expiresAt?: number
+  tokenEndpoint: string
+  clientId: string
+  clientSecret?: string
+  resource: string
+  scope?: string
+}
+
 export interface McpServer {
   id: string
   /** Short name the assistants see, for example "github". Letters, digits, "_" and "-". */
@@ -266,6 +279,8 @@ export interface McpServer {
   /** Ids of the devices on which this server is switched off. */
   offOn: string[]
   createdAt: number
+  /** A sign-in made through the browser, for a hosted server that asks for one. Synced like the headers. */
+  oauth?: McpOAuth
 }
 
 export interface McpTool {

@@ -6,6 +6,11 @@ import type { McpServer } from './types'
 /** The fields of a server that the user fills in. */
 export type McpDraft = Pick<McpServer, 'name' | 'kind' | 'command' | 'args' | 'env' | 'url' | 'headers'>
 
+/** The headers a hosted server is called with: the ones typed in, and the browser sign-in if there is one. */
+export function mcpHeaders(server: Pick<McpServer, 'headers' | 'oauth'>): Record<string, string> {
+  return server.oauth?.accessToken ? { ...server.headers, Authorization: `Bearer ${server.oauth.accessToken}` } : server.headers
+}
+
 const NAME = /^[A-Za-z0-9_-]{1,40}$/
 
 /** Turns free text into a name the assistants accept: "My GitHub!" becomes "my-github". */
@@ -162,7 +167,7 @@ export function platformCommand(server: Pick<McpServer, 'command' | 'args'>, pla
 export function claudeMcpConfig(servers: McpServer[], platform: string, home: string): { mcpServers: Record<string, unknown> } {
   const mcpServers: Record<string, unknown> = {}
   for (const s of servers) {
-    mcpServers[s.name] = s.kind === 'url' ? { type: 'http', url: s.url, headers: s.headers } : { type: 'stdio', ...platformCommand(s, platform, home), env: s.env }
+    mcpServers[s.name] = s.kind === 'url' ? { type: 'http', url: s.url, headers: mcpHeaders(s) } : { type: 'stdio', ...platformCommand(s, platform, home), env: s.env }
   }
   return { mcpServers }
 }
@@ -177,7 +182,7 @@ export function codexMcpConfig(servers: McpServer[], platform: string, home: str
   const out: Record<string, unknown> = {}
   for (const s of servers) {
     const trust = s.trusted ? { default_tools_approval_mode: 'approve' } : {}
-    out[s.name] = s.kind === 'url' ? { url: s.url, http_headers: s.headers, ...trust } : { ...platformCommand(s, platform, home), env: s.env, ...trust }
+    out[s.name] = s.kind === 'url' ? { url: s.url, http_headers: mcpHeaders(s), ...trust } : { ...platformCommand(s, platform, home), env: s.env, ...trust }
   }
   return out
 }

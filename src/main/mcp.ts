@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { platformCommand } from '@shared/mcp'
+import { mcpHeaders } from '@shared/mcp'
 import type { McpServer, McpTestResult, McpTool } from '@shared/types'
 import { cliEnv, lineReader } from './env'
 
@@ -32,7 +33,8 @@ export function normalizeMcpServer(raw: Partial<McpServer> & { id: string }): Mc
     enabled: raw.enabled !== false,
     trusted: raw.trusted === true,
     offOn: Array.isArray(raw.offOn) ? raw.offOn.map(String) : [],
-    createdAt: Number(raw.createdAt) || 0
+    createdAt: Number(raw.createdAt) || 0,
+    ...(raw.kind === 'url' && raw.oauth && typeof raw.oauth.accessToken === 'string' && typeof raw.oauth.tokenEndpoint === 'string' ? { oauth: raw.oauth } : {})
   }
 }
 
@@ -161,13 +163,13 @@ async function testUrl(server: McpServer, version: string, timeoutMs: number): P
     const res = await fetch(server.url, {
       method: 'POST',
       signal: abort.signal,
-      headers: { ...server.headers, 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...extra },
+      headers: { ...mcpHeaders(server), 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...extra },
       body: JSON.stringify(message)
     })
     const session = res.headers.get('mcp-session-id')
     if (session) extra['mcp-session-id'] = session
     if (res.status === 401 || res.status === 403) {
-      throw new Told(`The server refused the sign-in (HTTP ${res.status}). Check the token in the headers. Servers that sign in through a browser page are not supported yet.`)
+      throw new Told(server.oauth ? `The server refused the sign-in (HTTP ${res.status}). Sign in again.` : `The server asks for a sign-in (HTTP ${res.status}). Click "Sign in", or put a token in the headers.`)
     }
     if (!res.ok) throw new Told(`The address did not answer as a tool server (HTTP ${res.status}).`)
     if (message.id === undefined) {

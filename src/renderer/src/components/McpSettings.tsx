@@ -229,16 +229,43 @@ function ServerRow({ server, deviceId, onEdit }: { server: McpServer; deviceId: 
     setResult(await window.api.testMcpServer(server))
     setTesting(false)
   }
+  const [signing, setSigning] = useState(false)
+  const signIn = async () => {
+    setSigning(true)
+    toast('Finish signing in in your browser.')
+    const res = await window.api.mcpSignIn(server.id)
+    setSigning(false)
+    if (res.error) toast(res.error)
+    else {
+      toast(`Signed in to ${server.name}`)
+      void test()
+    }
+  }
   return (
     <div className="row row-stack" data-testid="mcp-server" data-name={server.name}>
       <div className="inline" style={{ justifyContent: 'space-between' }}>
         <div className="mcp-title">
           <b>{server.name}</b>
           {server.trusted && <span className="badge">Runs without asking</span>}
+          {server.oauth && (
+            <span className="badge ok" data-testid="mcp-signed-in">
+              Signed in
+            </span>
+          )}
           {!here && <span className="badge">Off on this device</span>}
         </div>
         <div className="inline">
           <Toggle checked={here} label={`Use ${server.name} on this device`} testId="mcp-toggle" onChange={setHere} />
+          {server.kind === 'url' &&
+            (server.oauth ? (
+              <button type="button" className="btn btn-small" data-testid="mcp-sign-out" onClick={() => void window.api.mcpSignOut(server.id)}>
+                Sign out
+              </button>
+            ) : (
+              <button type="button" className="btn btn-small btn-primary" data-testid="mcp-sign-in" disabled={signing} onClick={() => void signIn()}>
+                {signing ? 'Waiting for browser' : 'Sign in'}
+              </button>
+            ))}
           <button type="button" className="btn btn-small" data-testid="mcp-row-test" disabled={testing} onClick={() => void test()}>
             Test
           </button>
@@ -255,6 +282,22 @@ function ServerRow({ server, deviceId, onEdit }: { server: McpServer; deviceId: 
     </div>
   )
 }
+
+/** Well-known tool servers, ready to add with one click. */
+const PRESETS: { name: string; title: string; about: string; url?: string; command?: string; args?: string[]; next: string }[] = [
+  { name: 'notion', title: 'Notion', about: 'Your Notion pages and databases. Hosted by Notion; sign in with your Notion account.', url: 'https://mcp.notion.com/mcp', next: 'Notion added. Click "Sign in" next to it.' },
+  { name: 'linear', title: 'Linear', about: 'Your Linear issues and projects. Hosted by Linear; sign in with your Linear account.', url: 'https://mcp.linear.app/mcp', next: 'Linear added. Click "Sign in" next to it.' },
+  {
+    name: 'github',
+    title: 'GitHub',
+    about: 'Your repositories, issues and pull requests. Hosted by GitHub, which needs a personal access token: create one on GitHub under Settings, Developer settings, then click Edit and add "Authorization: Bearer your-token" as a header.',
+    url: 'https://api.githubcopilot.com/mcp/',
+    next: 'GitHub added. Click Edit next to it and add your token as a header.'
+  },
+  { name: 'browser', title: 'Browser', about: 'Lets the assistant open web pages, click and type in a browser it controls (Playwright). Needs Node.js on the machine that runs it.', command: 'npx', args: ['-y', '@playwright/mcp@latest'], next: 'Browser added. Ask an assistant to visit a page to try it.' },
+  { name: 'files', title: 'Files in Documents', about: 'Reading and writing files in your Documents folder. Needs Node.js. Change the folder with Edit.', command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '~/Documents'], next: 'Files added.' },
+  { name: 'memory', title: 'Knowledge graph memory', about: 'A memory the assistants can store facts in and look them up from later. Needs Node.js.', command: 'npx', args: ['-y', '@modelcontextprotocol/server-memory'], next: 'Memory added.' }
+]
 
 export function McpSettings() {
   const app = useUi((x) => x.app!)
@@ -291,6 +334,35 @@ export function McpSettings() {
             </div>
           </div>
         )}
+      </div>
+
+      <div className="group-title">Ready to add</div>
+      <div className="group mcp-presets">
+        {PRESETS.map((p) => {
+          const added = app.mcp.some((m) => m.name === p.name)
+          return (
+            <div className="row" key={p.name} data-testid="mcp-preset" data-name={p.name}>
+              <div className="row-main">
+                <div className="row-title">{p.title}</div>
+                <div className="row-sub">{p.about}</div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-small"
+                disabled={added}
+                data-testid="mcp-preset-add"
+                onClick={() =>
+                  void window.api.saveMcpServer({ name: p.name, kind: p.url ? 'url' : 'command', command: p.command ?? '', args: p.args ?? [], env: {}, url: p.url ?? '', headers: {} }).then((r) => {
+                    if (r.error) toast(r.error)
+                    else toast(p.next)
+                  })
+                }
+              >
+                {added ? 'Added' : 'Add'}
+              </button>
+            </div>
+          )
+        })}
       </div>
 
       <div className="group-title">Good to know</div>

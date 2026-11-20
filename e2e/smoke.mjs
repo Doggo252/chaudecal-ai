@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { startMockOpenAI } from '../tests/fakes/mock-openai.mjs'
 import { makePdf } from '../tests/fakes/pdf.mjs'
 import { makeSites, serveSite } from '../tests/fakes/fake-sites.mjs'
+import { startOAuthMcp } from '../tests/fakes/fake-oauth-mcp.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const shots = join(root, 'e2e', 'artifacts')
@@ -131,6 +132,9 @@ const speechServer = createHttpServer(async (req, res) => {
 await new Promise((r) => speechServer.listen(0, '127.0.0.1', r))
 const speechUrl = `http://127.0.0.1:${speechServer.address().port}/v1`
 
+// A stand-in hosted tool server that signs in through the browser.
+const oauthMcp = await startOAuthMcp()
+
 // Stand-ins for claude.ai and chatgpt.com, for bringing in chats through the website tabs.
 const sites = makeSites()
 const claudeSite = await serveSite(sites, 'claude')
@@ -150,7 +154,7 @@ try {
       local: { endpoints: [{ id: 'ollama', name: 'Ollama', baseUrl: runtime.baseUrl, enabled: true }], summarize: false, speechUrl },
       hub: { hostEnabled: true, port: hubPort, allowRemoteRuns: true, webApp: true }
     },
-    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir, CHAUDECAL_E2E_WEB_ORIGINS: webOrigins, CHAUDECAL_E2E_FAKE_MIC: '1', CHAUDECAL_E2E_CAPTURE: readFileSync(join(root, 'build/icon.png')).toString('base64') }
+    { FAKE_CLAUDE_UTILIZATION: '0.86', CHAUDECAL_E2E_ATTACH: attachFiles, CHAUDECAL_UPDATE_URL: releasesUrl, CHAUDECAL_E2E_NOTIFY: noticeFile.hub, CHAUDECAL_E2E_HOME: homeDir, CHAUDECAL_E2E_SAVE_DIR: saveDir, CHAUDECAL_E2E_WEB_ORIGINS: webOrigins, CHAUDECAL_E2E_FAKE_MIC: '1', CHAUDECAL_E2E_FETCH_SIGNIN: '1', CHAUDECAL_E2E_CAPTURE: readFileSync(join(root, 'build/icon.png')).toString('base64') }
   )
   await a.page.waitForFunction(async () => {
     const s = await window.api.state()
@@ -291,6 +295,25 @@ try {
   await a.page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 })
   await shot(a.page, '17-tool-servers')
   ok('a tool server is added in Settings, tested from the app, and a broken one says why')
+
+  // A hosted tool server that signs in through the browser, and the ready-made list.
+  assert((await a.page.$$(tid('mcp-preset'))).length === 6, 'six ready-made tool servers should be offered')
+  await a.page.click(tid('mcp-add-json'))
+  await a.page.fill(tid('mcp-json'), JSON.stringify({ mcpServers: { workspace: { url: oauthMcp.url } } }))
+  await a.page.click(tid('mcp-json-add'))
+  const hosted = `${tid('mcp-server')}[data-name="workspace"]`
+  await a.page.waitForSelector(hosted)
+  await a.page.click(`${hosted} ${tid('mcp-row-test')}`)
+  await a.page.waitForFunction((sel) => /asks for a sign-in/.test(document.querySelector(`${sel} [data-testid="mcp-test-result"]`)?.textContent ?? ''), hosted, { timeout: 15000 })
+  await a.page.click(`${hosted} ${tid('mcp-sign-in')}`)
+  await a.page.waitForSelector(`${hosted} ${tid('mcp-signed-in')}`, { timeout: 15000 })
+  await a.page.waitForFunction((sel) => /whoami/.test(document.querySelector(`${sel} [data-testid="mcp-test-result"]`)?.textContent ?? ''), hosted, { timeout: 15000 })
+  assert(oauthMcp.state.calls.includes('POST /register') && oauthMcp.state.calls.includes('POST /token'), 'the app should have registered and fetched a token')
+  await a.page.waitForFunction(() => !document.querySelector('.toast'), null, { timeout: 8000 })
+  await shot(a.page, '42-tool-sign-in')
+  await a.page.click(`${hosted} ${tid('mcp-remove')}`)
+  await a.page.waitForFunction((sel) => !document.querySelector(sel), hosted)
+  ok('a hosted tool server is signed in to through the browser, and ready-made servers are offered')
 
   await a.page.click(tid('new-chat'))
   await pickProvider(a.page, 'claude')
@@ -909,6 +932,7 @@ try {
   for (const d of [b, a]) if (d) await d.app.close().catch(() => {})
   await runtime.close()
   releases.close()
+  await oauthMcp.close()
   speechServer.close()
   await claudeSite.close()
   await chatgptSite.close()

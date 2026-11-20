@@ -183,7 +183,7 @@ export class Store {
     const existing = this.getRaw(kind, id)
     if (!existing) return
     // A deleted record stays so the deletion syncs, but an image loses its bytes and a tool server its tokens.
-    const data = kind === 'blob' ? { ...(existing.data as Blob), base64: '' } : kind === 'mcp' ? { ...(existing.data as object), env: {}, headers: {} } : existing.data
+    const data = kind === 'blob' ? { ...(existing.data as Blob), base64: '' } : kind === 'mcp' ? { ...(existing.data as object), env: {}, headers: {}, oauth: undefined } : existing.data
     this.put(kind, id, data, { deleted: true })
   }
 

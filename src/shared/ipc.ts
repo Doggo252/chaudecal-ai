@@ -215,6 +215,9 @@ export interface Api {
   deleteMcpServer(id: string): Promise<void>
   /** Connect to a tool server from this device and list its tools. */
   testMcpServer(server: McpInput): Promise<McpTestResult>
+  /** Signs in to a hosted tool server through the browser. */
+  mcpSignIn(id: string): Promise<{ error?: string }>
+  mcpSignOut(id: string): Promise<void>
 
   /** Keeps a preview page for an artifact and gives back the address its frame loads. */
   artifactView(html: string): Promise<string>
@@ -294,6 +297,8 @@ export const API_METHODS = [
   'saveMcpServer',
   'deleteMcpServer',
   'testMcpServer',
+  'mcpSignIn',
+  'mcpSignOut',
   'artifactView',
   'saveArtifact',
   'hubDiscover',

@@ -197,6 +197,8 @@ Open Settings, then "Tools".
 
 - **Paste JSON.** Most tool servers come with a short piece of JSON in their instructions (it starts with `"mcpServers"`). Click "Paste JSON", paste it, and click "Add".
 - **Or fill in the form.** Click "Add a tool server", give it a short name, and either type the command that starts it (for example `npx -y @modelcontextprotocol/server-filesystem ~/Documents`) or the web address of a hosted one. Tokens go in the box below: `NAME=value` lines for a command, `Authorization: Bearer your-token` for a web address.
+- **Or pick one from the list.** "Ready to add" has Notion, Linear and GitHub (hosted), and a browser the assistant can drive, your Documents folder and a memory (these three run as programs and need Node.js). One click adds it.
+- **Sign in.** A hosted server that asks for a sign-in shows a "Sign in" button. Click it, approve in your browser, and the server is ready; the app renews the sign-in by itself. A server that cannot be signed in to this way (GitHub) takes a token in the headers instead.
 - **Test it.** "Test on this device" starts the server (or calls the address) and lists the tools it offers, or says what went wrong.
 
 From then on both Claude and ChatGPT can use the server in every conversation, in every mode. Before a tool is used you get the same question card as for a command, naming the server and the tool and showing what is sent to it. Claude asks about every tool. ChatGPT asks about the tools that change something and uses read-only ones directly. Turn on "Let its tools run without asking" for a server you trust.
@@ -240,7 +242,7 @@ The list syncs to your other devices, tokens included. A server runs on the mach
 - If the Mac disconnects while the PC is working, the PC finishes anyway. A permission question raised in the meantime waits on the PC's own screen, and the PC shows a notification about it. The Mac is not told about a reply that finished while it was disconnected.
 - The first notification makes macOS ask whether to allow them. If you say no, only the Dock count is shown.
 - Local models chat only. They do not edit files, run commands or use tool servers.
-- Tool servers that sign in through a browser page (many hosted ones do) are not supported yet. Use one that takes a token, or the version of it that runs as a program. Tool servers you added to Claude Code or Codex yourself keep working, each in its own assistant only.
+- Signing in through the browser works with hosted tool servers that let an app register itself, as Notion's and Linear's do (checked against their real sign-in details, though not yet with a real account). GitHub's does not, so it takes a personal access token instead. Google Drive, Gmail and Calendar have no such hosted server that an app can sign in to by itself, so connectors like claude.ai's for them are not possible here. Tool servers you added to Claude Code or Codex yourself keep working, each in its own assistant only.
 - Tokens typed into a tool server are stored and synced the way conversations are: unencrypted on your disks and on your home network, encrypted over Tailscale. Give a server a token with only the access it needs.
 - On Windows, a tool server started with `npx`, `npm`, `pnpm` or `yarn` is run through `cmd` automatically. This has not been tried on a real PC yet.
 - The phone version is served over plain http on your home network, like sync. Over Tailscale the connection is encrypted. Anyone with the pairing code who can reach the PC can use it fully, so keep the code to yourself. It has been tested in a phone-sized browser window, not yet on a real phone.
@@ -275,7 +277,7 @@ npm run dev
 | `npm run typecheck` | Type checks everything |
 | `npm test` | Unit tests against stand-in services |
 | `npm run build` | Builds the app into `out/` |
-| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 41 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
+| `npm run e2e` | Starts two copies of the built app (a hub and a client) and drives the real windows through 42 checks. With `E2E_NET=1` it also checks that React and Mermaid previews load from the internet, and `E2E_NARROW=1` runs the artifact checks in a narrow window |
 | `npm run dist:mac` | Builds the Mac installers into `release/` |
 | `npm run dist:win` | Builds the Windows installer into `release/` |
 
