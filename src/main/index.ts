@@ -1,10 +1,10 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, shell, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, powerMonitor, shell, type MenuItemConstructorOptions } from 'electron'
 import { randomBytes } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import type { Attachment, Blob, Conversation, Project, ScheduledTask, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
-import { defaultSettings, MAX_FILE_BYTES, newId } from '@shared/types'
+import { defaultSettings, MAC_LOCAL_NETWORK_SETTINGS, MAX_FILE_BYTES, newId } from '@shared/types'
 import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo, type McpInput } from '@shared/ipc'
 import { cleanMcpName, mcpProblem } from '@shared/mcp'
 import { normalizeAccent, normalizeTextSize } from '@shared/theme'
@@ -32,7 +32,7 @@ import { captureSource, captureSources, hideQuick, setQuickShortcut, toggleQuick
 import { cleanSchedule, nextRun } from '@shared/schedule'
 import { applyStartAtLogin, hidesOnClose, showTray, startedHidden } from './background'
 import { checkForUpdate, RELEASE_DOWNLOADS } from './updates'
-import { Updater } from './updater'
+import { shouldRestartForUpdate, Updater } from './updater'
 import { finishedNotice, questionNotice, shouldNotify, type Notice } from './notify'
 
 /** Set by the build on GitHub. Zero for a build made on a developer's machine. */
@@ -115,6 +115,34 @@ async function lookForUpdate(): Promise<void> {
   const found = await checkForUpdate({ version: app.getVersion(), build }, override || undefined, override ? `${new URL(override).origin}/` : RELEASE_DOWNLOADS)
   if (found) updater.offer(found, settings.autoUpdate)
 }
+
+/** Something is running that a restart would cut short. */
+function anythingRunning(): boolean {
+  return store.list<Conversation>('conversation').some((c) => engine.isBusy(c.id) || remote.isBusy(c.id)) || webImporter.isRunning('claude') || webImporter.isRunning('chatgpt')
+}
+
+function windowShown(): boolean {
+  return !!win && !win.isDestroyed() && win.isVisible() && !win.isMinimized()
+}
+
+/** Left by an update that restarted the app while its window was closed, so it comes back closed too. */
+const startHiddenMarker = () => join(app.getPath('userData'), 'updates', 'start-hidden')
+
+/** With automatic updates on, a downloaded update installs once the user has stepped away and nothing is running. */
+function restartForUpdateWhenAway(): void {
+  if (!settings.autoUpdate || !updater.ready) return
+  if (!shouldRestartForUpdate({ ready: true, busy: anythingRunning(), idleSeconds: powerMonitor.getSystemIdleTime(), windowShown: windowShown() })) return
+  if (!windowShown()) {
+    try {
+      writeFileSync(startHiddenMarker(), String(Date.now()))
+    } catch {
+      // It then simply comes back with its window open.
+    }
+  }
+  void updater.apply()
+}
+
+let installingOnQuit = false
 
 /** True when this conversation's assistants run on the hub and this machine is not the hub. */
 function runsOnHub(conversationId: string): boolean {
@@ -718,7 +746,7 @@ const api: Omit<Api, 'on'> = {
     send('hub', hubStatus())
   },
   async openExternal(url) {
-    if (/^https?:\/\//i.test(url)) await shell.openExternal(url)
+    if (/^https?:\/\//i.test(url) || (process.platform === 'darwin' && url === MAC_LOCAL_NETWORK_SETTINGS)) await shell.openExternal(url)
   },
   async openConfig(which) {
     const dir = join(homedir(), which === 'claude' ? '.claude' : '.codex')
@@ -1001,6 +1029,16 @@ app.whenReady().then(async () => {
 
   buildMenu()
   startHidden = !dataOverride && startedHidden(process.argv, app.getLoginItemSettings().wasOpenedAtLogin)
+  // Restarted by an update while its window was closed: stay in the background.
+  try {
+    const marker = startHiddenMarker()
+    if (existsSync(marker)) {
+      if (Date.now() - statSync(marker).mtimeMs < 15 * 60 * 1000) startHidden = true
+      rmSync(marker, { force: true })
+    }
+  } catch {
+    // Not worth failing the start over.
+  }
   createWindow()
   showTray({
     open: showWindow,
@@ -1011,8 +1049,11 @@ app.whenReady().then(async () => {
   void refreshProviders()
   // Local runtimes come and go, and limits reset on their own schedule.
   setInterval(() => void refreshProviders(), 60_000)
+  // New versions are looked for every hour, and when the computer wakes up.
   void lookForUpdate()
-  setInterval(() => void lookForUpdate(), 6 * 60 * 60 * 1000)
+  setInterval(() => void lookForUpdate(), 60 * 60 * 1000)
+  powerMonitor.on('resume', () => setTimeout(() => void lookForUpdate(), 30_000))
+  setInterval(restartForUpdateWhenAway, 60_000)
   tasks = new TaskRunner(
     store,
     {
@@ -1043,7 +1084,16 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (event) => {
+  // A downloaded update installs as the app quits, and the app stays closed.
+  if (!installingOnQuit && !quitting && settings?.autoUpdate && updater?.ready) {
+    installingOnQuit = true
+    event.preventDefault()
+    void updater.apply(false).then((r) => {
+      if (r.error) app.quit()
+    })
+    return
+  }
   quitting = true
   codex?.dispose()
   hubClient?.stop()

@@ -193,7 +193,8 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Read aloud with the system voices, and dictation through a speech-to-text server | Built, tested with a pretend microphone and a stand-in server. Not tried with a real Whisper server. |
 | Automatic failover at a limit (off by default) | Built, tested |
 | Hub stays in the system tray, start at sign-in | Built. The decision logic is tested. Not yet run on a real PC. |
-| Updates that download in the background, are checked against the release's checksum, and install on "Restart to update" | Built, tested. The Mac path was run for real between two packaged versions (`node e2e/update-mac.mjs`). The Windows path runs the installer silently and is unchecked on a real PC. |
+| Updates that download in the background, are checked against the release's checksum, and install by themselves: on quit (the app stays closed), or once the user has been away 10 minutes with nothing running (the app comes back as it was), or on "Restart to update". Checked hourly and on wake. | Built, tested. The Mac path was run for real between two packaged versions (`node e2e/update-mac.mjs`). The Windows path runs the installer silently and is unchecked on a real PC. |
+| On a Mac, a hub that is unreachable only for this app ("host unreachable" to a home address) is shown as macOS Local Network privacy, with a button to that settings page | Built, tested. Found on a real Mac, where macOS never asked. |
 | Renamed to Chaude, keeping the old data folder | Built |
 | Remote work: a conversation typed on one device runs on the hub | Built, tested with two app instances. Not yet run between two real machines. |
 | Choosing the hub's working folder from another device by browsing its folders | Built, tested with two app instances on a Mac. Drive letters and Windows paths are in code only. |

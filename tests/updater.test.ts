@@ -6,7 +6,7 @@ import { createServer } from 'node:http'
 import { join } from 'node:path'
 import type { UpdateInfo } from '@shared/types'
 import { checkForUpdate, pickAsset } from '../src/main/updates'
-import { bundleOf, MAC_SWAP_SCRIPT, macInstallProblem, matches, Updater } from '../src/main/updater'
+import { AWAY_SECONDS, bundleOf, MAC_SWAP_SCRIPT, macInstallProblem, matches, shouldRestartForUpdate, Updater } from '../src/main/updater'
 import { canRunFakes, tempDir } from './helpers'
 
 const cleanup: (() => Promise<void> | void)[] = []
@@ -132,5 +132,40 @@ describe.skipIf(!canRunFakes)('swapping in the new Mac app', () => {
     expect(readFileSync(join(old, 'Contents', 'MacOS', 'Chaude'), 'utf8')).toContain('started-new')
     expect(existsSync(fresh)).toBe(false)
     expect(execFileSync('/bin/ls', [dir]).toString()).not.toMatch(/previous/)
+  })
+
+  it('swaps without opening the app when the user quit', () => {
+    const dir = tempDir()
+    const app = (name: string, marker: string) => {
+      const bin = join(dir, name, 'Contents', 'MacOS')
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(join(bin, 'Chaude'), `#!/bin/sh\necho started-${marker} > "${join(dir, 'launched.txt')}"\n`)
+      chmodSync(join(bin, 'Chaude'), 0o755)
+      return join(dir, name)
+    }
+    const old = app('Chaude.app', 'old')
+    const fresh = app('staging/Chaude.app', 'new')
+    const script = join(dir, 'swap.sh')
+    writeFileSync(script, MAC_SWAP_SCRIPT, { mode: 0o700 })
+    const ended = spawnSync('/usr/bin/true').pid
+    execFileSync('/bin/sh', [script, String(ended), old, fresh, 'Chaude', 'no'])
+    execFileSync('/bin/sleep', ['0.5'])
+    expect(existsSync(join(dir, 'launched.txt'))).toBe(false)
+    expect(readFileSync(join(old, 'Contents', 'MacOS', 'Chaude'), 'utf8')).toContain('started-new')
+  })
+})
+
+describe('when an update restarts the app by itself', () => {
+  const base = { ready: true, busy: false, idleSeconds: AWAY_SECONDS, windowShown: true }
+  it('waits for the user to step away from an open window', () => {
+    expect(shouldRestartForUpdate(base)).toBe(true)
+    expect(shouldRestartForUpdate({ ...base, idleSeconds: 120 })).toBe(false)
+  })
+  it('goes sooner when the app is only in the background', () => {
+    expect(shouldRestartForUpdate({ ...base, idleSeconds: 120, windowShown: false })).toBe(true)
+  })
+  it('never interrupts work, and needs a downloaded update', () => {
+    expect(shouldRestartForUpdate({ ...base, busy: true })).toBe(false)
+    expect(shouldRestartForUpdate({ ...base, ready: false })).toBe(false)
   })
 })

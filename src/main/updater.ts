@@ -8,6 +8,10 @@
 //   opens the new one. If the swap fails, the old app is put back.
 // - Windows: the release's installer is downloaded, checked the same way, and run
 //   silently. It replaces the installed app and opens it again.
+//
+// With automatic updates on, a downloaded update installs by itself: when the
+// user quits the app (it then stays closed), or once the user has stepped away and
+// nothing is running (the app then comes back as it was, see shouldRestartForUpdate).
 
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -49,16 +53,30 @@ export function macInstallProblem(bundle: string | undefined, writable: (dir: st
   return undefined
 }
 
-/** The script that swaps the new app in once the running one has quit, and opens it. */
+/** The script that swaps the new app in once the running one has quit, and opens it unless told not to. */
 export const MAC_SWAP_SCRIPT = `#!/bin/sh
-PID="$1"; OLD="$2"; NEW="$3"; DIRECT="$4"
+PID="$1"; OLD="$2"; NEW="$3"; DIRECT="$4"; RELAUNCH="$5"
 while kill -0 "$PID" 2>/dev/null; do sleep 0.2; done
 BAK="$OLD.previous-$$"
 if mv "$OLD" "$BAK"; then
   if mv "$NEW" "$OLD"; then rm -rf "$BAK"; else mv "$BAK" "$OLD"; fi
 fi
+if [ "$RELAUNCH" = "no" ]; then exit 0; fi
 if [ -n "$DIRECT" ]; then "$OLD/Contents/MacOS/$DIRECT" >/dev/null 2>&1 & else open "$OLD"; fi
 `
+
+/** How long the user has to be away before an update restarts the app, in seconds. */
+export const AWAY_SECONDS = 10 * 60
+
+/**
+ * Whether now is a good moment to restart into a downloaded update: nothing is
+ * running, and the user has stepped away (or the window is not open at all, as on
+ * a hub that sits in the background).
+ */
+export function shouldRestartForUpdate(o: { ready: boolean; busy: boolean; idleSeconds: number; windowShown: boolean }): boolean {
+  if (!o.ready || o.busy) return false
+  return o.idleSeconds >= (o.windowShown ? AWAY_SECONDS : 60)
+}
 
 /** Whether a downloaded file is the one GitHub published: by its checksum, or by its size when there is none. */
 export function matches(asset: ReleaseAsset, sha256: string, size: number): boolean {
@@ -161,14 +179,19 @@ export class Updater {
     this.set({ state: 'error', message })
   }
 
-  /** Downloads if needed, installs, and restarts into the new version. */
-  async apply(): Promise<{ error?: string }> {
+  /** A downloaded, checked update is waiting to be installed. */
+  get ready(): boolean {
+    return this.info?.state === 'ready' && !!this.file && existsSync(this.file)
+  }
+
+  /** Downloads if needed, installs, and restarts into the new version (or, with relaunch false, leaves it closed). */
+  async apply(relaunch = true): Promise<{ error?: string }> {
     try {
       if (!this.info?.canInstall) return { error: this.info?.message ?? 'There is no update to install.' }
       await this.download()
       if (!this.file) return { error: this.info?.message ?? 'The update could not be downloaded.' }
-      if (this.o.platform === 'darwin') await this.installMac(this.file)
-      else if (this.o.platform === 'win32') this.installWindows(this.file)
+      if (this.o.platform === 'darwin') await this.installMac(this.file, relaunch)
+      else if (this.o.platform === 'win32') this.installWindows(this.file, relaunch)
       this.o.quit()
       return {}
     } catch (e) {
@@ -178,7 +201,7 @@ export class Updater {
     }
   }
 
-  private async installMac(zip: string): Promise<void> {
+  private async installMac(zip: string, relaunch: boolean): Promise<void> {
     const current = bundleOf(this.o.exePath)
     if (!current) throw new Error('The app is not in an app bundle.')
     const staging = mkdtempSync(join(this.o.dir, 'staging-'))
@@ -195,11 +218,11 @@ export class Updater {
     writeFileSync(script, MAC_SWAP_SCRIPT, { mode: 0o700 })
     // Tests run the app with their own data folder, and the new app has to start with it too.
     const direct = process.env.CHAUDECAL_USER_DATA ? basename(this.o.exePath) : ''
-    spawn('/bin/sh', [script, String(process.pid), current, fresh, direct], { detached: true, stdio: 'ignore', env: process.env }).unref()
+    spawn('/bin/sh', [script, String(process.pid), current, fresh, direct, relaunch ? 'yes' : 'no'], { detached: true, stdio: 'ignore', env: process.env }).unref()
   }
 
-  private installWindows(installer: string): void {
-    // The installer's own options: silent, an update of what is there, then start the app.
-    spawn(installer, ['--updated', '/S', '--force-run'], { detached: true, stdio: 'ignore' }).unref()
+  private installWindows(installer: string, relaunch: boolean): void {
+    // The installer's own options: silent, an update of what is there, then (unless the user quit) start the app.
+    spawn(installer, ['--updated', '/S', ...(relaunch ? ['--force-run'] : [])], { detached: true, stdio: 'ignore' }).unref()
   }
 }

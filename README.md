@@ -107,7 +107,7 @@ xattr -dr com.apple.quarantine "/Applications/Chaude.app"
 
 **Windows.** SmartScreen shows "Windows protected your PC". Click "More info", then "Run anyway".
 
-**After that, it updates itself.** When a new version is published, the app downloads it in the background and checks it against the checksum on the release. "Restart to update" then appears in the sidebar; click it and the app installs the new version and opens again. Nothing is installed until you click. To have it ask before downloading, turn off "Download updates automatically" under Settings, "General". On a Mac, keep the app in your Applications folder: an app opened straight from the downloaded disk image cannot replace itself.
+**After that, it updates itself.** The app looks for a new version every hour and when the computer wakes up. It downloads one in the background and checks it against the checksum on the release. It then installs it by itself: when you quit Chaude, or when you have been away for 10 minutes and nothing is running. After an update while you were away, Chaude comes back as it was, so a hub that sits in the background stays in the background. To update right away, click "Restart to update" in the sidebar. To install updates only when you click, turn off "Update automatically" under Settings, "General". On a Mac, keep the app in your Applications folder: an app opened straight from the downloaded disk image cannot replace itself. Versions before 0.12 cannot update themselves: install the newest one from the release page once.
 
 **Coming from Chaudecal AI?** Install Chaude the same way. It finds your existing chats, settings and website sign-ins by itself. Then delete the old Chaudecal AI app. On Windows, uninstall Chaudecal AI from Settings, Apps, if it is still listed.
 
@@ -143,6 +143,8 @@ On the Mac, open Settings, then "Sync and hub".
 - **Home and away:** use the PC's Tailscale address instead, for example `http://my-pc:47600` or `http://100.x.y.z:47600`. Tailscale works on your home network too, so this one address covers both cases.
 
 The status line shows when the two machines are in sync. Changes made offline are sent the next time the Mac reaches the hub.
+
+**If the Mac says the hub is not reachable but the PC says it is running,** macOS is probably keeping Chaude off your home network. The Mac is supposed to ask the first time, but it does not always ask an app without a paid signature. Open System Settings, Privacy & Security, Local Network, and turn on Chaude. Chaude spots this case and shows an "Open settings" button that goes straight there.
 
 ### 4. Local AI on the PC
 

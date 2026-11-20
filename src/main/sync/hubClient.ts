@@ -15,9 +15,40 @@ export function normalizeHubUrl(raw: string): string {
   return url
 }
 
+/** An address on the home network, as opposed to the internet or a Tailscale address. */
+export function onHomeNetwork(url: string): boolean {
+  let host: string
+  try {
+    host = new URL(url).hostname
+  } catch {
+    return false
+  }
+  if (/^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true
+  if (/\.local$/i.test(host)) return true
+  // A bare machine name, like my-pc, is found on the home network.
+  return !host.includes('.') && !host.includes(':') && host !== 'localhost'
+}
+
+/**
+ * Whether a failed connection looks like macOS Local Network privacy at work: the
+ * Mac refuses to let this app reach a device on the home network, and Node sees
+ * that as "host unreachable", even though other apps reach it fine.
+ */
+export function localNetworkBlocked(error: unknown, url: string, platform: string = process.platform): boolean {
+  if (platform !== 'darwin' || !onHomeNetwork(url)) return false
+  const codes: string[] = []
+  for (let e: unknown = error, depth = 0; e && depth < 4; e = (e as { cause?: unknown }).cause, depth++) {
+    const code = (e as { code?: unknown }).code
+    if (typeof code === 'string') codes.push(code)
+    if (e instanceof Error && /EHOSTUNREACH/.test(e.message)) codes.push('EHOSTUNREACH')
+  }
+  return codes.includes('EHOSTUNREACH')
+}
+
 export class HubClient implements HubLink {
   private connected = false
   private detail = 'Not connected'
+  private blocked = false
   private lastSyncAt?: number
   private running = false
   private syncing = false
@@ -49,7 +80,15 @@ export class HubClient implements HubLink {
   }
 
   status(): HubStatus {
-    return { role: this.running ? 'client' : 'off', connected: this.connected, url: this.url(), detail: this.detail, lastSyncAt: this.lastSyncAt, pending: this.store.dirtyCount() }
+    return {
+      role: this.running ? 'client' : 'off',
+      connected: this.connected,
+      url: this.url(),
+      detail: this.detail,
+      lastSyncAt: this.lastSyncAt,
+      pending: this.store.dirtyCount(),
+      ...(this.blocked && !this.connected ? { blocked: 'local-network' as const } : {})
+    }
   }
 
   start(): void {
@@ -108,11 +147,15 @@ export class HubClient implements HubLink {
       }
       await this.sync(true)
       this.backoff = 2000
+      this.blocked = false
       this.setState(true, `Connected to ${info.name ?? 'hub'}`)
       void this.listen()
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      const friendly = /401|unauthorized/i.test(message)
+      this.blocked = localNetworkBlocked(e, url)
+      const friendly = this.blocked
+        ? 'macOS is keeping Chaude off your home network. Turn on Chaude in System Settings, Privacy & Security, Local Network.'
+        : /401|unauthorized/i.test(message)
         ? 'The hub rejected the pairing code.'
         : /fetch failed|timeout|aborted|ECONN|ENOTFOUND|EHOST/i.test(message)
           ? 'Hub not reachable. Working offline, changes will sync when it is back.'

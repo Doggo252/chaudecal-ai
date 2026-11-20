@@ -445,7 +445,12 @@ export interface HubStatus {
   pending: number
   /** Addresses other devices can use, shown on the hub. */
   addresses?: string[]
+  /** On a Mac client: macOS is keeping the app off the home network (Local Network privacy). */
+  blocked?: 'local-network'
 }
+
+/** The page of the Mac's System Settings where an app is let onto the home network. */
+export const MAC_LOCAL_NETWORK_SETTINGS = 'x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork'
 
 /** A newer build published on GitHub. */
 export interface UpdateInfo {

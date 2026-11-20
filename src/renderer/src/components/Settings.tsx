@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DeepPartial, WebImportStatus } from '@shared/ipc'
 import type { DiscoveredHub, LocalEndpoint, ProviderChoice, ProviderId, RunMode, Settings } from '@shared/types'
-import { PROVIDER_LABEL, newId } from '@shared/types'
+import { MAC_LOCAL_NETWORK_SETTINGS, PROVIDER_LABEL, newId } from '@shared/types'
 import { formatTokens } from '@shared/tokens'
 import { ACCENT_PRESETS, TEXT_SIZES, accentColor } from '@shared/theme'
 import { formatReset } from '@shared/usage'
@@ -206,14 +206,17 @@ function General() {
         <Row title="Start when I sign in to this computer" sub="Starts quietly in the background. Useful on the hub PC.">
           <Toggle checked={s.startAtLogin} onChange={(v) => save({ startAtLogin: v })} label="Start when I sign in to this computer" />
         </Row>
-        <Row title="Tell me about new versions" sub="Checks the project's GitHub page a few times a day.">
-          <Toggle checked={s.checkForUpdates} onChange={(v) => save({ checkForUpdates: v })} label="Tell me about new versions" />
+        <Row title="Look for new versions" sub="Checks every hour, and when the computer wakes up.">
+          <Toggle checked={s.checkForUpdates} onChange={(v) => save({ checkForUpdates: v })} label="Look for new versions" />
         </Row>
         <Row title="Quick ask from anywhere" sub={`${navigator.platform.toLowerCase().includes('mac') ? 'Option' : 'Alt'}+Space opens a small box over whatever you are doing. Type a question and press Enter: it starts a new chat here.`}>
           <Toggle checked={s.quickAsk} onChange={(v) => save({ quickAsk: v })} label="Quick ask from anywhere" testId="quick-ask-toggle" />
         </Row>
-        <Row title="Download updates automatically" sub="A new version is downloaded in the background and checked against the release. Then &quot;Restart to update&quot; appears in the sidebar. Nothing is installed until you click it.">
-          <Toggle checked={s.autoUpdate} onChange={(v) => save({ autoUpdate: v })} label="Download updates automatically" testId="auto-update" />
+        <Row
+          title="Update automatically"
+          sub="A new version downloads in the background and is checked against the release. It installs when you quit Chaude, or when you have been away for 10 minutes and nothing is running, and Chaude then comes back as it was. To update right away, click &quot;Restart to update&quot; in the sidebar."
+        >
+          <Toggle checked={s.autoUpdate} onChange={(v) => save({ autoUpdate: v })} label="Update automatically" testId="auto-update" />
         </Row>
       </div>
     </>
@@ -554,6 +557,16 @@ function Sync() {
                 </button>
               </div>
             </Row>
+            {hub.blocked === 'local-network' && (
+              <Row
+                title="Let Chaude onto your home network"
+                sub="Your Mac asks before an app may reach other devices at home, and Chaude does not have that yet. Open the settings, turn on Chaude, then press Sync now. If Chaude is not in the list, quit Chaude, open it again, and choose Allow when the Mac asks."
+              >
+                <button type="button" className="btn btn-small" data-testid="open-local-network" onClick={() => void window.api.openExternal(MAC_LOCAL_NETWORK_SETTINGS)}>
+                  Open settings
+                </button>
+              </Row>
+            )}
             <Row title="Find the hub on this network" sub="Works at home. Away from home, type the Tailscale address instead." stack>
               <div className="inline">
                 <button
@@ -575,7 +588,7 @@ function Sync() {
                     Use {h.name}
                   </button>
                 ))}
-                {found && !found.length && <span className="muted">No hub answered.</span>}
+                {found && !found.length && <span className="muted">{hub.blocked === 'local-network' ? 'No hub answered. Let Chaude onto your home network first (see above).' : 'No hub answered.'}</span>}
               </div>
             </Row>
           </div>
