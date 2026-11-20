@@ -3,6 +3,29 @@
 // what it understands and ignores the rest. Pure.
 
 import { chatgptMessages } from './webImport'
+import type { ModelInfo } from './models'
+
+/**
+ * chatgpt.com's list of models for the account (its /backend-api/models answer):
+ * each with a title and a one-line description. Older ones are kept apart, the way
+ * the site tucks them under "Legacy models".
+ */
+export function chatgptWebModels(json: unknown): ModelInfo[] {
+  const o = (json ?? {}) as { models?: unknown[]; default_model_slug?: string }
+  const out: ModelInfo[] = []
+  for (const raw of Array.isArray(o.models) ? o.models : []) {
+    const m = (raw ?? {}) as Record<string, unknown>
+    const id = typeof m.slug === 'string' ? m.slug : ''
+    if (!id) continue
+    const tags = Array.isArray(m.tags) ? (m.tags as unknown[]).map(String) : []
+    if (tags.includes('hidden')) continue
+    const info: ModelInfo = { id, name: typeof m.title === 'string' && m.title ? m.title : id, description: typeof m.description === 'string' ? m.description : '' }
+    if (tags.some((t) => /legacy|deprecated/i.test(t)) || /legacy/i.test(info.description)) info.legacy = true
+    if (o.default_model_slug === id) info.isDefault = true
+    out.push(info)
+  }
+  return out
+}
 
 /** The parent of the first message in a new claude.ai chat. */
 export const CLAUDE_ROOT = '00000000-0000-4000-8000-000000000000'

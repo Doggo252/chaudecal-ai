@@ -7,9 +7,9 @@
 // the site changed since. A chat deleted in the app stays deleted, and a title
 // changed in the app is kept.
 
-import type { Conversation, Message } from '@shared/types'
+import type { Conversation, Message, Project } from '@shared/types'
 import type { WebImportStatus, WebService } from '@shared/ipc'
-import { conversationIdFor, messageIdFor, READER_VERSION, siteApi, summaryFromChat, type ImportedChat, type RemoteSummary } from '@shared/webImport'
+import { conversationIdFor, messageIdFor, projectIdFor, READER_VERSION, siteApi, summaryFromChat, type ImportedChat, type RemoteProject, type RemoteSummary } from '@shared/webImport'
 import type { Store } from './store'
 
 export type Requester = (service: WebService, path: string, headers?: Record<string, string>) => Promise<{ status: number; body: string }>
@@ -118,6 +118,16 @@ export class WebImporter {
       of = summaries.length
       this.report({ ...started, of })
 
+      // The site's projects, so imported chats land in them.
+      if (api.projects) {
+        try {
+          for (const p of await api.projects(fetch, session, () => sleep(this.options.pauseMs))) this.saveProject(service, p)
+        } catch (e) {
+          // Projects are a bonus. Only a lost sign-in stops the run.
+          if (e instanceof SignedOut) throw e
+        }
+      }
+
       let lastReport = 0
       const known = this.index(service)
       for (const summary of summaries) {
@@ -126,6 +136,14 @@ export class WebImporter {
         const existing = this.store.get<Conversation>('conversation', id)
         const deleted = this.store.isDeleted('conversation', id)
         const current = existing && existing.source?.remoteUpdatedAt === summary.updatedAt && (existing.source.reader ?? 1) >= READER_VERSION[service]
+        // A chat already here only needs its project, which the list of chats already says.
+        if (current && existing && summary.projectId && !existing.projectId) {
+          const projectId = projectIdFor(service, summary.projectId)
+          if (this.store.get('project', projectId)) {
+            this.store.putMany([{ kind: 'conversation', id, data: { ...existing, projectId } }])
+            changed++
+          }
+        }
         if (!deleted && !current) {
           const chat = api.readChat(await fetch(api.chatPath(session, summary.remoteId)), summary, this.options.origin(service))
           if (chat.messages.length && this.save(chat, id)) changed++
@@ -170,6 +188,25 @@ export class WebImporter {
     return this.save(chat, this.index(service).get(remoteId))
   }
 
+  /** Writes one of the site's projects as a project in the app. One deleted in the app stays deleted. */
+  saveProject(service: WebService, p: RemoteProject): void {
+    const id = projectIdFor(service, p.remoteId)
+    if (this.store.isDeleted('project', id)) return
+    const existing = this.store.get<Project>('project', id)
+    const files = p.files.length
+      ? p.files.map((f, i) => ({ id: `${id}-f${i}`, name: f.name, mime: 'text/plain', size: f.text.length, kind: 'text' as const, text: f.text }))
+      : (existing?.files ?? [])
+    const project: Project = {
+      id,
+      name: p.name,
+      instructions: p.instructions || existing?.instructions || '',
+      files,
+      createdAt: existing?.createdAt ?? (p.createdAt || Date.now()),
+      updatedAt: Math.max(existing?.updatedAt ?? 0, p.updatedAt || 0)
+    }
+    this.store.putMany([{ kind: 'project', id, data: project }])
+  }
+
   /** Writes one chat. Gives back whether anything changed. */
   save(chat: ImportedChat, knownId?: string): boolean {
     const id = knownId ?? this.index(chat.service).get(chat.remoteId) ?? conversationIdFor(chat.service, chat.remoteId)
@@ -179,9 +216,12 @@ export class WebImporter {
     const renamed = existing && existing.source && existing.title !== existing.source.remoteTitle
     const title = renamed ? existing.title : chat.title
     const source = { service: chat.service, remoteId: chat.remoteId, url: chat.url, remoteUpdatedAt: chat.updatedAt, remoteTitle: chat.title, reader: READER_VERSION[chat.service] }
+    // A chat in one of the site's projects goes in that project here, unless the user moved it.
+    const siteProject = chat.projectId ? projectIdFor(chat.service, chat.projectId) : undefined
+    const projectId = existing?.projectId && !existing.projectId.startsWith(`web-${chat.service}-p-`) ? existing.projectId : siteProject && !this.store.isDeleted('project', siteProject) ? siteProject : existing?.projectId
     const conv: Conversation = existing
-      ? { ...existing, title, source, updatedAt: Math.max(existing.updatedAt, chat.updatedAt) }
-      : { id, title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, provider: chat.service, models: {}, mode: 'chat', source, kind: 'chat' }
+      ? { ...existing, title, source, updatedAt: Math.max(existing.updatedAt, chat.updatedAt), ...(projectId ? { projectId } : {}) }
+      : { id, title, createdAt: chat.createdAt, updatedAt: chat.updatedAt, provider: chat.service, models: {}, mode: 'chat', source, kind: 'chat', ...(projectId ? { projectId } : {}) }
 
     const before = new Map(this.store.messages(id).map((m) => [m.id, m]))
     const items: { kind: 'conversation' | 'message'; id: string; data: unknown }[] = [{ kind: 'conversation', id, data: conv }]

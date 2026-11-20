@@ -292,6 +292,7 @@ const NOT_FROM_BROWSER = new Set([
   'webSignedIn',
   'webSignIn',
   'webSignOut',
+  'webModels',
   'webShow',
   'webHide',
   'webNavigate',
@@ -849,6 +850,9 @@ const api: Omit<Api, 'on'> = {
   },
   async webSignOut(service) {
     await webTabs.signOut(service)
+  },
+  async webModels(service) {
+    return webChat.models(service)
   },
   async webImport(service) {
     if (service !== 'claude' && service !== 'chatgpt') throw new Error('Unknown site.')

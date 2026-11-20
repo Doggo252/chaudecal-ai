@@ -12,6 +12,18 @@ export interface RemoteSummary {
   title: string
   createdAt: number
   updatedAt: number
+  /** The site's project the chat is in, if any. */
+  projectId?: string
+}
+
+/** A project on the site: its instructions and the files kept in it. */
+export interface RemoteProject {
+  remoteId: string
+  name: string
+  instructions: string
+  files: { name: string; text: string }[]
+  createdAt: number
+  updatedAt: number
 }
 
 export interface ImportedMessage {
@@ -44,6 +56,8 @@ export interface SiteApi {
   list(fetch: (path: string) => Promise<unknown>, session: SiteSession, pause: () => Promise<void>): Promise<RemoteSummary[]>
   chatPath(session: SiteSession, remoteId: string): string
   readChat(json: unknown, summary: RemoteSummary, origin: string): ImportedChat
+  /** The account's projects, with their instructions and files. */
+  projects?(fetch: (path: string) => Promise<unknown>, session: SiteSession, pause: () => Promise<void>): Promise<RemoteProject[]>
 }
 
 export function conversationIdFor(service: Site, remoteId: string): string {
@@ -52,6 +66,10 @@ export function conversationIdFor(service: Site, remoteId: string): string {
 
 export function messageIdFor(service: Site, remoteId: string): string {
   return `web-${service}-m-${remoteId}`
+}
+
+export function projectIdFor(service: Site, remoteId: string): string {
+  return `web-${service}-p-${remoteId}`
 }
 
 const obj = (v: unknown): Json => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Json) : {})
@@ -184,7 +202,15 @@ function chatgptSummary(item: unknown): RemoteSummary | undefined {
   const it = obj(item)
   const remoteId = str(it.id)
   if (!remoteId || it.is_temporary_chat) return undefined
-  return { remoteId, title: str(it.title) || 'Untitled', createdAt: toMillis(it.create_time), updatedAt: toMillis(it.update_time) || toMillis(it.create_time) }
+  const gizmo = str(it.gizmo_id)
+  return {
+    remoteId,
+    title: str(it.title) || 'Untitled',
+    createdAt: toMillis(it.create_time),
+    updatedAt: toMillis(it.update_time) || toMillis(it.create_time),
+    // Projects are gizmos whose ids start with g-p-. Other gizmos are custom GPTs.
+    ...(gizmo.startsWith('g-p-') ? { projectId: gizmo } : {})
+  }
 }
 
 const PAGE = 50
@@ -199,13 +225,13 @@ export const chatgpt: SiteApi = {
   async list(fetch, _session, pause) {
     const out: RemoteSummary[] = []
     const seen = new Set<string>()
-    const take = (items: unknown[]) => {
+    const take = (items: unknown[], project?: string) => {
       let fresh = 0
       for (const item of items) {
         const s = chatgptSummary(item)
         if (s && !seen.has(s.remoteId)) {
           seen.add(s.remoteId)
-          out.push(s)
+          out.push(project ? { ...s, projectId: project } : s)
           fresh++
         }
       }
@@ -230,7 +256,7 @@ export const chatgpt: SiteApi = {
         for (let page = 0; page < MAX_PAGES && cursor; page++) {
           const res = obj(await fetch(`/backend-api/gizmos/${encodeURIComponent(project)}/conversations?cursor=${encodeURIComponent(cursor)}&limit=${PAGE}`))
           const items = arr(res.items)
-          if (!items.length || !take(items)) break
+          if (!items.length || !take(items, project)) break
           cursor = res.cursor === null || res.cursor === undefined ? '' : String(res.cursor)
           await pause()
         }
@@ -244,6 +270,26 @@ export const chatgpt: SiteApi = {
   },
   chatPath(_session, remoteId) {
     return `/backend-api/conversation/${encodeURIComponent(remoteId)}`
+  },
+  async projects(fetch) {
+    // ChatGPT keeps a project's name and instructions with it. Its files cannot be read back.
+    const sidebar = obj(await fetch('/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0&cursor='))
+    const out: RemoteProject[] = []
+    for (const item of arr(sidebar.items)) {
+      const g = obj(obj(obj(item).gizmo).gizmo)
+      const id = str(g.id)
+      if (!id) continue
+      const display = obj(g.display)
+      out.push({
+        remoteId: id,
+        name: str(display.name) || str(g.name) || 'Project',
+        instructions: str(g.instructions),
+        files: [],
+        createdAt: toMillis(g.created_at),
+        updatedAt: toMillis(g.updated_at) || toMillis(g.created_at)
+      })
+    }
+    return out
   },
   readChat(json, summary, origin) {
     const chat = obj(json)
@@ -387,7 +433,8 @@ function claudeSummary(item: unknown): RemoteSummary | undefined {
   if (!remoteId) return undefined
   // A chat with no messages yet has no leaf.
   if ('current_leaf_message_uuid' in it && (!it.current_leaf_message_uuid || EMPTY_LEAF.test(str(it.current_leaf_message_uuid)))) return undefined
-  return { remoteId, title: str(it.name) || 'Untitled', createdAt: toMillis(it.created_at), updatedAt: toMillis(it.updated_at) || toMillis(it.created_at) }
+  const project = str(it.project_uuid) || str(obj(it.project).uuid)
+  return { remoteId, title: str(it.name) || 'Untitled', createdAt: toMillis(it.created_at), updatedAt: toMillis(it.updated_at) || toMillis(it.created_at), ...(project ? { projectId: project } : {}) }
 }
 
 export const claude: SiteApi = {
@@ -431,6 +478,31 @@ export const claude: SiteApi = {
   chatPath(session, remoteId) {
     return `/api/organizations/${encodeURIComponent(session.org ?? '')}/chat_conversations/${encodeURIComponent(remoteId)}?tree=True&rendering_mode=messages&render_all_tools=true`
   },
+  async projects(fetch, session, pause) {
+    const base = `/api/organizations/${encodeURIComponent(session.org ?? '')}/projects`
+    const listed = await fetch(`${base}?include_harmony_projects=true&limit=200`)
+    const items = (Array.isArray(listed) ? listed : arr(obj(listed).data)).map(obj)
+    const out: RemoteProject[] = []
+    for (const p of items) {
+      const id = str(p.uuid)
+      if (!id || p.archived_at) continue
+      // The instructions and files come with the project's own page of data.
+      let instructions = str(p.prompt_template)
+      let files: { name: string; text: string }[] = []
+      try {
+        if (!instructions) instructions = str(obj(await fetch(`${base}/${encodeURIComponent(id)}`)).prompt_template)
+        files = arr(await fetch(`${base}/${encodeURIComponent(id)}/docs`))
+          .map(obj)
+          .map((d) => ({ name: str(d.file_name) || 'document.txt', text: str(d.content).slice(0, 200_000) }))
+          .filter((d) => d.text)
+      } catch (e) {
+        if (e instanceof Error && e.name === 'SignedOut') throw e
+      }
+      out.push({ remoteId: id, name: str(p.name) || 'Project', instructions, files, createdAt: toMillis(p.created_at), updatedAt: toMillis(p.updated_at) || toMillis(p.created_at) })
+      await pause()
+    }
+    return out
+  },
   readChat(json, summary, origin) {
     const chat = obj(json)
     return {
@@ -448,6 +520,10 @@ export const siteApi: Record<Site, SiteApi> = { claude, chatgpt }
 /** A chat's name and times, from the chat itself rather than from the list of chats. */
 export function summaryFromChat(service: Site, json: unknown, remoteId: string): RemoteSummary {
   const c = obj(json)
-  if (service === 'claude') return { remoteId, title: str(c.name) || 'Untitled', createdAt: toMillis(c.created_at), updatedAt: toMillis(c.updated_at) || toMillis(c.created_at) }
-  return { remoteId, title: str(c.title) || 'Untitled', createdAt: toMillis(c.create_time), updatedAt: toMillis(c.update_time) || toMillis(c.create_time) }
+  if (service === 'claude') {
+    const project = str(c.project_uuid) || str(obj(c.project).uuid)
+    return { remoteId, title: str(c.name) || 'Untitled', createdAt: toMillis(c.created_at), updatedAt: toMillis(c.updated_at) || toMillis(c.created_at), ...(project ? { projectId: project } : {}) }
+  }
+  const gizmo = str(c.gizmo_id)
+  return { remoteId, title: str(c.title) || 'Untitled', createdAt: toMillis(c.create_time), updatedAt: toMillis(c.update_time) || toMillis(c.create_time), ...(gizmo.startsWith('g-p-') ? { projectId: gizmo } : {}) }
 }

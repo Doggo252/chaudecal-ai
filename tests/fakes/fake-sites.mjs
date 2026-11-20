@@ -116,7 +116,9 @@ export function makeSites() {
       ]
     }
   }
-  const claudeItem = (id) => ({ uuid: id, name: claudeChats[id].name, created_at: claudeChats[id].created_at, updated_at: claudeChats[id].updated_at, current_leaf_message_uuid: claudeChats[id].current_leaf_message_uuid })
+  const claudeItem = (id) => ({ uuid: id, name: claudeChats[id].name, created_at: claudeChats[id].created_at, updated_at: claudeChats[id].updated_at, current_leaf_message_uuid: claudeChats[id].current_leaf_message_uuid, ...(id === 'c-garden' ? { project_uuid: 'p-garden' } : {}) })
+  // One Claude project, with instructions and a file. The garden chat is in it.
+  const claudeProjects = { 'p-garden': { uuid: 'p-garden', name: 'Gardening', created_at: iso(T), updated_at: iso(T + 10), prompt_template: 'Use metric units.', docs: [{ uuid: 'd1', file_name: 'soil.md', content: 'The soil is loam.' }] } }
   const emptyClaude = { uuid: 'c-empty', name: 'Untitled', created_at: iso(T), updated_at: iso(T), current_leaf_message_uuid: '00000000-0000-0000-0000-000000000000' }
 
   const json = (body, status = 200) => ({ status, body: JSON.stringify(body) })
@@ -222,7 +224,7 @@ export function makeSites() {
         const limit = Number(url.searchParams.get('limit') ?? 28)
         return json({ items: ids.slice(offset, offset + limit).map(chatgptItem), total: ids.length, limit, offset })
       }
-      if (url.pathname === '/backend-api/gizmos/snorlax/sidebar') return json({ items: [{ gizmo: { gizmo: { id: 'g-p-1' } } }], cursor: null })
+      if (url.pathname === '/backend-api/gizmos/snorlax/sidebar') return json({ items: [{ gizmo: { gizmo: { id: 'g-p-1', display: { name: 'Holiday plans' }, instructions: 'Keep it cheap.' } } }], cursor: null })
       if (url.pathname === '/backend-api/gizmos/g-p-1/conversations') return json(url.searchParams.get('cursor') === '0' ? { items: [chatgptItem('g-project')], cursor: 'next-abc' } : { items: [], cursor: null })
       const m = /^\/backend-api\/conversation\/([^/]+)$/.exec(url.pathname)
       if (m && chatgptChats[m[1]]) return json(chatgptChats[m[1]])
@@ -236,6 +238,9 @@ export function makeSites() {
       const limit = Number(url.searchParams.get('limit') ?? 50)
       return json({ data: all.slice(offset, offset + limit), has_more: offset + limit < all.length })
     }
+    if (url.pathname === '/api/organizations/org-1/projects') return json(Object.values(claudeProjects).map(({ docs, prompt_template, ...p }) => p))
+    const pr = /^\/api\/organizations\/org-1\/projects\/([^/]+)(\/docs)?$/.exec(url.pathname)
+    if (pr && claudeProjects[pr[1]]) return json(pr[2] ? claudeProjects[pr[1]].docs : { uuid: pr[1], name: claudeProjects[pr[1]].name, prompt_template: claudeProjects[pr[1]].prompt_template })
     const c = /^\/api\/organizations\/org-1\/chat_conversations\/([^/]+)$/.exec(url.pathname)
     if (c && claudeChats[c[1]]) return json(claudeChats[c[1]])
     return json({ error: 'not found' }, 404)

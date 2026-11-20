@@ -42,3 +42,21 @@ describe('reading replies from the sites', () => {
     expect(chatgptReplyState(chat('finished_successfully', 'Old answer'), sent + 3_600_000).started).toBe(false)
   })
 })
+
+describe("chatgpt.com's models", () => {
+  it('reads names and descriptions, hides hidden ones and keeps older ones apart', async () => {
+    const { chatgptWebModels } = await import('../src/shared/webChat')
+    const list = chatgptWebModels({
+      default_model_slug: 'gpt-6-2',
+      models: [
+        { slug: 'gpt-6-2', title: 'GPT-6.2', description: 'Our smartest model', tags: [] },
+        { slug: 'gpt-6-2-thinking', title: 'GPT-6.2 Thinking', description: 'Thinks longer for better answers', tags: [] },
+        { slug: 'gpt-4o', title: 'GPT-4o', description: 'Legacy model', tags: ['legacy'] },
+        { slug: 'internal', title: 'Internal', tags: ['hidden'] }
+      ]
+    })
+    expect(list.map((m) => m.id)).toEqual(['gpt-6-2', 'gpt-6-2-thinking', 'gpt-4o'])
+    expect(list[0]).toMatchObject({ name: 'GPT-6.2', description: 'Our smartest model', isDefault: true })
+    expect(list[2].legacy).toBe(true)
+  })
+})

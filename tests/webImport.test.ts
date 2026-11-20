@@ -170,3 +170,33 @@ describe('bringing chats in', () => {
     expect(sites.state.requests.filter((r) => r === 'claude /api/organizations')).toHaveLength(1)
   })
 })
+
+describe('projects from the sites', () => {
+  it('brings in Claude and ChatGPT projects and puts their chats in them', async () => {
+    const { store, importer } = setup()
+    await importer.run('claude')
+    await importer.run('chatgpt')
+    const projects = store.list<any>('project')
+    const garden = projects.find((p) => p.id === 'web-claude-p-p-garden')
+    expect(garden).toMatchObject({ name: 'Gardening', instructions: 'Use metric units.' })
+    expect(garden.files[0]).toMatchObject({ name: 'soil.md', text: 'The soil is loam.' })
+    expect(projects.find((p) => p.id === 'web-chatgpt-p-g-p-1')).toMatchObject({ name: 'Holiday plans', instructions: 'Keep it cheap.' })
+    const convs = store.list<any>('conversation')
+    expect(convs.find((c) => c.source?.remoteId === 'c-garden').projectId).toBe('web-claude-p-p-garden')
+    expect(convs.find((c) => c.source?.remoteId === 'g-project').projectId).toBe('web-chatgpt-p-g-p-1')
+    expect(convs.find((c) => c.source?.remoteId === 'c-hello').projectId).toBeUndefined()
+  })
+})
+
+describe('projects for chats brought in before', () => {
+  it('puts an unchanged chat in its project without fetching it again', async () => {
+    const { store, importer, sites } = setup()
+    await importer.run('claude')
+    const id = store.list<any>('conversation').find((c) => c.source?.remoteId === 'c-garden').id
+    store.put('conversation', id, { ...store.get<any>('conversation', id), projectId: undefined })
+    const before = sites.state.requests.filter((r) => r.includes('chat_conversations/c-garden')).length
+    await importer.run('claude')
+    expect(store.get<any>('conversation', id).projectId).toBe('web-claude-p-p-garden')
+    expect(sites.state.requests.filter((r) => r.includes('chat_conversations/c-garden')).length).toBe(before)
+  })
+})

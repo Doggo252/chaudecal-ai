@@ -10,7 +10,8 @@
 
 import { randomUUID } from 'node:crypto'
 import type { WebService } from '@shared/ipc'
-import { CLAUDE_ROOT, chatgptReplyState, claudeStreamEvent, sseReader, type ClaudeStreamState } from '@shared/webChat'
+import { CLAUDE_ROOT, chatgptReplyState, chatgptWebModels, claudeStreamEvent, sseReader, type ClaudeStreamState } from '@shared/webChat'
+import type { ModelInfo } from '@shared/models'
 import { siteApi } from '@shared/webImport'
 import type { WebTabs } from './webtabs'
 
@@ -20,6 +21,8 @@ export interface WebSendInput {
   remoteId?: string
   /** The site's id of the message this one answers (claude.ai). */
   parentId?: string
+  /** The site's project a new chat starts in. */
+  projectId?: string
   text: string
   model?: string
   signal: AbortSignal
@@ -60,6 +63,23 @@ export class WebChat {
     }
   }
 
+  private modelCache = new Map<WebService, { at: number; models: ModelInfo[] }>()
+
+  /** The models the site offers this account, for its regular chats. Kept for an hour. */
+  async models(service: WebService): Promise<ModelInfo[]> {
+    const cached = this.modelCache.get(service)
+    if (cached && Date.now() - cached.at < 3600_000) return cached.models
+    // claude.ai's list of models is not read yet; its chats use the site's default.
+    if (service !== 'chatgpt') return []
+    try {
+      const models = chatgptWebModels(await this.get('chatgpt', '/backend-api/models?history_and_training_disabled=false', await this.chatgptHeaders()))
+      this.modelCache.set(service, { at: Date.now(), models })
+      return models
+    } catch {
+      return cached?.models ?? []
+    }
+  }
+
   /** Sends one message and waits for the whole answer. Gives back the chat's id on the site. */
   async send(input: WebSendInput): Promise<{ remoteId: string }> {
     return input.service === 'claude' ? this.sendClaude(input) : this.sendChatgpt(input)
@@ -84,7 +104,7 @@ export class WebChat {
     const fresh = !remoteId
     if (!remoteId) {
       remoteId = randomUUID()
-      const made = await this.tabs.request('claude', base, json, { method: 'POST', body: JSON.stringify({ uuid: remoteId, name: '', ...(input.model ? { model: input.model } : {}) }) })
+      const made = await this.tabs.request('claude', base, json, { method: 'POST', body: JSON.stringify({ uuid: remoteId, name: '', ...(input.model ? { model: input.model } : {}), ...(input.projectId ? { project_uuid: input.projectId } : {}) }) })
       if (made.status === 401 || made.status === 403) throw new WebChatError('Not signed in to claude.ai in Chaude. Sign in under Settings, "Claude and ChatGPT".', 'signed-out')
       if (made.status < 200 || made.status >= 300) throw new WebChatError(`claude.ai could not start the chat (${made.status}).`, 'site')
     }
@@ -130,7 +150,10 @@ export class WebChat {
 
   private async sendChatgpt(input: WebSendInput): Promise<{ remoteId: string }> {
     const headers = await this.chatgptHeaders()
-    const page = input.remoteId ? `/c/${encodeURIComponent(input.remoteId)}` : `/${input.model ? `?model=${encodeURIComponent(input.model)}` : ''}`
+    // A new chat in a project starts on the project's own page.
+    const start = input.projectId ? `/g/${encodeURIComponent(input.projectId)}/project` : '/'
+    // The site picks up a model given in the address, for a new chat and for one that carries on.
+    const page = `${input.remoteId ? `/c/${encodeURIComponent(input.remoteId)}` : start}${input.model ? `?model=${encodeURIComponent(input.model)}` : ''}`
     await this.tabs.open('chatgpt', page)
     const sentAt = Date.now()
     const typed = await this.tabs.run<string>('chatgpt', chatgptTypeScript(input.text))

@@ -6,8 +6,10 @@ import { IconClose, IconFile, IconPlus } from '../icons'
 
 /** Starts a new chat inside a project. */
 export function newChatIn(projectId: string): void {
+  // A project from claude.ai or chatgpt.com gets a regular chat there; the app's own projects get a code chat.
+  const site = /^web-(claude|chatgpt)-p-/.exec(projectId)?.[1] as 'claude' | 'chatgpt' | undefined
   openChat(undefined)
-  setState((s) => ({ draft: { ...s.draft, projectId } }))
+  setState((s) => ({ tab: site ? 'chat' : s.tab, draft: { ...s.draft, projectId, ...(site ? { kind: 'chat' as const, provider: site, mode: 'chat' as const } : {}) } }))
 }
 
 /** A project's page: its instructions and files, and its chats. */

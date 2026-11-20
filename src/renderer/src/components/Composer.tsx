@@ -3,6 +3,7 @@ import type { Attachment, Conversation, ProviderChoice, ProviderId, RunMode } fr
 import { kindOf, MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
 import { headroom } from '@shared/usage'
 import type { AttachResult } from '@shared/ipc'
+import type { ModelInfo } from '@shared/models'
 import { createFromDraft, getState, openChat, setState, toast, useUi, type Draft } from '../state'
 import { DictationButton } from './Speech'
 import { CaptureButton } from './Capture'
@@ -210,6 +211,18 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   // The plan's models as the tool describes them: a versioned name, one line on what each is for, older ones apart.
   const catalog = modelProvider && modelProvider !== 'local' ? (providers[modelProvider]?.catalog ?? []) : []
   const catalogDefault = catalog.find((m) => m.isDefault)
+  // A ChatGPT website chat offers the site's own models.
+  const [webCatalog, setWebCatalog] = useState<ModelInfo[]>([])
+  useEffect(() => {
+    if (!web || provider !== 'chatgpt' || isWeb()) return
+    let live = true
+    void window.api.webModels('chatgpt').then((list) => live && setWebCatalog(list))
+    return () => {
+      live = false
+    }
+  }, [web, provider])
+  const webModel = web ? (models.chatgpt ?? '') : ''
+
   // How hard the chosen model thinks, when the tool offers levels for it.
   const currentInfo = catalog.find((x) => x.id === currentModel) ?? catalogDefault
   const efforts = currentInfo?.efforts ?? []
@@ -446,6 +459,51 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                     {!catalog.length && !modelList(modelProvider).length && <div className="menu-title">No models found yet</div>}
                   </>
                 )}
+              </Popover>
+            )}
+
+            {web && provider === 'chatgpt' && webCatalog.length > 0 && (
+              <Popover
+                up
+                testId="model-picker"
+                title="Model"
+                label={
+                  <>
+                    <span className="chip-path">{webCatalog.find((m) => m.id === webModel)?.name ?? 'Default model'}</span> <IconChevron size={13} />
+                  </>
+                }
+              >
+                {(close) => {
+                  const pick = (id: string) => {
+                    change({ models: { ...models, chatgpt: id } })
+                    close()
+                  }
+                  const older = webCatalog.filter((m) => m.legacy)
+                  return (
+                    <>
+                      <MenuItem selected={!webModel} hint="What chatgpt.com picks for your plan" onClick={() => pick('')}>
+                        Default model
+                      </MenuItem>
+                      {webCatalog
+                        .filter((m) => !m.legacy)
+                        .map((m) => (
+                          <MenuItem key={m.id} selected={webModel === m.id} hint={m.description} testId="model-option" onClick={() => pick(m.id)}>
+                            {m.name}
+                          </MenuItem>
+                        ))}
+                      {older.length > 0 && (
+                        <details className="menu-more" open={older.some((m) => m.id === webModel)}>
+                          <summary data-testid="more-models">More models</summary>
+                          {older.map((m) => (
+                            <MenuItem key={m.id} selected={webModel === m.id} hint={m.description} testId="model-option" onClick={() => pick(m.id)}>
+                              {m.name}
+                            </MenuItem>
+                          ))}
+                        </details>
+                      )}
+                    </>
+                  )
+                }}
               </Popover>
             )}
 

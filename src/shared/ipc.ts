@@ -1,3 +1,4 @@
+import type { ModelInfo } from './models'
 // The contract between the window (renderer) and the app's backend (main).
 
 import type {
@@ -262,6 +263,8 @@ export interface Api {
   /** Opens the site's sign-in page in a small window. Gives back whether it worked. */
   webSignIn(service: WebService): Promise<boolean>
   webSignOut(service: WebService): Promise<void>
+  /** The models the site offers for regular chats. */
+  webModels(service: WebService): Promise<ModelInfo[]>
   webAction(service: WebService, action: 'back' | 'forward' | 'reload' | 'home'): Promise<void>
   /** Copy the chat currently open in a web tab into a new conversation in this app. */
   webCapture(service: WebService): Promise<{ conversationId?: string; error?: string }>
@@ -330,6 +333,7 @@ export const API_METHODS = [
   'webSignedIn',
   'webSignIn',
   'webSignOut',
+  'webModels',
   'webShow',
   'webHide',
   'webNavigate',

@@ -62,6 +62,8 @@ export interface WebChats {
     service: 'claude' | 'chatgpt'
     remoteId?: string
     parentId?: string
+    /** The site's project a new chat starts in. */
+    projectId?: string
     text: string
     model?: string
     signal: AbortSignal
@@ -570,6 +572,7 @@ export class ChatEngine {
         remoteId,
         // An edited or repeated question starts a new branch from the message before it, on claude.ai.
         parentId: again && service === 'chatgpt' ? undefined : parentId,
+        ...(conv.projectId?.startsWith(`web-${service}-p-`) ? { projectId: conv.projectId.slice(`web-${service}-p-`.length) } : {}),
         text: userText,
         model,
         signal: controller.signal,
