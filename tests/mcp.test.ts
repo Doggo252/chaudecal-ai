@@ -219,7 +219,7 @@ describe.skipIf(!canRunFakes)('testing a tool server from the app', () => {
     expect(good.tools.map((t) => t.name)).toEqual(['echo', 'add_note'])
     const refused = await testMcpServer(server({ kind: 'url', url, headers: { Authorization: 'Bearer wrong' } }), '0.0.0-test')
     expect(refused.ok).toBe(false)
-    expect(refused.error).toMatch(/refused the sign-in \(HTTP 401\)/)
+    expect(refused.error).toMatch(/asks for a sign-in \(HTTP 401\)/)
   })
 
   it('says when an address cannot be reached or is not a tool server', async () => {
