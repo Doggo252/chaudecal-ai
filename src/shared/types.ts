@@ -59,6 +59,8 @@ export interface Conversation {
    * devices that run this app. Chats from the sites are regular chats.
    */
   kind?: ConversationKind
+  /** How hard the model thinks before answering, as the tool names it (low, medium, high and so on). Empty means the model's own default. */
+  effort?: string
   /** Brought in from a Claude Code or Codex session on one of the user's computers. */
   origin?: { tool: 'claude-code' | 'codex'; sessionId: string; device: string }
 }

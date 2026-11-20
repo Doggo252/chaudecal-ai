@@ -182,6 +182,45 @@ a {
   padding-top: 12px;
 }
 
+.slash-menu {
+  display: grid;
+  gap: 1px;
+  margin: 0 0 6px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  max-height: 260px;
+  overflow-y: auto;
+}
+.slash-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  text-align: left;
+  font-size: calc(13px * var(--text-scale));
+}
+.slash-item.active {
+  background: var(--bg-hover);
+}
+.slash-name {
+  font-family: var(--mono);
+  color: var(--text);
+}
+.slash-hint {
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slash-where {
+  color: var(--text-muted);
+  font-size: calc(11px * var(--text-scale));
+}
+
 .kind-pick {
   display: grid;
   grid-template-columns: 1fr 1fr;

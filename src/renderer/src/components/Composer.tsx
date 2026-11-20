@@ -3,7 +3,7 @@ import type { Attachment, Conversation, ProviderChoice, ProviderId, RunMode } fr
 import { kindOf, MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
 import { headroom } from '@shared/usage'
 import type { AttachResult } from '@shared/ipc'
-import { createFromDraft, getState, setState, toast, useUi, type Draft } from '../state'
+import { createFromDraft, getState, openChat, setState, toast, useUi, type Draft } from '../state'
 import { DictationButton } from './Speech'
 import { CaptureButton } from './Capture'
 import { isWeb } from '../webApi'
@@ -18,6 +18,38 @@ const MODES: { id: RunMode; label: string; hint: string }[] = [
   { id: 'edit', label: 'Edit', hint: 'Can read and edit files in the folder. Other actions ask first.' },
   { id: 'auto', label: 'Auto', hint: 'Can also run commands in the folder without asking.' }
 ]
+
+interface SlashCommand {
+  name: string
+  description: string
+}
+
+/** Commands Chaude runs itself, in any chat. */
+const APP_COMMANDS: SlashCommand[] = [
+  { name: 'usage', description: 'How much of your Claude and ChatGPT plans is used, and when it resets' },
+  { name: 'new', description: 'Start a new chat' },
+  { name: 'search', description: 'Search your chats' },
+  { name: 'settings', description: 'Open settings' }
+]
+
+function runAppCommand(name: string): void {
+  if (name === 'usage') {
+    setState({ dialog: { kind: 'usage' } })
+    void window.api.refreshProviders()
+  } else if (name === 'new') openChat(undefined)
+  else if (name === 'search') setState({ dialog: { kind: 'search' } })
+  else if (name === 'settings') setState({ view: { kind: 'settings' } })
+}
+
+/** Thinking levels in plain words, lightest first. */
+const EFFORT_LABEL: Record<string, { name: string; hint: string }> = {
+  low: { name: 'Quick', hint: 'Answers fastest, thinks briefly' },
+  medium: { name: 'Balanced', hint: 'Thinks enough for everyday work' },
+  high: { name: 'Deep', hint: 'Thinks longer for harder problems' },
+  xhigh: { name: 'Deeper', hint: 'Thinks a lot. Slower, uses more of your plan' },
+  max: { name: 'Deepest', hint: 'Thinks as long as it needs. Slowest, uses the most' },
+  ultra: { name: 'Ultra', hint: 'Deepest thinking, and hands parts of the task to helpers' }
+}
 
 function shortPath(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean)
@@ -97,8 +129,35 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   const ready = (p: ProviderId) => !!providers[p]?.ready
   const readyProviders = PROVIDERS.filter(ready)
 
+  // Commands typed with a slash. Chaude's own run here; the assistant's own (like /compact) are sent to it.
+  const [slashActive, setSlashActive] = useState(0)
+  const slashWord = /^\/([\w:-]*)$/.exec(text)?.[1]
+  const toolCommands = !web && effective === 'claude' ? (providers.claude?.commands ?? []) : []
+  const slashAll: (SlashCommand & { app?: boolean })[] = [
+    ...APP_COMMANDS.map((c) => ({ ...c, app: true })),
+    ...toolCommands.filter((c) => !APP_COMMANDS.some((a) => a.name === c.name))
+  ]
+  const slashList = slashWord === undefined ? [] : slashAll.filter((c) => c.name.toLowerCase().startsWith(slashWord.toLowerCase())).slice(0, 8)
+  useEffect(() => setSlashActive(0), [slashWord])
+  const pickSlash = (c: SlashCommand & { app?: boolean }) => {
+    if (c.app) {
+      setText('')
+      runAppCommand(c.name)
+      return
+    }
+    setText(`/${c.name} `)
+    ref.current?.focus()
+  }
+
   const submit = () => {
     const value = text.trim()
+    // Chaude's own commands run here and are not sent.
+    const own = /^\/([\w-]+)$/.exec(value)?.[1]
+    if (own && APP_COMMANDS.some((c) => c.name === own)) {
+      setText('')
+      runAppCommand(own)
+      return
+    }
     if ((!value && !attached.length) || busy) return
     setText('')
     setAttached([])
@@ -151,6 +210,10 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   // The plan's models as the tool describes them: a versioned name, one line on what each is for, older ones apart.
   const catalog = modelProvider && modelProvider !== 'local' ? (providers[modelProvider]?.catalog ?? []) : []
   const catalogDefault = catalog.find((m) => m.isDefault)
+  // How hard the chosen model thinks, when the tool offers levels for it.
+  const currentInfo = catalog.find((x) => x.id === currentModel) ?? catalogDefault
+  const efforts = currentInfo?.efforts ?? []
+  const effort = conversation?.effort ?? draft.effort ?? ''
   const modelLabel = (m: string) => {
     if (!m) return catalogDefault ? (modelProvider === 'claude' ? catalogDefault.name : `Default (${catalogDefault.name})`) : 'Default model'
     const known = catalog.find((x) => x.id === m)
@@ -176,6 +239,29 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
           }}
         >
           <AttachmentList items={attached} onRemove={removeAttached} />
+          {slashList.length > 0 && (
+            <div className="slash-menu" role="listbox" data-testid="slash-menu">
+              {slashList.map((c, i) => (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={i === slashActive}
+                  key={`${c.app ? 'app' : 'tool'}-${c.name}`}
+                  className={`slash-item ${i === slashActive ? 'active' : ''}`}
+                  data-testid="slash-item"
+                  onMouseEnter={() => setSlashActive(i)}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    pickSlash(c)
+                  }}
+                >
+                  <span className="slash-name">/{c.name}</span>
+                  <span className="slash-hint">{c.description}</span>
+                  {!c.app && <span className="slash-where">{providerName(effective)}</span>}
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             ref={ref}
             rows={1}
@@ -191,6 +277,16 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               void addFiles(files)
             }}
             onKeyDown={(e) => {
+              if (slashList.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                e.preventDefault()
+                setSlashActive((i) => (i + (e.key === 'ArrowDown' ? 1 : slashList.length - 1)) % slashList.length)
+                return
+              }
+              if (slashList.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+                e.preventDefault()
+                pickSlash(slashList[Math.min(slashActive, slashList.length - 1)])
+                return
+              }
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 submit()
@@ -305,7 +401,9 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                     {catalog.length > 0 &&
                       (() => {
                         const pick = (id: string) => {
-                          change({ models: { ...models, [modelProvider]: id } })
+                          // A thinking level the new model does not have goes back to its default.
+                          const keeps = !effort || !!catalog.find((m) => m.id === id)?.efforts?.includes(effort)
+                          change({ models: { ...models, [modelProvider]: id }, ...(keeps ? {} : { effort: '' }) })
                           close()
                         }
                         // Claude's own "default" entry is the same as the first item above.
@@ -346,6 +444,48 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                       </MenuItem>
                     ))}
                     {!catalog.length && !modelList(modelProvider).length && <div className="menu-title">No models found yet</div>}
+                  </>
+                )}
+              </Popover>
+            )}
+
+            {!compare && !web && efforts.length > 0 && (
+              <Popover
+                up
+                testId="effort-picker"
+                title="How hard the model thinks before answering"
+                label={
+                  <>
+                    {effort ? EFFORT_LABEL[effort]?.name ?? effort : 'Thinking'} <IconChevron size={13} />
+                  </>
+                }
+              >
+                {(close) => (
+                  <>
+                    <MenuItem
+                      selected={!effort}
+                      hint="The model's own choice"
+                      onClick={() => {
+                        change({ effort: '' })
+                        close()
+                      }}
+                    >
+                      Default thinking
+                    </MenuItem>
+                    {efforts.map((e) => (
+                      <MenuItem
+                        key={e}
+                        selected={effort === e}
+                        hint={EFFORT_LABEL[e]?.hint}
+                        testId={`effort-${e}`}
+                        onClick={() => {
+                          change({ effort: e })
+                          close()
+                        }}
+                      >
+                        {EFFORT_LABEL[e]?.name ?? e}
+                      </MenuItem>
+                    ))}
                   </>
                 )}
               </Popover>

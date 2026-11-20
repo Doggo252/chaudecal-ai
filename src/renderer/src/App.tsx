@@ -4,7 +4,8 @@ import { openChat, setState, useUi } from './state'
 import { applyAccent, applyTextSize } from './theme'
 import { ChatView } from './components/ChatView'
 import { SearchDialog, SwitchDialog } from './components/Dialogs'
-import { SettingsView } from './components/Settings'
+import { SettingsView, UsageBody } from './components/Settings'
+import { Modal } from './components/ui'
 import { Sidebar } from './components/Sidebar'
 import { ProjectView } from './components/ProjectView'
 import { isWeb } from './webApi'
@@ -58,6 +59,11 @@ export function App() {
         {view.kind === 'project' && <ProjectView key={view.projectId} projectId={view.projectId} />}
       </main>
       {dialog?.kind === 'search' && <SearchDialog />}
+      {dialog?.kind === 'usage' && (
+        <Modal title="Usage" testId="usage-dialog" onClose={() => setState({ dialog: null })}>
+          <UsageBody />
+        </Modal>
+      )}
       {dialog?.kind === 'switch' && <SwitchDialog conversationId={dialog.conversationId} target={dialog.target} />}
       {toast && (
         <div className="toast" role="status">

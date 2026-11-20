@@ -503,7 +503,7 @@ export class ChatEngine {
     // Local models cannot call tools, so the tool servers only go to Claude and ChatGPT.
     const mcp = provider === 'local' ? [] : this.mcpServers()
     const handle = this.providers[provider].run(
-      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images, mcp },
+      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images, mcp, ...(conv.effort ? { effort: conv.effort } : {}) },
       onEvent
     )
     args.active.handles.push(handle)

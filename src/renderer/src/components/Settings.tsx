@@ -726,11 +726,20 @@ function Memory() {
 }
 
 function Usage() {
+  return (
+    <>
+      <h2>Usage</h2>
+      <UsageBody />
+    </>
+  )
+}
+
+/** Each plan's limits: how much is used and when it resets. Also shown by the /usage command. */
+export function UsageBody() {
   const app = useUi((x) => x.app!)
   const now = Date.now()
   return (
     <>
-      <h2>Usage</h2>
       <p className="lead">
         Limits as reported by each service while you use it here. Use on other apps or devices counts too, and shows up the next time the service reports. Numbers are shared across your synced devices.
       </p>

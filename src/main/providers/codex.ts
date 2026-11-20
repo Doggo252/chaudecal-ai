@@ -500,7 +500,7 @@ export class CodexProvider implements Provider {
       // The mode is repeated here because a conversation that is already open in the process
       // keeps the settings it was opened with, whatever thread/resume is given.
       const sandboxPolicy = { type: sandbox === 'read-only' ? 'readOnly' : 'workspaceWrite' }
-      const turn = await this.request<Json>('turn/start', { threadId, input, approvalPolicy, sandboxPolicy })
+      const turn = await this.request<Json>('turn/start', { threadId, input, approvalPolicy, sandboxPolicy, ...(request.effort ? { effort: request.effort } : {}) })
       run.turnId = turn.turn?.id ?? run.turnId
       if (stopRequested && run.turnId) this.request('turn/interrupt', { threadId, turnId: run.turnId }).catch(() => finish())
     })().catch((e) => {

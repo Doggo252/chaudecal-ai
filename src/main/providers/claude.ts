@@ -160,6 +160,7 @@ export class ClaudeProvider implements Provider {
 
     const args = ['-p', '--output-format', 'stream-json', '--verbose', '--include-partial-messages']
     if (request.model) args.push('--model', request.model)
+    if (request.effort) args.push('--effort', request.effort)
     if (request.sessionId) args.push('--resume', request.sessionId)
     if (request.ephemeral) args.push('--no-session-persistence')
 

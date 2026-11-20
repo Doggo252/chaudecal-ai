@@ -38,6 +38,8 @@ export interface Draft {
   runOnHub: boolean
   /** Start the chat inside this project. */
   projectId?: string
+  /** How hard the model thinks. */
+  effort?: string
 }
 
 /** The starting choices for a new conversation of this kind. */
@@ -72,7 +74,7 @@ export interface UiState {
   variants: Record<string, HandoffVariant>
   /** Limit banners the user closed, by "conversation:provider:window". */
   dismissed: Record<string, true>
-  dialog: null | { kind: 'search' } | { kind: 'switch'; conversationId: string; target?: ProviderId }
+  dialog: null | { kind: 'search' } | { kind: 'usage' } | { kind: 'switch'; conversationId: string; target?: ProviderId }
   toast: string
   /** On a narrow screen the sidebar slides over the page; this says whether it is out. */
   sideOpen?: boolean
@@ -309,7 +311,7 @@ export function dismissRemoved(conversationId: string): void {
 /** Turn the choices made on the new-chat screen into a saved conversation and open it. */
 export async function createFromDraft(): Promise<Conversation> {
   const d = state.draft
-  const conv = await window.api.createConversation({ kind: d.kind, provider: d.provider, models: d.models, mode: d.mode, private: d.private || undefined, runOnHub: d.runOnHub || undefined, projectId: d.projectId || undefined })
+  const conv = await window.api.createConversation({ ...(d.effort ? { effort: d.effort } : {}), kind: d.kind, provider: d.provider, models: d.models, mode: d.mode, private: d.private || undefined, runOnHub: d.runOnHub || undefined, projectId: d.projectId || undefined })
   setState((s) => ({ messages: { ...s.messages, [conv.id]: s.messages[conv.id] ?? [] }, view: { kind: 'chat', conversationId: conv.id } }))
   return conv
 }

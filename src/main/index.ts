@@ -586,6 +586,8 @@ const api: Omit<Api, 'on'> = {
   },
   async refreshProviders() {
     await refreshProviders()
+    lastClaudeUsage = 0
+    await refreshClaudeUsage()
   },
   async providerLogin(provider) {
     const bin =

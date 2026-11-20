@@ -423,6 +423,22 @@ try {
   await a.page.keyboard.press('Escape')
   ok('the model picker lists the plan models with versions and descriptions')
 
+  // Thinking level: plain words, from the levels the model offers.
+  await a.page.click(tid('effort-picker'))
+  await a.page.click(tid('effort-high'))
+  assert((await a.page.textContent(tid('effort-picker'))).includes('Deep'), 'the chosen thinking level should show')
+
+  // Slash commands: Chaude's own run here, Claude Code's own are offered too.
+  await a.page.fill(tid('composer-input'), '/')
+  await a.page.waitForSelector(`${tid('slash-item')}:has-text("/compact")`)
+  await a.page.fill(tid('composer-input'), '/us')
+  await a.page.keyboard.press('Enter')
+  await a.page.waitForSelector(tid('usage-dialog'))
+  assert((await a.page.inputValue(tid('composer-input'))) === '', 'a command of the app is not sent')
+  await shot(a.page, '48-usage-command')
+  await a.page.keyboard.press('Escape')
+  ok('thinking levels and slash commands, with /usage shown by the app')
+
   // ChatGPT makes a picture on the plan, shown in its answer with a way to save it.
   await pickProvider(a.page, 'chatgpt')
   await sendMessage(a.page, 'Draw a red square. [image]')

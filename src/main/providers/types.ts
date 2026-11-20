@@ -22,6 +22,8 @@ export interface RunRequest {
   images?: RunImage[]
   /** Tool servers the assistant may use in this run. */
   mcp?: McpServer[]
+  /** How hard the model thinks, when the user chose a level. */
+  effort?: string
 }
 
 export interface RunImage {
