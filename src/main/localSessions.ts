@@ -12,6 +12,7 @@ import type { Conversation, Message, ProviderId, ToolCall } from '@shared/types'
 import { titleFromText } from '@shared/context'
 import { claudeToolKind, describeTool, toolLabel } from './providers/claudeParser'
 import type { Store } from './store'
+import { ensureFolderProject } from './codeProjects'
 
 type Json = Record<string, any>
 
@@ -116,6 +117,29 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
   }
 }
 
+/** Raised when the readers change, so every session is read again. */
+const SESSION_READER = 2
+
+/** The session's id, from its first lines. */
+export function codexSessionId(text: string): string {
+  for (const l of parseLines(text.slice(0, 20_000))) if (l.type === 'session_meta') return String(l.payload?.id ?? l.payload?.session_id ?? '')
+  return ''
+}
+
+/** First messages of Codex's own helper sessions, which are not the person's chats. */
+const HELPER_PROMPT = /^(The following is the Codex agent history|You are (a|an) (helpful )?(reviewer|approval|assessor))/i
+
+/** What the person typed to Codex. Its editor extensions wrap the request in context (files mentioned, open tabs) with the request last. */
+export function codexTyped(raw: string): string {
+  const t = raw.trim()
+  if (/^</.test(t) || t.startsWith('# AGENTS.md')) return ''
+  const request = /(^|\n)#+ My request for Codex:?\s*\n([\s\S]*)$/.exec(t)
+  if (request) return request[2].trim()
+  // Only context, with no request in it.
+  if (/^# (Files mentioned by the user|Context from my IDE setup)/.test(t)) return ''
+  return t
+}
+
 /** One Codex session file (~/.codex/sessions/<year>/<month>/<day>/rollout-<time>-<id>.jsonl). */
 export function parseCodexSession(text: string): LocalSession | undefined {
   const lines = parseLines(text)
@@ -129,6 +153,8 @@ export function parseCodexSession(text: string): LocalSession | undefined {
     const p = (l.payload ?? {}) as Json
     const at = time(l.timestamp)
     if (l.type === 'session_meta') {
+      // A session started by another session (a subagent, a reviewer) is part of that one, not a chat of its own.
+      if (p.source && typeof p.source === 'object' && ('subagent' in p.source || 'sub_agent' in p.source)) return undefined
       sessionId ||= String(p.id ?? p.session_id ?? '')
       cwd ||= String(p.cwd ?? '')
       continue
@@ -140,11 +166,13 @@ export function parseCodexSession(text: string): LocalSession | undefined {
       // Codex puts its own context in as user messages, wrapped in tags.
       const said = (Array.isArray(p.content) ? p.content : [])
         .filter((c: Json) => c?.type === 'input_text')
-        .map((c: Json) => String(c.text ?? ''))
-        .filter((t: string) => !/^\s*</.test(t) && !t.startsWith('# AGENTS.md'))
+        .map((c: Json) => codexTyped(String(c.text ?? '')))
+        .filter(Boolean)
         .join('\n\n')
         .trim()
       if (!said) continue
+      // Codex's own helpers (the reviewer that checks a request, for one) run as sessions of their own. They are not the person's.
+      if (!messages.length && HELPER_PROMPT.test(said)) return undefined
       turn = undefined
       messages.push({ id: `${sessionId}-${n}`, role: 'user', text: said, createdAt: at })
       continue
@@ -232,8 +260,22 @@ export class LocalSessions {
     return (resolve(cwd) + sep).startsWith(data)
   }
 
+  /** Codex keeps the names given to its chats apart from the chats, in one file. */
+  private codexNames(): Map<string, string> {
+    const names = new Map<string, string>()
+    try {
+      for (const l of parseLines(readFileSync(join(this.options.home, '.codex', 'session_index.jsonl'), 'utf8'))) {
+        if (typeof l.id === 'string' && typeof l.thread_name === 'string' && l.thread_name.trim()) names.set(l.id, l.thread_name.trim())
+      }
+    } catch {
+      // No Codex here, or no names yet.
+    }
+    return names
+  }
+
   /** Looks for new and changed sessions. Gives back how many chats changed. */
   scan(): number {
+    const names = this.codexNames()
     const files = [
       ...sessionFiles(join(this.options.home, '.claude', 'projects'), 1).map((path) => ({ path, tool: 'claude-code' as const })),
       ...sessionFiles(join(this.options.home, '.codex', 'sessions'), 4).map((path) => ({ path, tool: 'codex' as const }))
@@ -247,19 +289,66 @@ export class LocalSessions {
         continue
       }
       const key = `localsession:${f.path}`
-      const seen = this.store.kvGet<{ mtimeMs: number; size: number }>(key)
-      if (seen && seen.mtimeMs === st.mtimeMs && seen.size === st.size) continue
+      const seen = this.store.kvGet<{ mtimeMs: number; size: number; reader?: number }>(key)
+      if (seen && seen.mtimeMs === st.mtimeMs && seen.size === st.size && (seen.reader ?? 1) >= SESSION_READER) continue
       try {
         const text = readFileSync(f.path, 'utf8')
         const session = f.tool === 'claude-code' ? parseClaudeSession(text) : parseCodexSession(text)
+        if (session && f.tool === 'codex' && names.has(session.sessionId)) session.title = names.get(session.sessionId)!
         if (session && !this.ours(session.cwd) && this.save(session)) changed++
+        // A helper session an older version brought in as a chat goes again.
+        if (!session && f.tool === 'codex' && this.forget(`local-codex-${codexSessionId(text)}`)) changed++
       } catch {
         // A file being written right now is read next time.
         continue
       }
-      this.store.kvSet(key, { mtimeMs: st.mtimeMs, size: st.size })
+      this.store.kvSet(key, { mtimeMs: st.mtimeMs, size: st.size, reader: SESSION_READER })
     }
+    // A Codex chat renamed without anything else changing.
+    for (const [sessionId, name] of names) if (this.retitle(`local-codex-${sessionId}`, name)) changed++
     return changed
+  }
+
+  /** Removes a chat brought in from a session, unless it was carried on in this app. */
+  private forget(id: string): boolean {
+    if (id === 'local-codex-' || !this.store.get('conversation', id)) return false
+    if (this.store.messages(id).some((m) => !m.id.startsWith('local-codex-m-'))) return false
+    this.store.deleteConversation(id)
+    return true
+  }
+
+  /** Follows a new name from the tool, unless the chat was renamed in this app. */
+  private retitle(id: string, title: string): boolean {
+    const conv = this.store.get<Conversation>('conversation', id)
+    if (!conv?.origin || conv.origin.device !== this.options.deviceName) return false
+    const toolTitle = conv.origin.toolTitle
+    if (toolTitle === title) return false
+    const renamedHere = toolTitle !== undefined && conv.title !== toolTitle
+    this.store.put('conversation', id, { ...conv, title: renamedHere ? conv.title : title, origin: { ...conv.origin, toolTitle: title } })
+    return true
+  }
+
+  /** The code project for a session's folder: one per folder name, so the same project on two computers is one project. */
+  private folderProject(cwd: string): string | undefined {
+    if (!cwd || resolve(cwd) === resolve(this.options.home) || resolve(cwd) === resolve(sep)) return undefined
+    return ensureFolderProject(this.store, cwd)
+  }
+
+  /** Puts code chats brought in by earlier versions in their folder's project, once. */
+  sortIntoFolders(): number {
+    if (this.store.kvGet<boolean>('localsessions:folders')) return 0
+    let n = 0
+    for (const c of this.store.list<Conversation>('conversation')) {
+      if (!c.origin || c.projectId || c.origin.device !== this.options.deviceName) continue
+      const cwd = c.origin.folder || this.workspaceOf(c.id)
+      const projectId = cwd ? this.folderProject(cwd) : undefined
+      if (projectId) {
+        this.store.put('conversation', c.id, { ...c, projectId, origin: { ...c.origin, folder: cwd } })
+        n++
+      }
+    }
+    this.store.kvSet('localsessions:folders', true)
+    return n
   }
 
   /** Writes one session as a code chat. Gives back whether anything changed. */
@@ -271,11 +360,21 @@ export class LocalSessions {
     const provider: ProviderId = session.tool === 'claude-code' ? 'claude' : 'chatgpt'
     const existing = this.store.get<Conversation>('conversation', id)
     const before = existing ? this.store.messages(id) : []
-    // Continued in this app: the app's copy is the one that counts from here on.
-    if (before.some((m) => !m.id.startsWith(prefix))) return false
+    // Continued in this app: the app's copy is the one that counts from here on. A new name still comes through.
+    if (before.some((m) => !m.id.startsWith(prefix))) return this.retitle(id, session.title)
+    // Follows the name the tool gives it, unless it was renamed here.
+    const toolTitle = existing?.origin?.toolTitle
+    const renamedHere = !!existing && toolTitle !== undefined && existing.title !== toolTitle
+    const projectId = existing ? undefined : this.folderProject(session.cwd)
     const conv: Conversation = existing
-      ? { ...existing, updatedAt: Math.max(existing.updatedAt, session.updatedAt) }
+      ? {
+          ...existing,
+          title: renamedHere ? existing.title : session.title,
+          updatedAt: Math.max(existing.updatedAt, session.updatedAt),
+          ...(existing.origin ? { origin: { ...existing.origin, toolTitle: session.title, ...(session.cwd ? { folder: session.cwd } : {}) } } : {})
+        }
       : {
+          ...(projectId ? { projectId } : {}),
           id,
           title: session.title,
           createdAt: session.createdAt || Date.now(),
@@ -284,7 +383,7 @@ export class LocalSessions {
           models: {},
           mode: session.cwd ? 'edit' : 'chat',
           kind: 'code',
-          origin: { tool: session.tool, sessionId: session.sessionId, device: this.options.deviceName }
+          origin: { tool: session.tool, sessionId: session.sessionId, device: this.options.deviceName, toolTitle: session.title, ...(session.cwd ? { folder: session.cwd } : {}) }
         }
     const items: { kind: 'conversation' | 'message'; id: string; data: unknown }[] = [{ kind: 'conversation', id, data: conv }]
     const kept = new Set<string>()

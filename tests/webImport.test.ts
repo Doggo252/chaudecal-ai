@@ -128,6 +128,21 @@ describe('bringing chats in', () => {
     expect(sites.state.requests.some((r) => r.includes('c-garden'))).toBe(false)
   })
 
+  it('follows a rename on the site, unless the chat was renamed in the app', async () => {
+    const { sites, store, importer } = setup()
+    await importer.run('claude')
+    const hello = conversationIdFor('claude', 'c-hello')
+    const garden = conversationIdFor('claude', 'c-garden')
+    store.put('conversation', garden, { ...store.get<Conversation>('conversation', garden)!, title: 'My garden' })
+    for (const id of ['c-hello', 'c-garden']) {
+      sites.claudeChats[id].name = `Renamed ${id}`
+      sites.claudeChats[id].updated_at = new Date().toISOString()
+    }
+    await importer.run('claude')
+    expect(store.get<Conversation>('conversation', hello)!.title).toBe('Renamed c-hello')
+    expect(store.get<Conversation>('conversation', garden)!).toMatchObject({ title: 'My garden', source: { remoteTitle: 'Renamed c-garden' } })
+  })
+
   it('drops messages that left the chat on the site, and keeps ones written in the app', async () => {
     const { sites, store, importer } = setup()
     await importer.run('claude')
@@ -185,6 +200,34 @@ describe('projects from the sites', () => {
     expect(convs.find((c) => c.source?.remoteId === 'c-garden').projectId).toBe('web-claude-p-p-garden')
     expect(convs.find((c) => c.source?.remoteId === 'g-project').projectId).toBe('web-chatgpt-p-g-p-1')
     expect(convs.find((c) => c.source?.remoteId === 'c-hello').projectId).toBeUndefined()
+  })
+})
+
+describe('many projects', () => {
+  it('follows every page of projects on both sites, archived ones too', async () => {
+    const { store, importer, sites } = setup()
+    sites.state.extraProjects = 450
+    const claude = await importer.run('claude')
+    const chatgpt = await importer.run('chatgpt')
+    const ids = new Set(store.list<any>('project').map((p) => p.id))
+    expect(claude.projects).toBe(451)
+    expect(chatgpt.projects).toBe(451)
+    expect(ids.has('web-claude-p-p-x449')).toBe(true)
+    expect(ids.has('web-claude-p-p-x0')).toBe(true)
+    expect(ids.has('web-chatgpt-p-g-p-x449')).toBe(true)
+    expect(ids.size).toBe(902)
+    // The project's chats still land in it.
+    expect(store.list<any>('conversation').find((c) => c.source?.remoteId === 'g-project').projectId).toBe('web-chatgpt-p-g-p-1')
+  })
+
+  it('stops when the site gives the same page again', async () => {
+    const { importer, sites } = setup()
+    sites.state.extraProjects = 450
+    sites.state.ignoresOffset = true
+    const done = await importer.run('claude')
+    expect(done.state).toBe('done')
+    expect(done.projects).toBe(200)
+    expect(sites.state.requests.filter((r) => r.startsWith('claude /api/organizations/org-1/projects?')).length).toBe(2)
   })
 })
 

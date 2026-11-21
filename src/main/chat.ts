@@ -71,6 +71,8 @@ export interface WebChats {
     /** The site's project a new chat starts in. */
     projectId?: string
     text: string
+    /** Files attached to the message: text read from them, or a picture's bytes. */
+    files?: { name: string; mime: string; text?: string; base64?: string }[]
     model?: string
     signal: AbortSignal
     onText: (text: string) => void
@@ -522,7 +524,7 @@ export class ChatEngine {
     // Local models cannot call tools, so the tool servers only go to Claude and ChatGPT.
     const mcp = provider === 'local' ? [] : this.mcpServers()
     const handle = this.providers[provider].run(
-      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images, mcp, ...(conv.effort ? { effort: conv.effort } : {}) },
+      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images, mcp, ...(conv.effort ? { effort: conv.effort } : {}), ...(plan.kind === 'handoff' && !compare ? { title: this.store.get<Conversation>('conversation', conv.id)?.title || conv.title } : {}) },
       onEvent
     )
     args.active.handles.push(handle)
@@ -568,7 +570,9 @@ export class ChatEngine {
     // Work done on this computer since then is not on the site. A short note keeps the site's copy of the chat whole.
     const offSite = before.filter((m) => m.onComputer && (!lastOnSite || m.createdAt > lastOnSite.createdAt) && m.status === 'complete' && m.text.trim())
     const note = offSite.length ? computerNote(offSite) : ''
-    const sendText = note ? `${note}\n\n${userText}` : userText
+    // The files go to the site as files, so only what was typed goes in the message.
+    const typed = this.webFiles(userMessage).length ? userMessage.text : userText
+    const sendText = note ? `${note}\n\n${typed}` : typed
     const reply: Message = {
       id: newId(),
       conversationId: conv.id,
@@ -595,6 +599,7 @@ export class ChatEngine {
         parentId: again && service === 'chatgpt' ? undefined : parentId,
         ...(conv.projectId?.startsWith(`web-${service}-p-`) ? { projectId: conv.projectId.slice(`web-${service}-p-`.length) } : {}),
         text: sendText,
+        files: this.webFiles(userMessage),
         model,
         signal: controller.signal,
         onText: (text) => {
@@ -650,6 +655,19 @@ export class ChatEngine {
   }
 
   // ----- attachments -----
+
+  /** A message's files, as a website chat sends them: text as read here, pictures as their bytes. */
+  private webFiles(message: Message): { name: string; mime: string; text?: string; base64?: string }[] {
+    const out: { name: string; mime: string; text?: string; base64?: string }[] = []
+    for (const a of message.attachments ?? []) {
+      if (a.kind === 'text' && typeof a.text === 'string') out.push({ name: a.name, mime: a.mime, text: a.text })
+      else if (a.kind === 'image') {
+        const blob = this.store.get<Blob>('blob', a.id)
+        if (blob?.base64) out.push({ name: blob.name || a.name, mime: blob.mime || a.mime, base64: blob.base64 })
+      }
+    }
+    return out
+  }
 
   /** Keep only well formed attachments whose image bytes are actually stored here. */
   private cleanAttachments(input: Attachment[] | undefined): Attachment[] {

@@ -6,7 +6,7 @@ import { threadMessages } from '@shared/context'
 import { formatTokens } from '@shared/tokens'
 import { headroom } from '@shared/usage'
 import { switchTarget } from '@shared/router'
-import { openSearchHit, setState, toast, useUi } from '../state'
+import { chatShown, openSearchHit, setState, toast, useUi } from '../state'
 import { Modal, ProviderDot, PROVIDERS, SourceTag } from './ui'
 
 function Snippet({ text }: { text: string }) {
@@ -23,7 +23,11 @@ export function SearchDialog() {
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<SearchHit[]>([])
   const [active, setActive] = useState(0)
-  const conversations = useUi((s) => s.app?.conversations)
+  const show = useUi((s) => s.show)
+  const all = useUi((s) => s.app?.conversations)
+  // With one assistant shown, search only finds its chats.
+  const conversations = useMemo(() => (all ?? []).filter((c) => chatShown(c, show)), [all, show])
+  const shownIds = useMemo(() => new Set(conversations.map((c) => c.id)), [conversations])
   const seq = useRef(0)
 
   useEffect(() => {
@@ -36,17 +40,17 @@ export function SearchDialog() {
     const timer = setTimeout(() => {
       void window.api.search(q).then((res) => {
         if (mine === seq.current) {
-          setHits(res)
+          setHits(res.filter((h) => shownIds.has(h.conversationId)))
           setActive(0)
         }
       })
     }, 120)
     return () => clearTimeout(timer)
-  }, [query])
+  }, [query, shownIds])
 
   const recent = useMemo(
     () =>
-      (conversations ?? [])
+      conversations
         .slice()
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .slice(0, 8)
@@ -62,7 +66,7 @@ export function SearchDialog() {
         <input
           className="search-input"
           autoFocus
-          placeholder="Search every chat, from every assistant"
+          placeholder={show === 'all' ? 'Search every chat, from every assistant' : `Search your ${PROVIDER_LABEL[show]} chats`}
           value={query}
           data-testid="search-input"
           onChange={(e) => setQuery(e.target.value)}

@@ -60,3 +60,23 @@ describe("chatgpt.com's models", () => {
     expect(list[2].legacy).toBe(true)
   })
 })
+
+describe('files in a chat that is typed into the site', () => {
+  it('writes text files after the message and leaves pictures to the file picker', async () => {
+    const { withFileText } = await import('../src/main/webChat')
+    const out = withFileText('Look at these.', [
+      { name: 'notes.md', mime: 'text/markdown', text: '# Notes' },
+      { name: 'cat.png', mime: 'image/png', base64: 'AAAA' }
+    ])
+    expect(out).toBe('Look at these.\n\nFile "notes.md":\n\n# Notes')
+    expect(withFileText('Just text.')).toBe('Just text.')
+  })
+
+  it('cuts a huge file short and says so', async () => {
+    const { withFileText } = await import('../src/main/webChat')
+    const out = withFileText('', [{ name: 'big.txt', mime: 'text/plain', text: 'x'.repeat(500_000) }])
+    expect(out.startsWith('File "big.txt":')).toBe(true)
+    expect(out.endsWith('(The rest of the file was left out.)')).toBe(true)
+    expect(out.length).toBeLessThan(401_000)
+  })
+})

@@ -38,6 +38,12 @@ The sidebar has two tabs:
 - **On your phone.** The hub PC can serve Chaude to any browser on your home network or over Tailscale. Open it on your phone, enter the pairing code once, and add it to your home screen: it is the same app, with a phone layout, running its assistants on the PC.
 - **Quick ask and screenshots.** Option+Space (Alt+Space on Windows) opens a small box over whatever you are doing; type a question and it starts a new chat. The screen button in the message box attaches a screenshot of your screen or of one window.
 - **Export.** Save any chat as Markdown or as one web page that opens in any browser.
+- **Setup in four steps.** The first time Chaude opens (and after erasing everything), a short setup asks which computer this is (the main computer, one that connects to it, or only this one), signs you in to claude.ai and chatgpt.com and brings in every chat and project, turns on your Claude Code and Codex sessions, and shows the pairing code for your other computers. Every step can be skipped, and "Run setup" in Settings, General brings it back.
+- **Code projects by folder.** Code chats are sorted by the folder they work in, each folder as its own project, the way the Claude Code and Codex apps list them. A folder of the same name on the Mac and the PC is one project. Chat projects and code projects are kept apart.
+- **Show one assistant only.** The menu under the Chaude name can show only Claude, only ChatGPT or only local chats, so the app looks and works like that assistant's own app. Every chat and project is marked with its assistant's icon.
+- **Renames follow.** A chat renamed on claude.ai, chatgpt.com, in Claude Code or in Codex gets its new name here too, unless you renamed it in Chaude yourself.
+- **Files in regular chats.** Files from your computer go to claude.ai and chatgpt.com with your message: pictures as pictures, and the text of documents and PDFs alongside.
+- **Start over.** Settings, General has "Erase everything", which clears every chat, project and import from Chaude on all your synced devices (nothing on the websites or in your Claude Code and Codex sessions is touched), and "Uninstall", which removes the app and its data from this computer.
 - **Research, pictures and forms.** Research mode has the assistant search the web widely and write a report with its sources. ChatGPT makes pictures on your plan. An assistant can ask you several questions at once as a small form. Artifacts can be edited by hand and saved as a new version.
 - **Math, editing and voice.** Formulas are drawn properly. Any earlier question can be edited and asked again. Answers can be read aloud, and you can dictate a message.
 
@@ -181,6 +187,8 @@ Replies stream to the Mac as they are written. If the Mac goes to sleep or offli
 **Read this before turning it on.** With this setting on, anyone who has the pairing code and can reach the PC can see the names of its folders, edit files and run commands on it. Keep the hub on your home network and Tailscale, never forward its port to the internet, and make a new pairing code if the old one may have leaked. The setting is off by default.
 
 ### 6. Bring in your existing chats (optional)
+
+The setup that opens on a new install does this in one step. To do it by hand:
 
 1. Open Settings, then "Claude and ChatGPT", and click "Sign in to claude.ai". The site's own sign-in page opens in a small window; sign in the way you would in a browser, and the window closes by itself. Do the same for chatgpt.com.
 2. Under each one, click "Import now" next to "Your chats on claude.ai" (or chatgpt.com). The first run can take a few minutes if you have many chats; the row shows how far it has got.

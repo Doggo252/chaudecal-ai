@@ -106,6 +106,8 @@ export class WebImporter {
     let changed = 0
     let done = 0
     let of: number | undefined
+    let projects: number | undefined
+    let projectTrouble: string | undefined
     try {
       const session = await api.open((path, headers) => this.get(service, path, headers))
       if (!session) throw new SignedOut()
@@ -118,13 +120,17 @@ export class WebImporter {
       of = summaries.length
       this.report({ ...started, of })
 
-      // The site's projects, so imported chats land in them.
+      // The site's projects first, so imported chats land in them.
       if (api.projects) {
         try {
-          for (const p of await api.projects(fetch, session, () => sleep(this.options.pauseMs))) this.saveProject(service, p)
+          const found = (n: number) => this.report({ ...started, of, projects: n })
+          const got = await api.projects(fetch, session, () => sleep(this.options.pauseMs), found)
+          for (const p of got) this.saveProject(service, p)
+          projects = got.length
         } catch (e) {
-          // Projects are a bonus. Only a lost sign-in stops the run.
+          // The chats still come. Only a lost sign-in stops the run.
           if (e instanceof SignedOut) throw e
+          projectTrouble = `Your projects could not be brought in this time (${e instanceof Error ? e.message : String(e)}). Try again later.`
         }
       }
 
@@ -144,6 +150,12 @@ export class WebImporter {
             changed++
           }
         }
+        // A chat renamed on the site does not always count as changed there. The list of chats has the new name.
+        if (!deleted && current && existing?.source && summary.title && summary.title !== existing.source.remoteTitle) {
+          const renamedHere = existing.title !== existing.source.remoteTitle
+          this.store.putMany([{ kind: 'conversation', id, data: { ...existing, title: renamedHere ? existing.title : summary.title, source: { ...existing.source, remoteTitle: summary.title } } }])
+          changed++
+        }
         if (!deleted && !current) {
           const chat = api.readChat(await fetch(api.chatPath(session, summary.remoteId)), summary, this.options.origin(service))
           if (chat.messages.length && this.save(chat, id)) changed++
@@ -151,10 +163,10 @@ export class WebImporter {
         }
         if (Date.now() - lastReport > 400 || done === summaries.length) {
           lastReport = Date.now()
-          this.report({ service, state: 'running', done, of, changed, count: this.count(service) })
+          this.report({ service, state: 'running', done, of, changed, projects, count: this.count(service) })
         }
       }
-      return this.report({ service, state: 'done', changed, count: this.count(service), lastRun: Date.now(), done, of })
+      return this.report({ service, state: 'done', changed, count: this.count(service), lastRun: Date.now(), done, of, projects, ...(projectTrouble ? { message: projectTrouble } : {}) })
     } catch (e) {
       const signedOut = e instanceof SignedOut
       const site = service === 'claude' ? 'claude.ai' : 'chatgpt.com'
@@ -164,6 +176,7 @@ export class WebImporter {
         changed,
         done,
         of,
+        projects,
         count: this.count(service),
         lastRun: Date.now(),
         message: signedOut ? `Not signed in to ${site} in the app. Sign in with the button above, then try again.` : e instanceof Error ? e.message : String(e)

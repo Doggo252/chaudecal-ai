@@ -889,7 +889,8 @@ try {
 
   // Regular chats go through the websites. The app draws them, the site keeps them, so they show up in the Claude and ChatGPT apps.
   await a.page.click(tid('new-chat'))
-  await a.page.waitForSelector(`${tid('kind-chat')}[aria-checked="true"]`)
+  await a.page.waitForSelector(`${tid('side-tab-chat')}[aria-selected="true"]`)
+  assert(!(await a.page.$('.kind-pick')), 'no big chooser between a chat and code')
   assert(!(await a.page.$(tid('mode-picker'))), 'a regular chat has no mode picker')
   await shot(a.page, '46-new-chat-kinds')
   const webAnswer = (text) => a.page.waitForFunction((t) => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((el) => el.textContent.includes(t)), text, { timeout: 20000 })
@@ -902,20 +903,29 @@ try {
     return c && c.kind === 'chat'
   }, null, { timeout: 20000 })
   await a.page.waitForSelector(tid('send'))
+  // Files from this computer go along: the text files as claude.ai's page sends them, the picture uploaded first.
+  await a.page.click(tid('attach'))
+  await a.page.waitForFunction(() => document.querySelectorAll('.attachments.pending [data-testid="attachment"]').length === 3)
   await sendMessage(a.page, 'And once more.')
   await webAnswer('You said: "And once more."')
+  const sentUp = sites.state.uploads.join('\n')
+  assert(sentUp.includes('claude upload icon.png') && sentUp.includes('claude sent up-1') && sentUp.includes('claude text notes.md') && sentUp.includes('claude text handbook.pdf'), `the files should reach claude.ai, got ${sentUp}`)
   assert(sites.state.claudeParents.length === 2 && sites.state.claudeParents[0].startsWith('00000000') && sites.state.claudeParents[1].startsWith('wa-'), `the second message should follow the first answer on the site, got ${JSON.stringify(sites.state.claudeParents)}`)
   await a.page.waitForFunction(() => document.querySelectorAll('[data-testid="assistant-message"]').length === 2, null, { timeout: 15000 })
   await shot(a.page, '47-regular-chat')
-  ok('a regular chat goes through claude.ai and keeps the site copy')
+  ok('a regular chat goes through claude.ai with files from this computer, and keeps the site copy')
 
   await a.page.click(tid('new-chat'))
   await a.page.click(tid('provider-picker'))
   await a.page.click(tid('provider-chatgpt'))
+  await a.page.click(tid('attach'))
+  await a.page.waitForFunction(() => document.querySelectorAll('.attachments.pending [data-testid="attachment"]').length === 3)
   await sendMessage(a.page, 'Hi ChatGPT.')
-  await webAnswer('ChatGPT on the web here. You said: "Hi ChatGPT."')
+  await webAnswer('ChatGPT on the web here. You said: "Hi ChatGPT.')
+  assert(sites.state.uploads.includes('chatgpt picture icon.png'), `the picture should go in through chatgpt.com's file picker, got ${sites.state.uploads.join(', ')}`)
+  await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="assistant-message"]')].some((el) => el.textContent.includes('File "notes.md"')), null, { timeout: 15000 })
   await a.page.waitForFunction(async () => (await window.api.state()).conversations.some((x) => x.source?.service === 'chatgpt' && x.source.remoteId.startsWith('g-web-')), null, { timeout: 20000 })
-  ok('a regular chat goes through chatgpt.com by typing into its own page')
+  ok('a regular chat goes through chatgpt.com by typing into its own page, with files from this computer')
   await a.page.click(tid('side-tab-code'))
 
   // Artifacts: Claude writes a web page, an image and a program. They open in a panel beside the conversation.
@@ -1067,6 +1077,66 @@ try {
   await b.page.waitForFunction(() => getComputedStyle(document.body).backgroundColor === 'rgb(32, 31, 29)')
   await shot(b.page, '09-dark')
   ok('dark appearance')
+
+  // Start over: uninstalling (which a test app only writes down), then erasing everything everywhere.
+  await b.page.evaluate(() => window.api.updateSettings({ theme: 'light' }))
+  await b.page.click(tid('open-settings'))
+  await b.page.click(tid('settings-tab-general'))
+  // The sessions list says which computer each session came from, and asks every computer to look again.
+  await b.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="session-source"]')].some((el) => el.textContent.includes('1 Claude Code session')))
+  await b.page.click(tid('look-for-sessions'))
+  await b.page.waitForFunction(() => document.body.textContent.includes('Looking on all your computers'))
+  await b.page.locator(tid('reset-all')).scrollIntoViewIfNeeded()
+  await shot(b.page, '50-start-over')
+  b.page.once('dialog', (d) => void d.accept())
+  await b.page.click(tid('uninstall'))
+  await until(async () => existsSync(join(b.userData, 'uninstall.log')), 'the uninstall plan to be written down')
+  const plan = JSON.parse(readFileSync(join(b.userData, 'uninstall.log'), 'utf8').trim())
+  assert(plan.command && plan.removes.length >= 1, 'the uninstall plan names what it removes')
+  const before = (await a.page.evaluate(() => window.api.state())).conversations.length
+  assert(before > 5, 'there are chats to erase')
+  b.page.once('dialog', (d) => void d.accept())
+  await b.page.click(tid('reset-all'))
+  // Both windows start again. Only the Claude Code session on the hub's disk comes back, brought in again.
+  const remaining = async (d) => (await d.page.evaluate(() => window.api.state()).catch(() => ({ conversations: [{}, {}, {}] }))).conversations
+  await until(async () => (await remaining(b)).length <= 1 && (await remaining(a)).length <= 1, 'every chat to be erased on both devices')
+  await until(async () => (await remaining(a)).some((c) => c.title === 'Sticky header'), 'the Claude Code session to be brought in again')
+  await until(async () => (await remaining(b)).some((c) => c.title === 'Sticky header'), 'the session brought in again to sync')
+  const hubAfter = await a.page.evaluate(() => window.api.state())
+  assert(hubAfter.projects.every((p) => p.folder) && hubAfter.settings.hub.hostEnabled, 'settings stay, and only folder projects come back')
+  ok('start over: uninstall is planned, and erasing everything clears every device, then sessions come back')
+
+  // After erasing, setup greets both computers. The hub walks through it and brings its chats and projects in again.
+  await a.page.waitForSelector(tid('setup'))
+  await b.page.waitForSelector(tid('setup'))
+  await until(async () => (await a.page.getAttribute(tid('setup-role-hub'), 'aria-checked')) === 'true', 'the hub to be shown as the main computer')
+  await shot(a.page, '51-setup-computer')
+  await a.page.click(tid('setup-next'))
+  await a.page.waitForSelector(`${tid('web-account-claude')}[data-state="in"]`)
+  await a.page.click(tid('setup-import-claude'))
+  await a.page.waitForFunction(() => /\d+ chats? from claude\.ai in the app\. \d+ projects?\./.test(document.querySelector('[data-testid="setup-import-text-claude"]')?.textContent ?? ''), null, { timeout: 30000 })
+  assert((await a.page.evaluate(() => window.api.state())).settings.webImport?.claude, 'bringing chats in from setup keeps them up to date')
+  await shot(a.page, '52-setup-chats')
+  await a.page.click(tid('setup-next'))
+  await a.page.waitForFunction(() => [...document.querySelectorAll('[data-testid="session-source"]')].some((el) => el.textContent.includes('Claude Code session')))
+  await a.page.click(tid('setup-next'))
+  const pairing = (await a.page.evaluate(() => window.api.state())).settings.hub.token
+  await a.page.waitForFunction((t) => document.querySelector('[data-testid="setup-token"]')?.textContent === t, pairing)
+  await shot(a.page, '53-setup-computers')
+  await a.page.click(tid('setup-done'))
+  await until(async () => !(await a.page.$(tid('setup'))), 'setup to close on the hub')
+  assert((await a.page.evaluate(() => window.api.state())).setupDone, 'finishing setup is remembered')
+  // The other computer skips it, and it can be run again from Settings.
+  await b.page.click(tid('setup-skip'))
+  await until(async () => !(await b.page.$(tid('setup'))), 'setup to close when skipped')
+  await until(async () => (await remaining(b)).some((c) => c.source?.service === 'claude'), 'the chats brought in on the hub to sync to the other computer')
+  await b.page.click(tid('open-settings'))
+  await b.page.click(tid('settings-tab-general'))
+  await b.page.click(tid('run-setup'))
+  await b.page.waitForSelector(tid('setup'))
+  await b.page.click(tid('setup-skip'))
+  await until(async () => !(await b.page.$(tid('setup'))), 'setup to close again')
+  ok('setup after erasing: the hub brings its chats and projects in again, shows the pairing code, and the other computer can skip it or run it again')
 
   console.log(`\nAll ${steps.length} end-to-end checks passed. Screenshots are in e2e/artifacts.`)
 } catch (e) {

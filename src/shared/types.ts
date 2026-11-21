@@ -62,7 +62,15 @@ export interface Conversation {
   /** How hard the model thinks before answering, as the tool names it (low, medium, high and so on). Empty means the model's own default. */
   effort?: string
   /** Brought in from a Claude Code or Codex session on one of the user's computers. */
-  origin?: { tool: 'claude-code' | 'codex'; sessionId: string; device: string }
+  origin?: {
+    tool: 'claude-code' | 'codex'
+    sessionId: string
+    device: string
+    /** The name the tool gave it, as last read. A different title means it was renamed in the app. */
+    toolTitle?: string
+    /** The folder it ran in, on that device. */
+    folder?: string
+  }
 }
 
 export type ConversationKind = 'chat' | 'code'
@@ -222,6 +230,33 @@ export interface Project {
   files: Attachment[]
   createdAt: number
   updatedAt: number
+  /** Chat projects hold regular chats and code projects hold code chats. They never mix. */
+  kind?: ProjectKind
+  /** A code project's folder, on the computer that made it. Code chats started in the project work there. */
+  folder?: string
+  /** Kept at the top of the sidebar. */
+  pinned?: boolean
+}
+
+export type ProjectKind = ConversationKind
+
+/** Which tab a project belongs in. Projects saved before kinds existed are chat projects, except folder projects. */
+export function projectKindOf(p: Pick<Project, 'kind' | 'id'>): ProjectKind {
+  return p.kind ?? (p.id.startsWith('code-') ? 'code' : 'chat')
+}
+
+/** The last part of a folder path, on any computer. */
+export function folderName(path: string): string {
+  return path.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? ''
+}
+
+/** The code project for folders of this name. The same project on a Mac and a PC lands in one project. */
+export function folderProjectId(path: string): string {
+  const slug = folderName(path)
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return slug ? `code-folder-${slug}` : ''
 }
 
 export interface Profile {

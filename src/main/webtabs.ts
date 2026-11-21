@@ -183,6 +183,21 @@ export class WebTabs {
     return (await wc.executeJavaScript(script, true)) as { status: number; body: string }
   }
 
+  /** Sends one file to the site as a form upload, the way its own page does, with the page's sign-in. */
+  async upload(service: WebService, path: string, file: { name: string; mime: string; base64: string }, field = 'file'): Promise<{ status: number; body: string }> {
+    if (!path.startsWith('/')) throw new Error('Only paths on the site itself can be requested.')
+    const wc = await this.settled(service)
+    if (!belongsTo(service, wc.getURL()) || new URL(wc.getURL()).origin !== siteOrigin(service)) return { status: 0, body: '' }
+    const script = `(async () => {
+      const bytes = Uint8Array.from(atob(${JSON.stringify(file.base64)}), (c) => c.charCodeAt(0));
+      const form = new FormData();
+      form.append(${JSON.stringify(field)}, new File([bytes], ${JSON.stringify(file.name)}, { type: ${JSON.stringify(file.mime)} }));
+      try { const r = await fetch(${JSON.stringify(path)}, { method: 'POST', credentials: 'include', body: form }); return { status: r.status, body: await r.text() }; }
+      catch (e) { return { status: 0, body: String(e) }; }
+    })()`
+    return (await wc.executeJavaScript(script, true)) as { status: number; body: string }
+  }
+
   /**
    * Like request, but the answer arrives in pieces as the site sends it, for
    * replies that are written while you watch. The page hands each piece back

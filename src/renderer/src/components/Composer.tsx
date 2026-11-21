@@ -82,6 +82,8 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   const onSite = !!conversation?.source
   const provider: ProviderChoice = conversation?.provider ?? draft.provider
   const mode: RunMode = conversation?.mode ?? draft.mode
+  // With one assistant shown, a new chat always uses it.
+  const showOnly = useUi((x) => x.show) !== 'all'
   const isPrivate = conversation?.private ?? draft.private
   const models = conversation?.models ?? draft.models
   const effective: ProviderChoice = isPrivate ? 'local' : provider
@@ -313,11 +315,11 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               <Popover
                 up
                 testId="provider-picker"
-                disabled={onSite}
+                disabled={onSite || showOnly}
                 title={onSite ? `This chat lives on ${provider === 'chatgpt' ? 'chatgpt.com' : 'claude.ai'}` : 'Where this chat lives'}
                 label={
                   <>
-                    <ProviderDot provider={provider === 'chatgpt' ? 'chatgpt' : 'claude'} /> {provider === 'chatgpt' ? 'ChatGPT' : 'Claude'} {!onSite && <IconChevron size={13} />}
+                    <ProviderDot provider={provider === 'chatgpt' ? 'chatgpt' : 'claude'} /> {provider === 'chatgpt' ? 'ChatGPT' : 'Claude'} {!onSite && !showOnly && <IconChevron size={13} />}
                   </>
                 }
               >
@@ -344,11 +346,11 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
             <Popover
               up
               testId="provider-picker"
-              disabled={isPrivate || !!compare}
-              title="Which assistant answers"
+              disabled={isPrivate || !!compare || showOnly}
+              title={showOnly ? 'The app shows one assistant only. Change it from the app name at the top of the sidebar.' : 'Which assistant answers'}
               label={
                 <>
-                  <ProviderDot provider={effective} /> {providerName(effective)} <IconChevron size={13} />
+                  <ProviderDot provider={effective} /> {providerName(effective)} {!showOnly && <IconChevron size={13} />}
                 </>
               }
             >
@@ -681,13 +683,11 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               </button>
             )}
 
-            {!isWeb() && !web && <CaptureButton onAttached={addAttached} />}
+            {!isWeb() && <CaptureButton onAttached={addAttached} />}
 
-            {!web && (
-              <button type="button" className="icon-btn" title="Attach images or text files" data-testid="attach" onClick={() => void window.api.pickAttachments().then(addAttached)}>
-                <IconClip />
-              </button>
-            )}
+            <button type="button" className="icon-btn" title="Attach images or text files" data-testid="attach" onClick={() => void window.api.pickAttachments().then(addAttached)}>
+              <IconClip />
+            </button>
 
             {app.prompts.length > 0 && (
               <Popover up align="right" className="icon-btn" title="Saved prompts" label={<IconBook />}>

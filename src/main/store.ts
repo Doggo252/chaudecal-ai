@@ -285,6 +285,25 @@ export class Store {
     this.db.exec('update records set dirty = 1')
   }
 
+  /**
+   * Forgets every chat, project and note on this machine, with what was deleted and
+   * what was already imported, so the next import brings everything back. Settings,
+   * the link to the hub and the device's name stay.
+   */
+  wipe(): void {
+    const keep = ['deviceId', 'settings', 'hubId', 'seq', 'erasedAt']
+    this.db.exec('begin')
+    try {
+      this.db.exec('delete from records; delete from msg_fts;')
+      this.db.prepare(`delete from kv where key not in (${keep.map(() => '?').join(', ')})`).run(...keep)
+      this.db.exec('commit')
+    } catch (e) {
+      this.db.exec('rollback')
+      throw e
+    }
+    this.kvSet('cursor', 0)
+  }
+
   /** Hub side: everything that changed after a sequence number. */
   since(seq: number, limit = 500): SyncRecord[] {
     return this.page(this.db.prepare('select * from records where seq > ? order by seq limit ?').iterate(seq, limit) as Iterable<Row>)

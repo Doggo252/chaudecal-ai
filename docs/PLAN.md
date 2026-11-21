@@ -207,6 +207,14 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Slash commands: /usage (shown by the app), /new, /search, /settings, and Claude Code's own | Built, tested. |
 | "Use this computer" in a regular chat, with a note to the website on the next message | Built, tested with stand-ins. |
 | On a Mac, a hub that is unreachable only for this app ("host unreachable" to a home address) is shown as macOS Local Network privacy, with a button to that settings page | Built, tested. Found on a real Mac, where macOS never asked. |
+| Setup on a new install and after erasing: this computer's role and pairing, website sign-in and bringing in chats and projects, Claude Code and Codex sessions, and the pairing code for other computers | Built, tested in the real window after an erase on two devices. |
+| Erase everything on every synced device, and uninstall from Settings | Built, tested with two app instances. Uninstalling only writes its plan down in tests; it has not removed a real install on a Mac or a PC yet. |
+| Projects from both sites read page by page until nothing new comes, archived ones included; a failure is shown instead of skipped | Built, tested with 451 projects on each stand-in site. The paging is not yet tried on the real sites. |
+| Code projects by folder, kept apart from chat projects, the same folder name on two computers as one project | Built, tested. |
+| Show one assistant only, and assistant icons on chats and projects | Built, tested. |
+| Renames on the sites, in Claude Code and in Codex follow into the app, unless renamed in the app | Built, tested against stand-ins. Codex's names come from its own index file, not yet checked against a renamed real session. |
+| Files from this computer in regular chats: pictures uploaded to claude.ai and attached on chatgpt.com, text of documents alongside | Built, tested against stand-in sites. The claude.ai upload address and chatgpt.com's file input are not yet tried on the real sites. |
+| Inter and Source Serif 4 bundled, so Windows looks like the Mac | Built. Not yet looked at on a real PC. |
 | Renamed to Chaude, keeping the old data folder | Built |
 | Remote work: a conversation typed on one device runs on the hub | Built, tested with two app instances. Not yet run between two real machines. |
 | Choosing the hub's working folder from another device by browsing its folders | Built, tested with two app instances on a Mac. Drive letters and Windows paths are in code only. |

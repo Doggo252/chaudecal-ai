@@ -2,6 +2,7 @@ import type { ModelInfo } from './models'
 // The contract between the window (renderer) and the app's backend (main).
 
 import type {
+  ProjectKind,
   Project,
   ScheduledTask,
   ApprovalDecision,
@@ -97,6 +98,8 @@ export interface WebImportStatus {
   of?: number
   /** Chats added or updated by the last run. */
   changed?: number
+  /** Projects the site has, as found by the last run (so far, while running). */
+  projects?: number
   /** Chats from this site in the app. */
   count: number
   /** When the last run finished. */
@@ -137,6 +140,8 @@ export interface AppState {
   /** A conversation to show straight away, because its notification was clicked while no window was open. */
   open?: string
   webImport: Record<WebService, WebImportStatus>
+  /** False until setup was finished or skipped on this computer, and again after everything was erased. */
+  setupDone: boolean
 }
 
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? (T[K] extends unknown[] ? T[K] : DeepPartial<T[K]>) : T[K] }
@@ -208,9 +213,27 @@ export interface Api {
   deleteNote(id: string): Promise<void>
   savePrompt(prompt: { id?: string; title: string; text: string }): Promise<void>
   /** Adds a project, or changes only the given parts of one. Gives back its id. */
-  saveProject(project: { id?: string; name?: string; instructions?: string; files?: Attachment[] }): Promise<string>
+  saveProject(project: { id?: string; name?: string; instructions?: string; files?: Attachment[]; kind?: ProjectKind; folder?: string; pinned?: boolean }): Promise<string>
   /** Deletes a project. Its chats stay, outside any project. */
   deleteProject(id: string): Promise<void>
+  /**
+   * Erases every chat, project, note and import, then starts the app again. With sync
+   * on it erases them on the hub and every paired device too. Settings, the pairing
+   * and the website sign-ins stay.
+   */
+  resetAllData(): Promise<{ everywhere: boolean }>
+  /**
+   * Looks for new Claude Code and Codex sessions on this computer, and asks every
+   * other synced computer to do the same. Gives back how many changed here, and
+   * whether the others were asked.
+   */
+  lookForSessions(): Promise<{ here: number; others: boolean }>
+  /** Marks setup as finished (or skipped), or shows it again. */
+  setSetupDone(done: boolean): Promise<void>
+  /** Closes the app and removes it and its data from this computer. The hub and other devices keep their copy. */
+  uninstallApp(): Promise<void>
+  /** Chooses a code project's folder with this computer's folder dialog. Gives back the folder it has now. */
+  pickProjectFolder(id: string): Promise<string | undefined>
   /** Adds a scheduled task, or changes the given parts of one. Gives back its id. */
   saveTask(task: Partial<Pick<ScheduledTask, 'id' | 'title' | 'prompt' | 'provider' | 'schedule' | 'runOn' | 'enabled'>>): Promise<string>
   deleteTask(id: string): Promise<void>
@@ -307,6 +330,11 @@ export const API_METHODS = [
   'savePrompt',
   'saveProject',
   'deleteProject',
+  'pickProjectFolder',
+  'resetAllData',
+  'lookForSessions',
+  'setSetupDone',
+  'uninstallApp',
   'saveTask',
   'deleteTask',
   'runTaskNow',

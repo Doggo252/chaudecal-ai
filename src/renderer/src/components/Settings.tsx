@@ -8,6 +8,7 @@ import { formatReset } from '@shared/usage'
 import { setState, toast, useUi } from '../state'
 import { applyAccent } from '../theme'
 import { McpSettings } from './McpSettings'
+import { SessionSources } from './SessionSources'
 import { TaskSettings } from './TaskSettings'
 import { limitText, Meter, ProviderDot, Toggle } from './ui'
 
@@ -22,12 +23,12 @@ const TABS = [
   { id: 'usage', label: 'Usage' }
 ]
 
-function save(patch: DeepPartial<Settings>): void {
+export function save(patch: DeepPartial<Settings>): void {
   window.api.updateSettings(patch).catch((e: unknown) => toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e)))
 }
 
 /** Text input that saves when the user leaves it or presses Enter. */
-function Field(props: { value: string; onCommit: (v: string) => void; placeholder?: string; className?: string; type?: string; testId?: string }) {
+export function Field(props: { value: string; onCommit: (v: string) => void; placeholder?: string; className?: string; type?: string; testId?: string }) {
   const [v, setV] = useState(props.value)
   useEffect(() => setV(props.value), [props.value])
   return (
@@ -58,7 +59,7 @@ function NumberField({ value, onCommit, min, max }: { value: number; onCommit: (
   )
 }
 
-function Row({ title, sub, children, stack }: { title: string; sub?: string; children?: React.ReactNode; stack?: boolean }) {
+export function Row({ title, sub, children, stack }: { title: string; sub?: string; children?: React.ReactNode; stack?: boolean }) {
   return (
     <div className={`row ${stack ? 'row-stack' : ''}`}>
       <div className="row-main">
@@ -212,6 +213,9 @@ function General() {
         >
           <Toggle checked={s.localSessions !== false} onChange={(v) => save({ localSessions: v })} label="Bring in my Claude Code and Codex sessions" testId="local-sessions-toggle" />
         </Row>
+        <Row title="Sessions so far" stack>
+          <SessionSources />
+        </Row>
         <Row title="Quick ask from anywhere" sub={`${navigator.platform.toLowerCase().includes('mac') ? 'Option' : 'Alt'}+Space opens a small box over whatever you are doing. Type a question and press Enter: it starts a new chat here.`}>
           <Toggle checked={s.quickAsk} onChange={(v) => save({ quickAsk: v })} label="Quick ask from anywhere" testId="quick-ask-toggle" />
         </Row>
@@ -220,6 +224,74 @@ function General() {
           sub="A new version downloads in the background and is checked against the release. It installs when you quit Chaude, or when you have been away for 10 minutes and nothing is running, and Chaude then comes back as it was. To update right away, click &quot;Restart to update&quot; in the sidebar."
         >
           <Toggle checked={s.autoUpdate} onChange={(v) => save({ autoUpdate: v })} label="Update automatically" testId="auto-update" />
+        </Row>
+      </div>
+
+      <StartOver />
+    </>
+  )
+}
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e)
+}
+
+/** Erasing everything, and removing the app, for trying it all again from the start. */
+function StartOver() {
+  const hub = useUi((x) => x.app!.settings.hub)
+  const synced = hub.hostEnabled || !!hub.remoteUrl.trim()
+  const [busy, setBusy] = useState(false)
+  const erase = (): void => {
+    const where = synced
+      ? 'on this computer, on the hub and on every device synced with it'
+      : 'on this computer'
+    if (!confirm(`Erase all chats, projects, memory, saved prompts, tasks, tool servers and imports ${where}? This cannot be undone. The chats on claude.ai and chatgpt.com, and your Claude Code and Codex sessions, are not touched and can be imported again. Settings, sync pairing and website sign-ins stay. Chaude then starts again.`)) return
+    setBusy(true)
+    window.api
+      .resetAllData()
+      .then(() => toast('Erased. Starting again.'))
+      .catch((e: unknown) => {
+        setBusy(false)
+        toast(errorText(e))
+      })
+  }
+  const uninstall = (): void => {
+    if (!confirm(`Remove Chaude and everything it keeps from this computer? It closes now and is gone in a few seconds.${synced ? ' The hub and your other devices keep their copy of your chats. To erase those too, use Erase everything first.' : ''} The chats on claude.ai and chatgpt.com, and your Claude Code and Codex sessions, are not touched.`)) return
+    setBusy(true)
+    window.api
+      .uninstallApp()
+      .then(() => setBusy(false))
+      .catch((e: unknown) => {
+        setBusy(false)
+        toast(errorText(e))
+      })
+  }
+  return (
+    <>
+      <div className="group-title">Start over</div>
+      <div className="group">
+        <Row title="Run setup again" sub="The welcome steps: which computer this is, signing in to the sites, bringing in chats, projects and sessions, and pairing your other computers.">
+          <button
+            type="button"
+            className="btn btn-small"
+            data-testid="run-setup"
+            onClick={() => void window.api.setSetupDone(false).then(() => setState((s) => (s.app ? { app: { ...s.app, setupDone: false } } : {})))}
+          >
+            Run setup
+          </button>
+        </Row>
+        <Row
+          title="Erase everything"
+          sub={`Removes every chat, project, memory, task and import from Chaude${synced ? ', here and on all your synced devices' : ''}, so you can bring them all in again. Nothing on claude.ai, chatgpt.com or in your Claude Code and Codex sessions is touched.`}
+        >
+          <button type="button" className="btn btn-small btn-danger" disabled={busy} data-testid="reset-all" onClick={erase}>
+            Erase everything
+          </button>
+        </Row>
+        <Row title="Uninstall Chaude" sub="Removes the app and its data from this computer, so you can install it fresh.">
+          <button type="button" className="btn btn-small btn-danger" disabled={busy} data-testid="uninstall" onClick={uninstall}>
+            Uninstall
+          </button>
         </Row>
       </div>
     </>
@@ -234,17 +306,18 @@ function ago(at: number): string {
   return h < 24 ? `${h} h ago` : new Date(at).toLocaleDateString()
 }
 
-function importText(st: WebImportStatus | undefined, web: string): string {
+export function importText(st: WebImportStatus | undefined, web: string): string {
   if (!st) return ''
   const chats = (n: number) => `${n} ${n === 1 ? 'chat' : 'chats'}`
-  if (st.state === 'running') return st.of ? `Bringing in chats: ${st.done ?? 0} of ${st.of} checked, ${st.changed ?? 0} new or changed.` : 'Looking for your chats.'
+  const projects = st.projects ? ` ${st.projects} ${st.projects === 1 ? 'project' : 'projects'}.` : ''
+  if (st.state === 'running') return st.of ? `Bringing in chats: ${st.done ?? 0} of ${st.of} checked, ${st.changed ?? 0} new or changed.${projects}` : st.projects ? `Bringing in projects: ${st.projects} so far.` : 'Looking for your chats.'
   if (st.state === 'signed-out' || st.state === 'error') return st.message ?? 'Something went wrong.'
-  if (st.state === 'done') return `${chats(st.count)} from ${web} in the app. ${st.changed ? `${chats(st.changed)} new or changed` : 'Nothing new'} when checked ${ago(st.lastRun ?? Date.now())}.`
+  if (st.state === 'done') return `${chats(st.count)} from ${web} in the app.${projects} ${st.changed ? `${chats(st.changed)} new or changed` : 'Nothing new'} when checked ${ago(st.lastRun ?? Date.now())}.${st.message ? ` ${st.message}` : ''}`
   return st.count ? `${chats(st.count)} from ${web} in the app.` : `Brings in your chats from ${web}. Sign in to ${web} above first.`
 }
 
 /** The app's own sign-in to claude.ai or chatgpt.com, made in a small window of its own. */
-function WebAccount({ provider }: { provider: 'claude' | 'chatgpt' }) {
+export function WebAccount({ provider }: { provider: 'claude' | 'chatgpt' }) {
   const web = provider === 'claude' ? 'claude.ai' : 'chatgpt.com'
   const [state, setStateLocal] = useState<'checking' | 'in' | 'out' | 'signing'>('checking')
   // Checked again whenever an import finishes or finds the sign-in gone.

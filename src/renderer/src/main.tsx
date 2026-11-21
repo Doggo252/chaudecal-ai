@@ -4,6 +4,11 @@ import { App } from './App'
 import { QuickAsk } from './components/QuickAsk'
 import { boot } from './state'
 import { installWebApi, savedCode, tryCode } from './webApi'
+// Where the Mac's own fonts are missing (Windows, Android), these open fonts stand in for them, so the app looks the same everywhere.
+import '@fontsource-variable/inter/opsz.css'
+import '@fontsource-variable/inter/opsz-italic.css'
+import '@fontsource-variable/source-serif-4/opsz.css'
+import '@fontsource-variable/source-serif-4/opsz-italic.css'
 import './styles.css'
 
 /** In a browser, before anything else: the pairing code from the hub. */

@@ -60,6 +60,10 @@ export class HubClient implements HubLink {
   private backoff = 2000
   /** Called with live progress of runs happening on the hub. */
   onRun?: (event: RunWireEvent) => void
+  /** Called when another device asked every device to look for Claude Code and Codex sessions. */
+  onScan?: () => void
+  /** Called after this device forgot everything because the hub was erased. */
+  onErased?: () => void
 
   constructor(
     private store: Store,
@@ -137,13 +141,18 @@ export class HubClient implements HubLink {
     try {
       const health = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(5000) })
       if (!health.ok) throw new Error(`The hub answered ${health.status}.`)
-      const info = (await health.json()) as { app?: string; hubId?: string; name?: string }
+      const info = (await health.json()) as { app?: string; hubId?: string; name?: string; erasedAt?: number }
       if (info.app !== 'chaudecal' || !info.hubId) throw new Error('That address is not a Chaude hub.')
+      const erasedAt = info.erasedAt ?? 0
       if (this.store.kvGet<string>('hubId') !== info.hubId) {
         // A hub this device has not synced with before: send everything, fetch everything.
         this.store.kvSet('hubId', info.hubId)
         this.store.kvSet('cursor', 0)
+        this.store.kvSet('erasedAt', erasedAt)
         this.store.markAllDirty()
+      } else if ((this.store.kvGet<number>('erasedAt') ?? 0) < erasedAt) {
+        // Everything was erased from another device. Forget it here too, rather than send it back.
+        this.forget(erasedAt)
       }
       await this.sync(true)
       this.backoff = 2000
@@ -162,6 +171,27 @@ export class HubClient implements HubLink {
           : message
       this.setState(false, friendly)
       this.retryLater()
+    }
+  }
+
+  private forget(erasedAt: number): void {
+    this.store.wipe()
+    this.store.kvSet('erasedAt', erasedAt)
+    this.onErased?.()
+  }
+
+  /** Erases everything, on the hub and on every device synced with it. */
+  async eraseEverywhere(): Promise<void> {
+    // The hub ends every event stream. This one is stopped first, so it does not take that as news.
+    this.stream?.abort()
+    this.stream = undefined
+    clearTimeout(this.pushTimer)
+    try {
+      const { erasedAt } = await this.request<{ erasedAt: number }>('/api/sync/erase', {})
+      this.store.wipe()
+      this.store.kvSet('erasedAt', erasedAt)
+    } finally {
+      if (this.running) void this.listen()
     }
   }
 
@@ -187,6 +217,10 @@ export class HubClient implements HubLink {
         for (const block of blocks) {
           const data = /^data: (.*)$/m.exec(block)?.[1]
           if (data === undefined) continue
+          if (/^event: scan$/m.test(block)) {
+            this.onScan?.()
+            continue
+          }
           if (/^event: run$/m.test(block)) {
             try {
               this.onRun?.(JSON.parse(data) as RunWireEvent)
@@ -259,9 +293,16 @@ export class HubClient implements HubLink {
         const res = await fetch(`${url}/api/sync/push`, {
           method: 'POST',
           headers: { ...this.headers(), 'content-type': 'application/json' },
-          body: JSON.stringify({ records: batch }),
+          body: JSON.stringify({ records: batch, erasedAt: this.store.kvGet<number>('erasedAt') ?? 0 }),
           signal: AbortSignal.timeout(120000)
         })
+        if (res.status === 409) {
+          // Erased from another device while this one was connected. Connecting again forgets it here.
+          this.stream?.abort()
+          clearTimeout(this.retryTimer)
+          this.retryTimer = setTimeout(() => void this.connect(), 0)
+          return
+        }
         if (!res.ok) throw new Error(`push ${res.status} ${res.status === 401 ? 'unauthorized' : ''}`)
         this.store.markClean(batch)
       }

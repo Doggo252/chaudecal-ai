@@ -38,6 +38,9 @@ export class ClaudeProvider implements Provider {
     mkdirSync(tmpDir, { recursive: true })
   }
 
+  /** Whether this Claude Code can give a session a name, which older versions cannot. */
+  private canName = false
+
   private bin(): string | undefined {
     return findBinary('claude', this.settings().claude.cliPath, [join(homedir(), '.claude', 'local', 'claude')])
   }
@@ -48,8 +51,9 @@ export class ClaudeProvider implements Provider {
     if (!bin) {
       return { provider: 'claude', installed: false, ready: false, detail: 'Claude Code is not installed. Install it from claude.com/claude-code, then sign in.', models }
     }
-    const [ver, auth] = await Promise.all([runCli(bin, ['--version']), runCli(bin, ['auth', 'status'])])
+    const [ver, auth, help] = await Promise.all([runCli(bin, ['--version']), runCli(bin, ['auth', 'status']), runCli(bin, ['--help'])])
     const version = ver.stdout.trim().split('\n')[0] || undefined
+    this.canName = /--name\b/.test(help.stdout)
     let ready = false
     let detail = 'Not signed in. Run "claude auth login" in a terminal.'
     try {
@@ -163,6 +167,8 @@ export class ClaudeProvider implements Provider {
     if (request.effort) args.push('--effort', request.effort)
     if (request.sessionId) args.push('--resume', request.sessionId)
     if (request.ephemeral) args.push('--no-session-persistence')
+    // Otherwise Claude Code lists the session under the handoff text that opens it.
+    if (request.title && !request.sessionId && !request.ephemeral && this.canName) args.push('--name', request.title)
 
     const allow = [...(request.allow ?? [])]
     switch (request.mode) {

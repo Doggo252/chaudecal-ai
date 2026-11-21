@@ -1,7 +1,7 @@
 {
   "name": "chaudecal-ai",
   "productName": "Chaude",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "One desktop app for Claude, ChatGPT and local AI, with shared context, usage tracking and Mac/PC sync.",
   "main": "out/main/index.js",
   "author": "Doggo252",
@@ -19,6 +19,8 @@
     "postinstall": "node node_modules/electron/install.js"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/source-serif-4": "^5.3.1",
     "bonjour-service": "^1.4.4",
     "unpdf": "^2.2.1"
   },

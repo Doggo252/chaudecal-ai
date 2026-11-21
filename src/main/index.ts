@@ -1,10 +1,11 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeTheme, Notification, powerMonitor, shell, type MenuItemConstructorOptions } from 'electron'
 import { randomBytes } from 'node:crypto'
+import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, delimiter, join } from 'node:path'
 import type { Attachment, Blob, Conversation, Project, ScheduledTask, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
-import { defaultSettings, MAC_LOCAL_NETWORK_SETTINGS, MAX_FILE_BYTES, newId } from '@shared/types'
+import { defaultSettings, kindOf, MAC_LOCAL_NETWORK_SETTINGS, MAX_FILE_BYTES, newId } from '@shared/types'
 import { limitsFromClaudeUsageText } from '@shared/usage'
 import { API_METHODS, type Api, type AppEvents, type AppState, type AttachResult, type DeepPartial, type HandoffInfo, type McpInput } from '@shared/ipc'
 import { cleanMcpName, mcpProblem } from '@shared/mcp'
@@ -28,6 +29,8 @@ import { needsRenewal, renew, signIn as mcpBrowserSignIn } from './mcpAuth'
 import { guardFrames, previewPage, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { artifactCsp } from '@shared/artifactPolicy'
 import { LocalSessions } from './localSessions'
+import { uninstallPlan } from './uninstall'
+import { fileUnderFolder, sortProjectKinds } from './codeProjects'
 import { WebChat } from './webChat'
 import { WebImporter } from './webImport'
 import { TaskRunner } from './tasks'
@@ -297,8 +300,34 @@ const NOT_FROM_BROWSER = new Set([
   'webHide',
   'webNavigate',
   'webAction',
-  'webCapture'
+  'webCapture',
+  'resetAllData',
+  'uninstallApp'
 ])
+
+/** Looks for Claude Code and Codex sessions on this computer. Gives back how many changed. */
+let scanSessions: () => number = () => 0
+
+/** After everything was erased: start again, so nothing held in memory survives. */
+function startOver(): void {
+  // Setup shows again, so everything can be brought back in.
+  store.kvSet('setup:done', false)
+  for (const dir of ['attachments', 'context', 'workspace', 'tmp']) {
+    try {
+      rmSync(join(app.getPath('userData'), dir), { recursive: true, force: true })
+    } catch {
+      // A file in use stays. Nothing points at it any more.
+    }
+  }
+  // A test app reloads its window instead, so the test keeps hold of it.
+  if (dataOverride) {
+    win?.webContents.reload()
+    return
+  }
+  quitting = true
+  app.relaunch()
+  app.quit()
+}
 
 /** Turns bytes that a browser sent as base64 back into bytes. */
 function revive(value: unknown): unknown {
@@ -372,6 +401,13 @@ async function applyHub(): Promise<void> {
     if (settings.hub.remoteUrl.trim()) hubClient.start()
   }
   send('hub', hubStatus())
+}
+
+async function renameOnSite(id: string, service: 'claude' | 'chatgpt', remoteId: string, title: string): Promise<void> {
+  const ok = await webChat.rename(service, remoteId, title).catch(() => false)
+  const now = store.get<Conversation>('conversation', id)
+  // The site has the name now, so a later rename on the site comes through again.
+  if (ok && now?.source && now.title === title) engine.updateConversation(id, { source: { ...now.source, remoteTitle: title } })
 }
 
 let checkingClaudeUsage = false
@@ -451,7 +487,8 @@ function appState(): AppState {
     busy: store.list<Conversation>('conversation').filter((c) => engine.isBusy(c.id) || remote.isBusy(c.id)).map((c) => c.id),
     update: updater.info,
     remote: settings.hub.hostEnabled ? undefined : remote.info(),
-    webImport: { claude: webImporter.status('claude'), chatgpt: webImporter.status('chatgpt') }
+    webImport: { claude: webImporter.status('claude'), chatgpt: webImporter.status('chatgpt') },
+    setupDone: store.kvGet<boolean>('setup:done') !== false
   }
 }
 
@@ -486,10 +523,84 @@ const api: Omit<Api, 'on'> = {
     return store.messages(conversationId)
   },
   async createConversation(partial) {
-    return engine.createConversation(partial)
+    const conv = engine.createConversation(partial)
+    // A code chat started in a code project works in the project's folder, when this computer has it.
+    const project = conv.projectId ? store.get<Project>('project', conv.projectId) : undefined
+    if (project?.folder && kindOf(conv) === 'code' && !conv.runOnHub) {
+      const checked = checkFolder(project.folder)
+      if (checked.path) engine.setWorkspace(conv.id, checked.path)
+    }
+    return conv
+  },
+  async resetAllData() {
+    // The hub starts a new era even while stopped, so its devices forget too when they next reach it.
+    const hosting = settings.hub.hostEnabled
+    const paired = !hosting && !!settings.hub.remoteUrl.trim()
+    if (hosting) hubServer.erase()
+    else if (paired) {
+      // Erasing only here would bring it all back from the hub at the next sync.
+      if (!hubClient.current()) throw new Error('The hub is not reachable, so this would come back from it. Connect to the hub first, or turn sync off to erase only this computer.')
+      await hubClient.eraseEverywhere()
+    } else store.wipe()
+    setTimeout(startOver, 200)
+    return { everywhere: hosting || paired }
+  },
+  async setSetupDone(done: boolean) {
+    store.kvSet('setup:done', !!done)
+  },
+  async lookForSessions() {
+    const here = scanSessions()
+    let others = false
+    if (settings.hub.hostEnabled && hubServer.running) {
+      hubServer.askToScan(false)
+      others = true
+    } else if (hubClient.current()) {
+      others = await hubClient.request('/api/sync/scan', {}).then(
+        () => true,
+        () => false
+      )
+    }
+    return { here, others }
+  },
+  async uninstallApp() {
+    const plan = uninstallPlan({
+      platform: process.platform,
+      exePath: app.getPath('exe'),
+      dataDirs: [app.getPath('userData'), app.getPath('logs')],
+      pid: process.pid
+    })
+    if ('error' in plan) throw new Error(plan.error)
+    // A test app writes down what it would do, and stays.
+    if (dataOverride) {
+      appendFileSync(join(app.getPath('userData'), 'uninstall.log'), `${JSON.stringify(plan)}\n`)
+      return
+    }
+    if (!app.isPackaged) throw new Error('This copy of Chaude is not an installed app, so it cannot remove itself.')
+    app.setLoginItemSettings({ openAtLogin: false })
+    spawn(plan.command, plan.args, { detached: true, stdio: 'ignore', windowsHide: true }).unref()
+    quitting = true
+    // The update that would install as the app quits is skipped.
+    installingOnQuit = true
+    setTimeout(() => app.exit(0), 300)
+  },
+  async pickProjectFolder(projectId) {
+    const project = store.get<Project>('project', projectId)
+    if (!project) return undefined
+    let chosen = process.env.CHAUDECAL_E2E_WORKSPACE ?? ''
+    if (!chosen && win) {
+      const res = await dialog.showOpenDialog(win, { title: `Choose the folder for ${project.name}`, defaultPath: project.folder, properties: ['openDirectory', 'createDirectory'] })
+      chosen = res.canceled ? '' : (res.filePaths[0] ?? '')
+    }
+    if (!chosen) return project.folder
+    store.put('project', projectId, { ...project, folder: chosen, updatedAt: Date.now() } satisfies Project)
+    return chosen
   },
   async updateConversation(id, patch) {
+    const before = store.get<Conversation>('conversation', id)
     engine.updateConversation(id, patch)
+    // A regular chat renamed here gets the same name on the site, so the Claude and ChatGPT apps show it too.
+    const title = patch.title?.trim()
+    if (title && before?.source && title !== before.title && !patch.source) void renameOnSite(id, before.source.service, before.source.remoteId, title)
   },
   async deleteConversation(id) {
     engine.stop(id)
@@ -623,6 +734,7 @@ const api: Omit<Api, 'on'> = {
     const checked = checkFolder(path)
     if (checked.error) return { path: engine.workspace(conversationId), error: checked.error }
     engine.setWorkspace(conversationId, checked.path)
+    if (checked.path) fileUnderFolder(store, conversationId, checked.path)
     return checked
   },
   async browseHubFolders(path) {
@@ -636,7 +748,10 @@ const api: Omit<Api, 'on'> = {
       const res = await dialog.showOpenDialog(win, { title: 'Choose a folder for this conversation', properties: ['openDirectory', 'createDirectory'] })
       chosen = res.canceled ? '' : (res.filePaths[0] ?? '')
     }
-    if (chosen) engine.setWorkspace(conversationId, chosen)
+    if (chosen) {
+      engine.setWorkspace(conversationId, chosen)
+      fileUnderFolder(store, conversationId, chosen)
+    }
     return engine.workspace(conversationId)
   },
   async clearWorkspace(conversationId) {
@@ -667,7 +782,21 @@ const api: Omit<Api, 'on'> = {
     const instructions = typeof input.instructions === 'string' ? input.instructions.slice(0, 100_000) : (existing?.instructions ?? '')
     // Only text travels with a project. Pictures belong in a chat.
     const files = Array.isArray(input.files) ? input.files.filter((f) => f && f.kind === 'text' && typeof f.text === 'string').slice(0, 50) : (existing?.files ?? [])
-    store.put('project', id, { id, name, instructions, files, createdAt: existing?.createdAt ?? now, updatedAt: now } satisfies Project)
+    const kind = input.kind === 'code' || input.kind === 'chat' ? input.kind : existing?.kind
+    const folder = typeof input.folder === 'string' ? input.folder || undefined : existing?.folder
+    const pinned = typeof input.pinned === 'boolean' ? input.pinned || undefined : existing?.pinned
+    store.put('project', id, {
+      ...existing,
+      id,
+      name,
+      instructions,
+      files,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      ...(kind ? { kind } : {}),
+      ...(folder ? { folder } : { folder: undefined }),
+      ...(pinned ? { pinned } : { pinned: undefined })
+    } satisfies Project)
     return id
   },
   async deleteProject(id) {
@@ -976,6 +1105,9 @@ app.whenReady().then(async () => {
   const dataDir = app.getPath('userData')
   mkdirSync(dataDir, { recursive: true })
   store = new Store(join(dataDir, 'chaudecal.db'))
+  // Setup shows on a new install. A copy that already holds chats was set up before
+  // setup existed. Tests skip it unless they ask for it.
+  if (store.kvGet<boolean>('setup:done') === undefined) store.kvSet('setup:done', dataOverride ? !process.env.CHAUDECAL_E2E_SETUP : store.list('conversation').length > 0)
   servePreviews()
   settings = loadSettings()
   nativeTheme.themeSource = settings.theme
@@ -1011,6 +1143,9 @@ app.whenReady().then(async () => {
       previewCsp: () => artifactCsp()
     }
   )
+  hubServer.onErase = startOver
+  // Another device asked every computer to look for sessions. The hub (itself) is asked through onScan.
+  hubServer.onScan = () => void scanSessions()
   let wasConnected = false
   hubClient = new HubClient(store, () => settings, () => {
     send('hub', hubStatus())
@@ -1021,6 +1156,8 @@ app.whenReady().then(async () => {
       void remote.refresh()
     }
   })
+  hubClient.onErased = startOver
+  hubClient.onScan = () => void scanSessions()
   remote = new RemoteRuns(hubClient, showRunEvent, (info) => send('remote', settings.hub.hostEnabled ? undefined : info))
   local = new LocalProvider(() => settings, hubClient)
   codex = new CodexProvider(() => settings, app.getVersion(), (limits) => engine?.recordLimits('chatgpt', limits))
@@ -1138,14 +1275,17 @@ app.whenReady().then(async () => {
   setInterval(importFromWebs, WEB_IMPORT_EVERY)
   // Claude Code and Codex sessions on this computer, now and every ten minutes. Tests use their own home folder.
   const sessionHome = process.env.CHAUDECAL_E2E_HOME || (dataOverride ? '' : homedir())
+  sortProjectKinds(store)
   if (sessionHome) {
     const localSessions = new LocalSessions(store, { home: sessionHome, appData: dataDir, deviceName: settings.deviceName }, (id, path) => engine.setWorkspace(id, path), (id) => engine.workspace(id))
-    const scanSessions = () => {
-      if (settings.localSessions === false) return
+    localSessions.sortIntoFolders()
+    scanSessions = () => {
+      if (settings.localSessions === false) return 0
       try {
-        localSessions.scan()
+        return localSessions.scan()
       } catch {
         // Tried again on the next round.
+        return 0
       }
     }
     setTimeout(scanSessions, process.env.CHAUDECAL_E2E_HOME ? 500 : 30_000)

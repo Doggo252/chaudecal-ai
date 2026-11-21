@@ -15,6 +15,30 @@ import type { ModelInfo } from '@shared/models'
 import { siteApi } from '@shared/webImport'
 import type { WebTabs } from './webtabs'
 
+/** A file sent along with a message: text read from it, or a picture's bytes. */
+export interface WebFile {
+  name: string
+  mime: string
+  text?: string
+  base64?: string
+}
+
+/** The longest text taken from the files of one message, so a huge file cannot swamp the chat. */
+const MAX_FILE_TEXT = 400_000
+
+/** Text files written into a message, for a site that is typed into. */
+export function withFileText(text: string, files: WebFile[] = []): string {
+  let room = MAX_FILE_TEXT
+  const parts: string[] = []
+  for (const f of files) {
+    if (f.text === undefined || room <= 0) continue
+    const body = f.text.slice(0, room)
+    room -= body.length
+    parts.push(`File "${f.name}":\n\n${body}${body.length < f.text.length ? '\n\n(The rest of the file was left out.)' : ''}`)
+  }
+  return parts.length ? [text, ...parts].filter(Boolean).join('\n\n') : text
+}
+
 export interface WebSendInput {
   service: WebService
   /** The chat on the site, when it exists already. */
@@ -24,6 +48,8 @@ export interface WebSendInput {
   /** The site's project a new chat starts in. */
   projectId?: string
   text: string
+  /** Files from this computer, attached to the message. */
+  files?: WebFile[]
   model?: string
   signal: AbortSignal
   /** The answer so far, each time more arrives. */
@@ -85,6 +111,19 @@ export class WebChat {
     return input.service === 'claude' ? this.sendClaude(input) : this.sendChatgpt(input)
   }
 
+  /** Gives a chat on the site a new name, so the site and its apps show the name given here. */
+  async rename(service: WebService, remoteId: string, title: string): Promise<boolean> {
+    const json = { 'content-type': 'application/json' }
+    if (service === 'claude') {
+      const org = await this.claudeOrg()
+      const res = await this.tabs.request('claude', `/api/organizations/${encodeURIComponent(org)}/chat_conversations/${encodeURIComponent(remoteId)}`, json, { method: 'PUT', body: JSON.stringify({ name: title }) })
+      return res.status >= 200 && res.status < 300
+    }
+    const headers = await this.chatgptHeaders()
+    const res = await this.tabs.request('chatgpt', `/backend-api/conversation/${encodeURIComponent(remoteId)}`, { ...headers, ...json }, { method: 'PATCH', body: JSON.stringify({ title }) })
+    return res.status >= 200 && res.status < 300
+  }
+
   // ----- claude.ai -----
 
   private async claudeOrg(): Promise<string> {
@@ -109,6 +148,29 @@ export class WebChat {
       if (made.status < 200 || made.status >= 300) throw new WebChatError(`claude.ai could not start the chat (${made.status}).`, 'site')
     }
     input.onChat?.(remoteId)
+    // Text files go with the message, as claude.ai's page sends them. Pictures are uploaded first.
+    const attachments: { file_name: string; file_type: string; file_size: number; extracted_content: string }[] = []
+    const files: string[] = []
+    let room = MAX_FILE_TEXT
+    for (const f of input.files ?? []) {
+      if (f.text !== undefined) {
+        const text = f.text.slice(0, Math.max(0, room))
+        room -= text.length
+        attachments.push({ file_name: f.name, file_type: f.mime === 'application/pdf' ? 'text/plain' : f.mime || 'text/plain', file_size: text.length, extracted_content: text })
+      } else if (f.base64) {
+        const up = await this.tabs.upload('claude', `/api/${encodeURIComponent(org)}/upload`, { name: f.name, mime: f.mime, base64: f.base64 })
+        if (up.status === 401 || up.status === 403) throw new WebChatError('Not signed in to claude.ai in Chaude. Sign in under Settings, "Claude and ChatGPT".', 'signed-out')
+        let uuid = ''
+        try {
+          const got = JSON.parse(up.body) as { file_uuid?: string; uuid?: string }
+          uuid = got.file_uuid ?? got.uuid ?? ''
+        } catch {
+          // Not an answer the app understands.
+        }
+        if (up.status < 200 || up.status >= 300 || !uuid) throw new WebChatError(`claude.ai did not take the picture "${f.name}" (${up.status}).`, 'site')
+        files.push(uuid)
+      }
+    }
     let state: ClaudeStreamState = { text: '', done: false }
     const read = sseReader((_event, data) => {
       const before = state.text
@@ -120,8 +182,8 @@ export class WebChat {
       parent_message_uuid: input.parentId ?? CLAUDE_ROOT,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       locale: 'en-US',
-      attachments: [],
-      files: [],
+      attachments,
+      files,
       sync_sources: [],
       rendering_mode: 'messages',
       ...(input.model ? { model: input.model } : {})
@@ -156,9 +218,11 @@ export class WebChat {
     const page = `${input.remoteId ? `/c/${encodeURIComponent(input.remoteId)}` : start}${input.model ? `?model=${encodeURIComponent(input.model)}` : ''}`
     await this.tabs.open('chatgpt', page)
     const sentAt = Date.now()
-    const typed = await this.tabs.run<string>('chatgpt', chatgptTypeScript(input.text))
+    const pictures = (input.files ?? []).filter((f) => f.base64).map((f) => ({ name: f.name, mime: f.mime, base64: f.base64! }))
+    const typed = await this.tabs.run<string>('chatgpt', chatgptTypeScript(withFileText(input.text, input.files), pictures))
     if (typed !== 'sent') {
       if (typed === 'no-composer') throw new WebChatError('chatgpt.com did not show its message box. You may need to sign in again under Settings.', 'signed-out')
+      if (typed === 'no-upload') throw new WebChatError('chatgpt.com did not take the pictures. Try again, or send them in a chat that works on this computer.', 'site')
       throw new WebChatError('chatgpt.com did not take the message. Try again in a moment.', 'site')
     }
     // A new chat gets its address once the site has started it.
@@ -197,7 +261,7 @@ export class WebChat {
 }
 
 /** Types a message into chatgpt.com's own message box and presses its send button. */
-export function chatgptTypeScript(text: string): string {
+export function chatgptTypeScript(text: string, pictures: { name: string; mime: string; base64: string }[] = []): string {
   return `(async () => {
     const wait = async (find, ms) => {
       const end = Date.now() + ms;
@@ -206,6 +270,17 @@ export function chatgptTypeScript(text: string): string {
     };
     const box = await wait(() => document.querySelector('#prompt-textarea'), 30000);
     if (!box) return 'no-composer';
+    const pictures = ${JSON.stringify(pictures)};
+    if (pictures.length) {
+      // Pictures go in through the page's own file picker, as if chosen there.
+      const input = document.querySelector('input[type="file"][accept*="image"]') || document.querySelector('input[type="file"]');
+      if (!input) return 'no-upload';
+      const dt = new DataTransfer();
+      for (const p of pictures) dt.items.add(new File([Uint8Array.from(atob(p.base64), (c) => c.charCodeAt(0))], p.name, { type: p.mime }));
+      input.files = dt.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 500));
+    }
     const text = ${JSON.stringify(text)};
     box.focus();
     if (box.isContentEditable) {
@@ -217,7 +292,7 @@ export function chatgptTypeScript(text: string): string {
       set.call(box, text);
       box.dispatchEvent(new Event('input', { bubbles: true }));
     }
-    const send = await wait(() => { const b = document.querySelector('[data-testid="send-button"]'); return b && !b.disabled ? b : null; }, 15000);
+    const send = await wait(() => { const b = document.querySelector('[data-testid="send-button"]'); return b && !b.disabled ? b : null; }, pictures.length ? 120000 : 15000);
     if (!send) return 'no-send';
     send.click();
     return 'sent';

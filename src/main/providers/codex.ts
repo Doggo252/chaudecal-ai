@@ -484,6 +484,8 @@ export class CodexProvider implements Provider {
         ? await this.request<Json>('thread/resume', { threadId: request.sessionId, excludeTurns: true, ...common })
         : await this.request<Json>('thread/start', { ...common, ephemeral: request.ephemeral ?? false })
       const threadId: string = started.thread.id
+      // Otherwise the Codex and ChatGPT apps name the chat after the handoff text that opens it.
+      if (!request.sessionId && request.title) this.request('thread/name/set', { threadId, name: request.title }).catch(() => {})
       emit({ type: 'session', sessionId: threadId })
       emit({ type: 'model', model: started.model ?? request.model ?? this.defaultModel })
       run = { threadId, emit, finish, approvals: new Map(), sawText: false, failed: false, refuseSandbox: askForTools, mcp: mcp.map((m) => m.name) }

@@ -95,6 +95,10 @@ export class HubServer {
   private appSubscribers = new Set<ServerResponse>()
   private unsubscribe?: () => void
   port = 0
+  /** Called after a paired device erased everything, once its answer is on the way. */
+  onErase?: () => void
+  /** Looks for Claude Code and Codex sessions on this machine. */
+  onScan?: () => void
 
   constructor(
     private store: Store,
@@ -205,6 +209,31 @@ export class HubServer {
     }
   }
 
+  /**
+   * Forgets everything on the hub and starts a new era. Each paired device sees the
+   * new era when it next connects and forgets its own copy too, instead of sending
+   * it all back.
+   */
+  erase(): number {
+    const erasedAt = Math.max(Date.now(), (this.store.kvGet<number>('erasedAt') ?? 0) + 1)
+    this.store.wipe()
+    this.store.kvSet('erasedAt', erasedAt)
+    // Ending the streams makes every device reconnect, and so notice.
+    for (const s of this.subscribers) s.end()
+    this.subscribers.clear()
+    return erasedAt
+  }
+
+  /** Asks this machine and every connected device to look for new Claude Code and Codex sessions. */
+  askToScan(includeHere = true): void {
+    for (const s of this.subscribers) s.write(`event: scan\ndata: now\n\n`)
+    if (includeHere) this.onScan?.()
+  }
+
+  private erasedAt(): number {
+    return this.store.kvGet<number>('erasedAt') ?? 0
+  }
+
   private notify(): void {
     const line = `data: ${this.store.latestSeq()}\n\n`
     for (const s of this.subscribers) s.write(line)
@@ -230,7 +259,7 @@ export class HubServer {
       return
     }
     if (path === '/api/health') {
-      json(res, 200, { app: 'chaudecal', hubId: this.hubId(), name: this.settings().deviceName || hostname(), version: this.appVersion })
+      json(res, 200, { app: 'chaudecal', hubId: this.hubId(), name: this.settings().deviceName || hostname(), version: this.appVersion, erasedAt: this.erasedAt() })
       return
     }
     if (!this.authorized(req)) {
@@ -248,9 +277,24 @@ export class HubServer {
     }
     if (path === '/api/sync/push' && req.method === 'POST') {
       const body = await readBody(req)
+      // A device still holding what was erased would bring it all back.
+      if ((Number(body.erasedAt) || 0) < this.erasedAt()) {
+        json(res, 409, { error: 'Everything was erased. Connect again to start over.', erasedAt: this.erasedAt() })
+        return
+      }
       const records: SyncRecord[] = Array.isArray(body.records) ? body.records : []
       const applied = this.store.applyRemote(records.filter((r) => r && typeof r.kind === 'string' && typeof r.id === 'string'))
       json(res, 200, { seq: this.store.latestSeq(), accepted: applied.length })
+      return
+    }
+    if (path === '/api/sync/scan' && req.method === 'POST') {
+      this.askToScan()
+      json(res, 200, { ok: true })
+      return
+    }
+    if (path === '/api/sync/erase' && req.method === 'POST') {
+      json(res, 200, { erasedAt: this.erase() })
+      setTimeout(() => this.onErase?.(), 300)
       return
     }
     if (path === '/api/sync/events' && req.method === 'GET') {

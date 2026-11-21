@@ -24,6 +24,8 @@ export interface RunRequest {
   mcp?: McpServer[]
   /** How hard the model thinks, when the user chose a level. */
   effort?: string
+  /** A name for a new session, where the first message is not the user's own words (a handoff). */
+  title?: string
 }
 
 export interface RunImage {

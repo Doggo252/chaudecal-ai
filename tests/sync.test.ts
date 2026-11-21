@@ -166,6 +166,69 @@ describe('hub sync', () => {
     store.close()
   })
 
+  it('erases everywhere: the hub, the device that asked, and a device that was away', async () => {
+    const hub = await startHub()
+    hub.store.put('conversation', 'c1', conversation('c1', 'Old'))
+    const mac = startClient(hub.url)
+    const pc = startClient(hub.url)
+    await until(() => !!mac.store.get('conversation', 'c1') && !!pc.store.get('conversation', 'c1'), 8000, 'the chat to reach both devices')
+    pc.client.stop()
+    // While the PC is away it writes something, which must not come back after the erase.
+    pc.store.put('conversation', 'c2', conversation('c2', 'Written while away'))
+    pc.store.kvSet('webimport:claude', { service: 'claude', state: 'done' })
+
+    let macErased = 0
+    let pcErased = 0
+    mac.client.onErased = () => macErased++
+    pc.client.onErased = () => pcErased++
+    await mac.client.eraseEverywhere()
+    expect(mac.store.get('conversation', 'c1')).toBeUndefined()
+    expect(hub.store.get('conversation', 'c1')).toBeUndefined()
+    expect(hub.store.isDeleted('conversation', 'c1')).toBe(false)
+    expect(mac.store.kvGet('hubId')).toBeTruthy()
+
+    pc.client.start()
+    await until(() => pcErased === 1, 8000, 'the PC to notice the erase')
+    await until(() => pc.client.status().connected, 8000, 'the PC to connect again')
+    expect(pc.store.get('conversation', 'c2')).toBeUndefined()
+    expect(pc.store.kvGet('webimport:claude')).toBeUndefined()
+    expect(hub.store.get('conversation', 'c2')).toBeUndefined()
+
+    // Afterwards, syncing works as before.
+    pc.store.put('conversation', 'c3', conversation('c3', 'New era'))
+    await until(() => !!mac.store.get('conversation', 'c3'), 8000, 'a new chat to reach the Mac')
+    expect(macErased).toBe(0)
+  })
+
+  it('asks every device and the hub to look for sessions', async () => {
+    const hub = await startHub()
+    let hubScans = 0
+    hub.server.onScan = () => hubScans++
+    const mac = startClient(hub.url)
+    const pc = startClient(hub.url)
+    let macScans = 0
+    let pcScans = 0
+    mac.client.onScan = () => macScans++
+    pc.client.onScan = () => pcScans++
+    await until(() => mac.client.status().connected && pc.client.status().connected && hub.server.listeners() === 2, 8000, 'both devices to listen')
+    await mac.client.request('/api/sync/scan', {})
+    await until(() => macScans === 1 && pcScans === 1 && hubScans === 1, 8000, 'every machine to be asked')
+  })
+
+  it('refuses a push from a device that still holds what was erased', async () => {
+    const hub = await startHub()
+    hub.server.erase()
+    const res = await fetch(`${hub.url}/api/sync/push`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer pair-me', 'content-type': 'application/json' },
+      body: JSON.stringify({ records: [{ kind: 'conversation', id: 'x', updatedAt: 1, deviceId: 'd', deleted: false, data: conversation('x', 'Stale') }] })
+    })
+    expect(res.status).toBe(409)
+    expect(hub.store.get('conversation', 'x')).toBeUndefined()
+    const health = (await (await fetch(`${hub.url}/api/health`)).json()) as { erasedAt: number }
+    expect(health.erasedAt).toBeGreaterThan(0)
+  })
+
   it('accepts hub addresses the way people type them', () => {
     expect(normalizeHubUrl('my-pc')).toBe('http://my-pc:47600')
     expect(normalizeHubUrl('my-pc:5000/')).toBe('http://my-pc:5000')

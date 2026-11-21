@@ -24,7 +24,40 @@ import type {
 } from '@shared/types'
 import { kindOf } from '@shared/types'
 
-export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'settings'; tab?: string } | { kind: 'project'; projectId: string }
+export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'settings'; tab?: string } | { kind: 'project'; projectId: string } | { kind: 'projects' }
+
+/** Which assistants the app shows. One assistant alone makes the app look and work like that assistant's own app. */
+export type Show = 'all' | ProviderId
+
+/** The assistant a chat belongs to, for the show-only choice. Auto chats count for Claude and ChatGPT. */
+export function chatShown(c: Conversation, show: Show): boolean {
+  if (show === 'all') return true
+  const p = c.source?.service ?? c.provider
+  return p === show || (p === 'auto' && show !== 'local')
+}
+
+/** Projects from a site show with that site's assistant. The app's own projects always show. */
+export function projectShown(p: Project, show: Show): boolean {
+  if (show === 'all') return true
+  const site = /^web-(claude|chatgpt)-p-/.exec(p.id)?.[1]
+  return !site || site === show
+}
+
+const SHOW_KEY = 'chaude.show'
+
+/** Shows one assistant only, or all of them, and remembers it. */
+export function setShow(show: Show): void {
+  try {
+    localStorage.setItem(SHOW_KEY, show)
+  } catch {
+    // Remembering is a nicety.
+  }
+  // Local AI has no regular chats on a website, so it shows the Code tab.
+  setState((s) => {
+    const tab = show === 'local' ? 'code' : s.tab
+    return { show, tab, ...(s.app && s.view.kind === 'chat' && !s.view.conversationId ? { draft: newDraft(s.app, tab, show) } : {}) }
+  })
+}
 
 /** Choices made before a conversation exists. */
 export interface Draft {
@@ -43,9 +76,10 @@ export interface Draft {
 }
 
 /** The starting choices for a new conversation of this kind. */
-export function newDraft(app: AppState, kind: ConversationKind = state.tab): Draft {
-  if (kind === 'chat') return { kind, provider: app.settings.defaultProvider === 'chatgpt' ? 'chatgpt' : 'claude', models: {}, mode: 'chat', private: false, runOnHub: false }
-  return { kind, provider: app.settings.defaultProvider, models: {}, mode: app.settings.defaultMode, private: false, runOnHub: app.settings.runOnHubByDefault && !!app.remote?.enabled }
+export function newDraft(app: AppState, kind: ConversationKind = state.tab, show: Show = state.show): Draft {
+  const only = show === 'all' ? undefined : show
+  if (kind === 'chat') return { kind, provider: only === 'chatgpt' || (!only && app.settings.defaultProvider === 'chatgpt') ? 'chatgpt' : 'claude', models: {}, mode: 'chat', private: false, runOnHub: false }
+  return { kind, provider: only ?? app.settings.defaultProvider, models: {}, mode: app.settings.defaultMode, private: false, runOnHub: app.settings.runOnHubByDefault && !!app.remote?.enabled }
 }
 
 const TAB_KEY = 'chaude.tab'
@@ -82,6 +116,8 @@ export interface UiState {
   artifact: OpenArtifact | null
   /** Which chats the sidebar lists: regular chats or work and code chats. */
   tab: ConversationKind
+  /** All assistants, or one only. */
+  show: Show
 }
 
 export interface OpenArtifact {
@@ -112,9 +148,17 @@ let state: UiState = {
   artifact: null,
   tab: (() => {
     try {
-      return localStorage.getItem(TAB_KEY) === 'code' ? 'code' : 'chat'
+      return localStorage.getItem(TAB_KEY) === 'code' || localStorage.getItem(SHOW_KEY) === 'local' ? 'code' : 'chat'
     } catch {
       return 'chat'
+    }
+  })(),
+  show: (() => {
+    try {
+      const v = localStorage.getItem(SHOW_KEY)
+      return v === 'claude' || v === 'chatgpt' || v === 'local' ? v : 'all'
+    } catch {
+      return 'all'
     }
   })()
 }

@@ -1,21 +1,27 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { LimitWindow, ProviderChoice, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
-import { IconCheck, IconClose } from '../icons'
+import { IconAuto, IconChatgpt, IconCheck, IconClaude, IconClose, IconLocal } from '../icons'
 
 export function providerName(p: ProviderChoice): string {
   return p === 'auto' ? 'Auto' : PROVIDER_LABEL[p]
 }
 
-export function ProviderDot({ provider }: { provider: ProviderChoice }) {
-  return <span className={`dot dot-${provider}`} aria-hidden="true" />
+/** An assistant's icon. Each has its own shape, so they are told apart without relying on color. */
+export function ProviderDot({ provider, size = 14 }: { provider: ProviderChoice; size?: number }) {
+  const Icon = provider === 'claude' ? IconClaude : provider === 'chatgpt' ? IconChatgpt : provider === 'local' ? IconLocal : IconAuto
+  return (
+    <span className={`pmark pmark-${provider}`} aria-hidden="true">
+      <Icon size={size} />
+    </span>
+  )
 }
 
 /** Marks a chat that lives on claude.ai or chatgpt.com. */
 export function SourceTag({ service }: { service: 'claude' | 'chatgpt' }) {
   return (
     <span className={`source-tag source-${service}`} title={service === 'claude' ? 'A claude.ai chat' : 'A chatgpt.com chat'}>
-      <span className={`dot dot-${service}`} aria-hidden="true" />
+      <ProviderDot provider={service} size={12} />
       {service === 'claude' ? 'Claude' : 'ChatGPT'}
     </span>
   )

@@ -205,14 +205,52 @@ export const IconSpeaker = (p: P) => (
     <path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11" />
   </Svg>
 )
+/** A screenshot: the corners of a capture frame around a lens. */
 export const IconScreen = (p: P) => (
   <Svg {...p}>
-    <rect x="3" y="4" width="18" height="12" rx="2" />
-    <path d="M8 20h8M12 16v4" />
+    <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
+    <circle cx="12" cy="12" r="3" />
   </Svg>
 )
 export const IconMenu = (p: P) => (
   <Svg {...p}>
     <path d="M4 7h16M4 12h16M4 17h16" />
+  </Svg>
+)
+
+// Marks for each assistant. Shapes tell them apart, so nobody has to remember a color.
+
+/** Claude: a starburst. */
+export const IconClaude = (p: P) => (
+  <Svg {...p}>
+    <path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4" strokeWidth="2.2" />
+  </Svg>
+)
+/** ChatGPT: three loops woven into a knot. */
+export const IconChatgpt = (p: P) => (
+  <Svg {...p}>
+    <ellipse cx="12" cy="12" rx="3.6" ry="8.4" />
+    <ellipse cx="12" cy="12" rx="3.6" ry="8.4" transform="rotate(60 12 12)" />
+    <ellipse cx="12" cy="12" rx="3.6" ry="8.4" transform="rotate(120 12 12)" />
+  </Svg>
+)
+/** Local AI: a chip on this computer. */
+export const IconLocal = (p: P) => (
+  <Svg {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+    <rect x="9.5" y="9.5" width="5" height="5" rx="0.8" />
+    <path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" />
+  </Svg>
+)
+/** Auto: the app picks. */
+export const IconAuto = (p: P) => (
+  <Svg {...p}>
+    <path d="M4 7h3.5c4 0 5 10 9 10H20M17 14l3 3-3 3M4 17h3.5c1.6 0 2.7-1.6 3.6-3.6M13 9.6c.9-1.6 1.9-2.6 3.5-2.6H20M17 4l3 3-3 3" />
+  </Svg>
+)
+/** Chats from claude.ai and chatgpt.com: a speech bubble. */
+export const IconBubble = (p: P) => (
+  <Svg {...p}>
+    <path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
   </Svg>
 )

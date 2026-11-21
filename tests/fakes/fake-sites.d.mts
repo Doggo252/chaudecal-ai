@@ -1,5 +1,5 @@
 export interface FakeSites {
-  state: { signedIn: { claude: boolean; chatgpt: boolean }; requests: string[]; limitOnce: Set<string>; touched: number; claudeParents: string[] }
+  state: { signedIn: { claude: boolean; chatgpt: boolean }; requests: string[]; limitOnce: Set<string>; touched: number; claudeParents: string[]; extraProjects: number; ignoresOffset: boolean; uploads: string[] }
   handle(service: 'claude' | 'chatgpt', path: string, headers?: Record<string, string>, method?: string, body?: string): { status: number; body: string; contentType?: string; chunks?: string[] }
   addAnswer(service: 'claude' | 'chatgpt', text: string): void
   chatgptChats: Record<string, any>

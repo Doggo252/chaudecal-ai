@@ -8,7 +8,9 @@ const iso = (s) => new Date(s * 1000).toISOString()
 const T = 1_760_000_000 // a fixed moment, in unix seconds
 
 export function makeSites() {
-  const state = { signedIn: { claude: true, chatgpt: true }, requests: [], limitOnce: new Set(), touched: 0, claudeParents: [] }
+  // extraProjects: more projects on each site, to need more than one page of them.
+  // ignoresOffset: claude.ai gives the first page whatever offset is asked for.
+  const state = { signedIn: { claude: true, chatgpt: true }, requests: [], limitOnce: new Set(), touched: 0, claudeParents: [], extraProjects: 0, ignoresOffset: false, uploads: [] }
 
   // ---------- ChatGPT ----------
   const node = (id, parent, children, message) => ({ id, parent, children, message })
@@ -131,6 +133,7 @@ export function makeSites() {
   /** chatgpt.com's own page sends this when its send button is pressed. The answer is written over a moment. */
   function chatgptPageSend(body) {
     made++
+    for (const f of body.files ?? []) state.uploads.push(`chatgpt picture ${f}`)
     const now = Date.now() / 1000
     let id = body.conversation_id
     if (!id || !chatgptChats[id]) {
@@ -164,6 +167,12 @@ export function makeSites() {
       claudeChats[b.uuid] = { uuid: b.uuid, name: b.name ?? '', created_at: nowIso(), updated_at: nowIso(), current_leaf_message_uuid: '00000000-0000-0000-0000-000000000000', chat_messages: [] }
       return { status: 201, body: JSON.stringify(claudeChats[b.uuid]) }
     }
+    // A picture, uploaded before the message that carries it. The form's file name is enough here.
+    if (path === '/api/org-1/upload' && method === 'POST') {
+      const name = /filename="([^"]+)"/.exec(body || '')?.[1] ?? 'file'
+      state.uploads.push(`claude upload ${name}`)
+      return { status: 200, body: JSON.stringify({ file_uuid: `up-${state.uploads.length}`, file_name: name }) }
+    }
     const complete = /^\/api\/organizations\/org-1\/chat_conversations\/([^/]+)\/completion$/.exec(path)
     if (complete && method === 'POST' && claudeChats[complete[1]]) {
       const chat = claudeChats[complete[1]]
@@ -172,7 +181,9 @@ export function makeSites() {
       const h = `wh-${made}`
       const a = `wa-${made}`
       const answer = `Claude on the web here. You said: "${b.prompt}".`
-      chat.chat_messages.push({ uuid: h, parent_message_uuid: b.parent_message_uuid, index: chat.chat_messages.length, sender: 'human', created_at: nowIso(), content: [{ type: 'text', text: b.prompt }] })
+      for (const f of b.files ?? []) state.uploads.push(`claude sent ${f}`)
+      for (const f of b.attachments ?? []) state.uploads.push(`claude text ${f.file_name}: ${f.extracted_content.length}`)
+      chat.chat_messages.push({ uuid: h, parent_message_uuid: b.parent_message_uuid, index: chat.chat_messages.length, sender: 'human', created_at: nowIso(), content: [{ type: 'text', text: b.prompt }], attachments: b.attachments ?? [], files: [] })
       chat.chat_messages.push({ uuid: a, parent_message_uuid: h, index: chat.chat_messages.length, sender: 'assistant', created_at: nowIso(), content: [{ type: 'text', text: answer }] })
       chat.current_leaf_message_uuid = a
       chat.updated_at = nowIso()
@@ -224,7 +235,14 @@ export function makeSites() {
         const limit = Number(url.searchParams.get('limit') ?? 28)
         return json({ items: ids.slice(offset, offset + limit).map(chatgptItem), total: ids.length, limit, offset })
       }
-      if (url.pathname === '/backend-api/gizmos/snorlax/sidebar') return json({ items: [{ gizmo: { gizmo: { id: 'g-p-1', display: { name: 'Holiday plans' }, instructions: 'Keep it cheap.' } } }], cursor: null })
+      if (url.pathname === '/backend-api/gizmos/snorlax/sidebar') {
+        // Twenty projects a page, with a cursor to the next page.
+        const gizmos = [{ id: 'g-p-1', display: { name: 'Holiday plans' }, instructions: 'Keep it cheap.' }]
+        for (let i = 0; i < state.extraProjects; i++) gizmos.push({ id: `g-p-x${i}`, display: { name: `Project ${i}` }, instructions: '' })
+        const from = Number(url.searchParams.get('cursor') || 0)
+        const next = from + 20 < gizmos.length ? String(from + 20) : null
+        return json({ items: gizmos.slice(from, from + 20).map((g) => ({ gizmo: { gizmo: g } })), cursor: next })
+      }
       if (url.pathname === '/backend-api/gizmos/g-p-1/conversations') return json(url.searchParams.get('cursor') === '0' ? { items: [chatgptItem('g-project')], cursor: 'next-abc' } : { items: [], cursor: null })
       const m = /^\/backend-api\/conversation\/([^/]+)$/.exec(url.pathname)
       if (m && chatgptChats[m[1]]) return json(chatgptChats[m[1]])
@@ -238,7 +256,13 @@ export function makeSites() {
       const limit = Number(url.searchParams.get('limit') ?? 50)
       return json({ data: all.slice(offset, offset + limit), has_more: offset + limit < all.length })
     }
-    if (url.pathname === '/api/organizations/org-1/projects') return json(Object.values(claudeProjects).map(({ docs, prompt_template, ...p }) => p))
+    if (url.pathname === '/api/organizations/org-1/projects') {
+      const all = Object.values(claudeProjects).map(({ docs, prompt_template, ...p }) => p)
+      for (let i = 0; i < state.extraProjects; i++) all.push({ uuid: `p-x${i}`, name: `Project ${i}`, created_at: iso(T), updated_at: iso(T), ...(i === 0 ? { archived_at: iso(T + 1) } : {}) })
+      const limit = Number(url.searchParams.get('limit') ?? 1000)
+      const offset = state.ignoresOffset ? 0 : Number(url.searchParams.get('offset') ?? 0)
+      return json(all.slice(offset, offset + limit))
+    }
     const pr = /^\/api\/organizations\/org-1\/projects\/([^/]+)(\/docs)?$/.exec(url.pathname)
     if (pr && claudeProjects[pr[1]]) return json(pr[2] ? claudeProjects[pr[1]].docs : { uuid: pr[1], name: claudeProjects[pr[1]].name, prompt_template: claudeProjects[pr[1]].prompt_template })
     const c = /^\/api\/organizations\/org-1\/chat_conversations\/([^/]+)$/.exec(url.pathname)
@@ -296,12 +320,15 @@ export function serveSite(sites, service) {
     // chatgpt.com's page has a message box and a send button, which the app uses for regular chats.
     const composer =
       service === 'chatgpt'
-        ? `<div id="prompt-textarea" contenteditable="true"></div><button data-testid="send-button">Send</button>
+        ? `<input type="file" accept="image/*" multiple hidden><div id="prompt-textarea" contenteditable="true"></div><button data-testid="send-button">Send</button>
 <script>
 document.querySelector('[data-testid="send-button"]').addEventListener('click', async () => {
   const text = document.querySelector('#prompt-textarea').innerText.trim();
   const m = /\\/c\\/([^/?#]+)/.exec(location.pathname);
-  const r = await fetch('/backend-api/fake-send', { method: 'POST', body: JSON.stringify({ conversation_id: m ? m[1] : null, text, model: new URLSearchParams(location.search).get('model') }) });
+  const picker = document.querySelector('input[type="file"]');
+  const files = [...picker.files].map((f) => f.name);
+  picker.value = '';
+  const r = await fetch('/backend-api/fake-send', { method: 'POST', body: JSON.stringify({ conversation_id: m ? m[1] : null, text, files, model: new URLSearchParams(location.search).get('model') }) });
   const out = await r.json();
   document.querySelector('#prompt-textarea').textContent = '';
   if (!m) history.pushState({}, '', '/c/' + out.conversation_id);

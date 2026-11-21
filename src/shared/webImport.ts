@@ -56,8 +56,8 @@ export interface SiteApi {
   list(fetch: (path: string) => Promise<unknown>, session: SiteSession, pause: () => Promise<void>): Promise<RemoteSummary[]>
   chatPath(session: SiteSession, remoteId: string): string
   readChat(json: unknown, summary: RemoteSummary, origin: string): ImportedChat
-  /** The account's projects, with their instructions and files. */
-  projects?(fetch: (path: string) => Promise<unknown>, session: SiteSession, pause: () => Promise<void>): Promise<RemoteProject[]>
+  /** The account's projects, with their instructions and files, all pages of them. `found` hears how many so far. */
+  projects?(fetch: (path: string) => Promise<unknown>, session: SiteSession, pause: () => Promise<void>, found?: (n: number) => void): Promise<RemoteProject[]>
 }
 
 export function conversationIdFor(service: Site, remoteId: string): string {
@@ -216,8 +216,34 @@ function chatgptSummary(item: unknown): RemoteSummary | undefined {
 const PAGE = 50
 /** Stops a list that never ends, for example if the site ignores the page number. */
 const MAX_PAGES = 400
+/** Projects asked for at a time on claude.ai. */
+const PROJECT_PAGE = 200
 
-export const chatgpt: SiteApi = {
+export /** Every ChatGPT project, following the sidebar's pages until a page brings nothing new. */
+async function chatgptProjects(fetch: (path: string) => Promise<unknown>, pause: () => Promise<void>, found?: (n: number) => void): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = []
+  const seen = new Set<string>()
+  let cursor = ''
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res = obj(await fetch(`/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0&cursor=${encodeURIComponent(cursor)}`))
+    let fresh = 0
+    for (const item of arr(res.items)) {
+      const g = obj(obj(obj(item).gizmo).gizmo)
+      const id = str(g.id)
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      out.push(g)
+      fresh++
+    }
+    found?.(out.length)
+    cursor = res.cursor === null || res.cursor === undefined ? '' : String(res.cursor)
+    if (!fresh || !cursor) break
+    await pause()
+  }
+  return out
+}
+
+const chatgpt: SiteApi = {
   async open(fetch) {
     const token = str(obj(await fetch('/api/auth/session')).accessToken)
     return token ? { headers: { Authorization: `Bearer ${token}` } } : undefined
@@ -247,10 +273,7 @@ export const chatgpt: SiteApi = {
     }
     // Chats inside projects are not in the main list.
     try {
-      const sidebar = obj(await fetch('/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0&cursor='))
-      const projects = arr(sidebar.items)
-        .map((i) => str(obj(obj(obj(i).gizmo).gizmo).id))
-        .filter(Boolean)
+      const projects = (await chatgptProjects(fetch, pause)).map((g) => str(g.id))
       for (const project of projects) {
         let cursor = '0'
         for (let page = 0; page < MAX_PAGES && cursor; page++) {
@@ -271,14 +294,11 @@ export const chatgpt: SiteApi = {
   chatPath(_session, remoteId) {
     return `/backend-api/conversation/${encodeURIComponent(remoteId)}`
   },
-  async projects(fetch) {
+  async projects(fetch, _session, pause, found) {
     // ChatGPT keeps a project's name and instructions with it. Its files cannot be read back.
-    const sidebar = obj(await fetch('/backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=0&cursor='))
     const out: RemoteProject[] = []
-    for (const item of arr(sidebar.items)) {
-      const g = obj(obj(obj(item).gizmo).gizmo)
+    for (const g of await chatgptProjects(fetch, pause, found)) {
       const id = str(g.id)
-      if (!id) continue
       const display = obj(g.display)
       out.push({
         remoteId: id,
@@ -478,14 +498,30 @@ export const claude: SiteApi = {
   chatPath(session, remoteId) {
     return `/api/organizations/${encodeURIComponent(session.org ?? '')}/chat_conversations/${encodeURIComponent(remoteId)}?tree=True&rendering_mode=messages&render_all_tools=true`
   },
-  async projects(fetch, session, pause) {
+  async projects(fetch, session, pause, found) {
     const base = `/api/organizations/${encodeURIComponent(session.org ?? '')}/projects`
-    const listed = await fetch(`${base}?include_harmony_projects=true&limit=200`)
-    const items = (Array.isArray(listed) ? listed : arr(obj(listed).data)).map(obj)
+    // Page by page, until a short page or one that brings nothing new (a site that
+    // ignores the offset gives the same page again). Archived projects come too.
+    const items: Record<string, unknown>[] = []
+    const seen = new Set<string>()
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const listed = await fetch(`${base}?include_harmony_projects=true&limit=${PROJECT_PAGE}&offset=${page * PROJECT_PAGE}`)
+      const got = (Array.isArray(listed) ? listed : arr(obj(listed).data)).map(obj)
+      let fresh = 0
+      for (const p of got) {
+        const id = str(p.uuid)
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        items.push(p)
+        fresh++
+      }
+      found?.(items.length)
+      if (!fresh || got.length < PROJECT_PAGE) break
+      await pause()
+    }
     const out: RemoteProject[] = []
     for (const p of items) {
       const id = str(p.uuid)
-      if (!id || p.archived_at) continue
       // The instructions and files come with the project's own page of data.
       let instructions = str(p.prompt_template)
       let files: { name: string; text: string }[] = []

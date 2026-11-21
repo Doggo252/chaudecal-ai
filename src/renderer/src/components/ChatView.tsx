@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Attachment, Message, Project, ProviderId } from '@shared/types'
-import { kindOf, PROVIDER_LABEL } from '@shared/types'
+import { kindOf, PROVIDER_LABEL, projectKindOf } from '@shared/types'
 import { messageBody, modelWindow, SECOND_OPINION_PROMPT, threadMessages } from '@shared/context'
 import { estimateTokens, formatTokens } from '@shared/tokens'
 import { formatReset, limitWarning } from '@shared/usage'
 import { switchTarget } from '@shared/router'
-import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, setState, setTab, toast, useUi } from '../state'
+import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, setState, toast, useUi } from '../state'
 import { IconColumns, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
 import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList } from './Messages'
@@ -267,11 +267,11 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                       Open on {conversation.source.service === 'claude' ? 'claude.ai' : 'chatgpt.com'}
                     </MenuItem>
                   )}
-                  {projects.length > 0 && (
+                  {projects.some((p) => projectKindOf(p) === kindOf(conversation)) && (
                     <>
                       <div className="menu-sep" />
                       <div className="menu-title">Project</div>
-                      {projects.map((p) => (
+                      {projects.filter((p) => projectKindOf(p) === kindOf(conversation)).map((p) => (
                         <MenuItem
                           key={p.id}
                           testId="move-to-project"
@@ -372,18 +372,6 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
       {empty ? (
         <div className="empty">
           <h1>{greeting()}</h1>
-          {!conversation && (
-            <div className="kind-pick" role="radiogroup" aria-label="Kind of chat">
-              <button type="button" role="radio" aria-checked={draftKind === 'chat'} className={draftKind === 'chat' ? 'on' : ''} data-testid="kind-chat" onClick={() => setTab('chat')}>
-                <b>Chat</b>
-                <span>Goes through claude.ai or chatgpt.com, so it shows up in the Claude and ChatGPT apps too.</span>
-              </button>
-              <button type="button" role="radio" aria-checked={draftKind === 'code'} className={draftKind === 'code' ? 'on' : ''} data-testid="kind-code" onClick={() => setTab('code')}>
-                <b>Work and code</b>
-                <span>Uses this computer: its files, commands and apps. Syncs between your devices running Chaude.</span>
-              </button>
-            </div>
-          )}
           {draftProject && (
             <div className="project-pill" data-testid="draft-project">
               <IconFolder size={14} /> In the project <b>{draftProject.name}</b>
