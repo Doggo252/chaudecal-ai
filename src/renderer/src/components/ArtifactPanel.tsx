@@ -1,6 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { Message } from '@shared/types'
-import { ARTIFACT_KIND_LABEL, artifactFileName, collectArtifacts, findArtifact, hasPreview, type ArtifactVersion } from '@shared/artifacts'
+import { ARTIFACT_KIND_LABEL, artifactFileName, artifactLabel, collectArtifacts, findArtifact, hasPreview, type ArtifactVersion } from '@shared/artifacts'
 import { ERROR_MESSAGE_TYPE, LINK_MESSAGE_TYPE } from '@shared/artifactPolicy'
 import { highlightCode, renderMarkdown } from '../markdown'
 import { setState, toast, type OpenArtifact } from '../state'
@@ -126,7 +126,7 @@ export function ArtifactPanel({ open, messages, onAskFix, onSaveEdit }: { open: 
       <div className="artifact-head">
         <div className="artifact-heading">
           <div className="artifact-title" data-testid="artifact-title" title={artifact.title}>
-            {v.title}
+            {artifactLabel(v.title)}
           </div>
           <div className="artifact-sub">
             {ARTIFACT_KIND_LABEL[v.kind]}

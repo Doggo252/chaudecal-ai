@@ -32,6 +32,17 @@ describe('Claude Code and Codex sessions on this computer', () => {
     expect(s.messages[1].model).toBe('claude-opus-4-7')
   })
 
+  it('names a chat after what was asked, past a starting command and what the editor adds', () => {
+    const at = '2026-11-01T10:00:00Z'
+    const file = [
+      line({ type: 'user', uuid: 'c1', sessionId: 's-2', cwd: '/work/app', timestamp: at, message: { role: 'user', content: '<command-name>/clear</command-name>\n<command-args></command-args>' } }),
+      line({ type: 'user', uuid: 'c2', sessionId: 's-2', cwd: '/work/app', timestamp: at, message: { role: 'user', content: [{ type: 'text', text: '<ide_selection>The user selected the lines 35 to 58 from /work/app/a.ts:\nconst a = 1</ide_selection>' }, { type: 'text', text: 'Why is this slow?' }] } })
+    ].join('\n')
+    const s = parseClaudeSession(file)!
+    expect(s.title).toBe('Why is this slow?')
+    expect(s.messages.map((m) => m.text)).toEqual(['/clear', 'Why is this slow?'])
+  })
+
   it('reads a Codex session without the context Codex adds itself', () => {
     const s = parseCodexSession(
       [

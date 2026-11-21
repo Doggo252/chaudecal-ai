@@ -3,21 +3,22 @@ import { createPortal } from 'react-dom'
 import { parseForm } from '@shared/forms'
 import { ChatFormView } from './ChatForm'
 import type { ApprovalDecision, ApprovalRequest, Message, PermissionDenial, PlanStep, ProviderId, ToolCall } from '@shared/types'
-import type { FileDiff } from '@shared/diff'
-import { groupSteps, type StepGroup } from '@shared/steps'
+import { shortPath, type FileDiff } from '@shared/diff'
+import { summarizeSteps } from '@shared/steps'
 import { artifactBlocks, formBlocks } from '@shared/artifacts'
 
 const hasArtifact = (text: string) => /```|~~~/.test(text) && artifactBlocks(text).length > 0
 import { PROVIDER_LABEL } from '@shared/types'
+import { splitHandoff } from '@shared/context'
 import { renderMarkdown } from '../markdown'
 import { setState, toast } from '../state'
-import { IconBranch, IconCheck, IconCopy, IconEdit, IconOpinion, IconRetry, IconSwitch } from '../icons'
+import { IconBranch, IconCheck, IconChevron, IconCopy, IconEdit, IconOpinion, IconRetry, IconSwitch } from '../icons'
 import { ProviderDot } from './ui'
 import { AttachmentList, GeneratedImages } from './Attachments'
 import { ReadAloudButton } from './Speech'
 import { Working } from './Working'
 
-function shortModel(model?: string): string {
+export function shortModel(model?: string): string {
   if (!model) return ''
   const m = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model
   return m.replace(/^claude-/, '').replace(/-\d{8}$/, '')
@@ -80,14 +81,25 @@ export function DiffView({ diff, head }: { diff: FileDiff; head: boolean }) {
   )
 }
 
+/** The chat's folder, so a step on a file inside it can name the file from there. */
+const ChatFolder = createContext('')
+
+/** A file step's path, from inside the chat's folder when it is in there. */
+function stepSummary(t: ToolCall, folder: string): string {
+  if (!folder || (t.kind !== 'read' && t.kind !== 'edit')) return t.summary
+  if (!/^(?:[A-Za-z]:[\\/]|\/)[^\n]*$/.test(t.summary)) return t.summary
+  return shortPath(t.summary, folder)
+}
+
 function ToolRow({ t }: { t: ToolCall }) {
+  const folder = useContext(ChatFolder)
   const added = (t.diff ?? []).reduce((a, d) => a + d.added, 0)
   const removed = (t.diff ?? []).reduce((a, d) => a + d.removed, 0)
   return (
     <details className="tool" data-testid="tool-row" data-kind={t.kind ?? 'other'}>
       <summary>
         <span className="tool-name">{t.name}</span>
-        <span className="tool-summary">{t.summary}</span>
+        <span className="tool-summary" title={t.summary}>{stepSummary(t, folder)}</span>
         <Counts added={added} removed={removed} />
         {t.status === 'running' ? <span className="spinner" /> : <span className={`tool-state ${t.status}`}>{t.status === 'done' ? '' : t.status === 'denied' ? 'not allowed' : 'failed'}</span>}
       </summary>
@@ -97,33 +109,25 @@ function ToolRow({ t }: { t: ToolCall }) {
   )
 }
 
-function Group({ g }: { g: StepGroup }) {
-  if (g.tools.length === 1) return <ToolRow t={g.tools[0]} />
+/** All of an answer's steps as one quiet line, which opens to the steps themselves. */
+function Tools({ tools }: { tools: ToolCall[] }) {
+  const sum = useMemo(() => summarizeSteps(tools), [tools])
   return (
-    <details className="tool tool-group" data-testid="step-group" data-kind={g.kind}>
+    <details className={`steps ${sum.running ? 'running' : ''}`} data-testid="step-group">
       <summary>
-        <span className="tool-name">{g.label}</span>
-        <span className="tool-summary" />
-        <Counts added={g.added} removed={g.removed} />
-        {g.running ? <span className="spinner" /> : g.problems > 0 ? <span className="tool-state error">{g.problems} not done</span> : null}
+        <span className="steps-label">{sum.label}</span>
+        <Counts added={sum.added} removed={sum.removed} />
+        {sum.problems > 0 && <span className="steps-problem">{sum.problems} not done</span>}
+        <span className="steps-chev" aria-hidden>
+          <IconChevron size={12} />
+        </span>
       </summary>
-      <div className="tool-group-rows">
-        {g.tools.map((t) => (
+      <div className="steps-list">
+        {tools.map((t) => (
           <ToolRow t={t} key={t.id} />
         ))}
       </div>
     </details>
-  )
-}
-
-function Tools({ tools }: { tools: ToolCall[] }) {
-  const groups = useMemo(() => groupSteps(tools), [tools])
-  return (
-    <div className="tools">
-      {groups.map((g) => (
-        <Group g={g} key={g.tools[0].id} />
-      ))}
-    </div>
   )
 }
 
@@ -194,8 +198,13 @@ function AssistantBody({ m, answerable = false }: { m: Message; answerable?: boo
   return (
     <>
       {m.thinking && (
-        <details className="thinking">
-          <summary>{m.status === 'streaming' && !m.text ? 'Thinking…' : 'Thought process'}</summary>
+        <details className={`thinking ${m.status === 'streaming' && !m.text && !m.tools?.length ? 'live' : ''}`}>
+          <summary>
+            <span className="thinking-label">{m.status === 'streaming' && !m.text && !m.tools?.length ? 'Thinking' : 'Thought process'}</span>
+            <span className="steps-chev" aria-hidden>
+              <IconChevron size={12} />
+            </span>
+          </summary>
           <div className="thinking-body">{m.thinking}</div>
         </details>
       )}
@@ -249,6 +258,8 @@ interface Actions {
 function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?: (messageId: string, text: string) => void }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(m.text)
+  // A chat carried into a new session starts with the history the app sent along. Only the question is shown.
+  const handoff = useMemo(() => splitHandoff(m.text), [m.text])
   const save = () => {
     const text = draft.trim()
     if (!text && !m.attachments?.length) return
@@ -260,7 +271,22 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
       {!!m.attachments?.length && <AttachmentList items={m.attachments} />}
       {m.research && !editing && <span className="badge research-badge">Research</span>}
       {m.onComputer && !editing && <span className="badge computer-badge">On this computer</span>}
-      {editing ? (
+      {handoff && !editing && (
+        <details className="handoff-note" data-testid="handoff-note">
+          <summary>
+            Continued from an earlier chat
+            <span className="steps-chev" aria-hidden>
+              <IconChevron size={12} />
+            </span>
+          </summary>
+          <div className="handoff-history">
+            <Prose text={handoff.history} />
+          </div>
+        </details>
+      )}
+      {handoff && !editing ? (
+        handoff.message && <div className="bubble">{handoff.message}</div>
+      ) : editing ? (
         <div className="edit-box">
           <textarea
             autoFocus
@@ -294,7 +320,7 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
       ) : (
         m.text && <div className="bubble">{m.text}</div>
       )}
-      {!editing && onEdit && (
+      {!editing && onEdit && !handoff && (
         <div className="msg-actions user-actions">
           <button
             type="button"
@@ -465,7 +491,7 @@ export function DenialCard({ denials, onAllow, onDismiss }: { denials: Permissio
 
 type Item = { kind: 'single'; m: Message } | { kind: 'group'; id: string; variants: Message[] }
 
-export function MessageList({ messages, focusId, onRetry, onSwitch, onBranch, onSecondOpinion, onEdit }: { messages: Message[]; focusId?: string } & Actions) {
+export function MessageList({ messages, focusId, folder = '', onRetry, onSwitch, onBranch, onSecondOpinion, onEdit }: { messages: Message[]; focusId?: string; folder?: string } & Actions) {
   const items = useMemo(() => {
     const out: Item[] = []
     const groups = new Map<string, Message[]>()
@@ -492,20 +518,22 @@ export function MessageList({ messages, focusId, onRetry, onSwitch, onBranch, on
   const current = useMemo(() => ({ id: planMessage?.id, pinned }), [planMessage, pinned])
 
   return (
-    <CurrentPlan.Provider value={current}>
-      {items.map((item) => {
-        if (item.kind === 'group') return <CompareGroup key={item.id} variants={item.variants} />
-        const m = item.m
-        if (m.role === 'note') {
-          return (
-            <div className="note" key={m.id}>
-              {m.text}
-            </div>
-          )
-        }
-        if (m.role === 'user') return <UserMessage key={m.id} m={m} focus={m.id === focusId} onEdit={onEdit} />
-        return <AssistantMessage key={m.id} m={m} focus={m.id === focusId} onRetry={onRetry} onSwitch={onSwitch} onBranch={onBranch} onSecondOpinion={onSecondOpinion} isLast={m.id === lastAssistantId && m.id === lastId} />
-      })}
-    </CurrentPlan.Provider>
+    <ChatFolder.Provider value={folder}>
+      <CurrentPlan.Provider value={current}>
+        {items.map((item) => {
+          if (item.kind === 'group') return <CompareGroup key={item.id} variants={item.variants} />
+          const m = item.m
+          if (m.role === 'note') {
+            return (
+              <div className="note" key={m.id}>
+                {m.text}
+              </div>
+            )
+          }
+          if (m.role === 'user') return <UserMessage key={m.id} m={m} focus={m.id === focusId} onEdit={onEdit} />
+          return <AssistantMessage key={m.id} m={m} focus={m.id === focusId} onRetry={onRetry} onSwitch={onSwitch} onBranch={onBranch} onSecondOpinion={onSecondOpinion} isLast={m.id === lastAssistantId && m.id === lastId} />
+        })}
+      </CurrentPlan.Provider>
+    </ChatFolder.Provider>
   )
 }

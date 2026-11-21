@@ -20,7 +20,7 @@ export const FILES_LABEL = navigator.platform.toLowerCase().includes('mac') ? 'F
 
 function ChangedFile({ change, folder, conversationId, open, onToggle, local }: { change: FileChange; folder: string; conversationId: string; open: boolean; onToggle: () => void; local: boolean }) {
   const name = shortPath(change.path, folder)
-  const slash = name.lastIndexOf('/')
+  const slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'))
   return (
     <div className={`change ${open ? 'open' : ''}`} data-testid="changed-file">
       <div className="change-head">
@@ -100,7 +100,11 @@ export function ChangesPanel({ conversationId, changes, local, onClose }: { conv
         </button>
       </div>
       <div className="artifact-body changes-body">
-        {folder && <div className="changes-folder" title={folder}>{folder}</div>}
+        {folder && (
+          <div className="changes-folder" title={folder}>
+            <bdi>{folder}</bdi>
+          </div>
+        )}
         {!changes.length && <div className="side-empty">No files changed in this chat yet.</div>}
         {changes.map((c) => (
           <ChangedFile key={c.path} change={c} folder={folder} conversationId={conversationId} local={local} open={!shut.has(c.path)} onToggle={() => toggle(c.path)} />

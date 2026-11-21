@@ -86,7 +86,7 @@ export function SearchDialog() {
         <div className="search-results">
           {!query.trim() && recent.length > 0 && <div className="menu-title">Recent</div>}
           {list.map((h, i) => (
-            <button type="button" key={`${h.conversationId}:${h.messageId ?? 't'}:${i}`} className={`hit ${i === active ? 'active' : ''}`} data-testid="search-hit" onMouseEnter={() => setActive(i)} onClick={() => openSearchHit(h)}>
+            <button type="button" key={`${h.conversationId}:${h.messageId ?? 't'}:${i}`} className={`hit ${i === active ? 'active' : ''}`} data-testid="search-hit" onMouseMove={() => setActive(i)} onClick={() => openSearchHit(h)}>
               <div className="hit-title">
                 <span className="hit-name">{h.title}</span>
                 {h.source && <SourceTag service={h.source} />}

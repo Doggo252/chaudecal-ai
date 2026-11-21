@@ -248,6 +248,13 @@ const EXTENSIONS: Record<string, string> = {
   xml: 'xml'
 }
 
+/** A title for people to read. A snake_case name like "study_guide_part_2" reads as "Study guide part 2". */
+export function artifactLabel(title: string): string {
+  if (!/^[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+$/.test(title)) return title
+  const words = title.replace(/_/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 /** A file name to save a version under, made from its title. */
 export function artifactFileName(v: Pick<ArtifactVersion, 'kind' | 'language' | 'title'>): string {
   const base =
@@ -284,8 +291,125 @@ export interface ArtifactEntry {
   index: number
   versions: number
   updatedAt: number
-  /** The start of the newest version, for the card. */
+  /** What the card shows of the newest version, read as `look` says. */
   excerpt: string
+  /** Words to read, an SVG picture, or the start of the code. */
+  look: ArtifactLook
+}
+
+export type ArtifactLook = 'words' | 'picture' | 'code'
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' }
+
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (whole, e: string) => {
+    if (e[0] !== '#') return ENTITIES[e.toLowerCase()] ?? whole
+    const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)
+    return code > 0 && code < 0x110000 ? String.fromCodePoint(code) : whole
+  })
+}
+
+/** Tidies words pulled out of markup: one space between words, one break between blocks. */
+function tidyWords(text: string): string {
+  return text
+    .replace(/[ \t\r\f\v\u00a0]+/g, ' ')
+    .replace(/ ?\n[\s]*/g, '\n')
+    .trim()
+}
+
+/** The words a web page shows, without its tags, styles and scripts. */
+function pageWords(html: string): string {
+  const text = html
+    .replace(/<(script|style|head|svg|template|noscript)\b[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<(?:br|\/p|\/h[1-6]|\/li|\/div|\/tr|\/section|\/header|\/button|\/label)\b[^>]*>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+  return tidyWords(decodeEntities(text))
+}
+
+/** The words written between a component's tags, without its code. */
+function componentWords(code: string): string {
+  const out: string[] = []
+  for (const m of code.matchAll(/>([^<>{}]+)</g)) {
+    const words = m[1].trim()
+    if (/[A-Za-z]/.test(words) && !/[;=()]|&&|\|\||=>/.test(words)) out.push(words)
+  }
+  return tidyWords(decodeEntities(out.join('\n')))
+}
+
+/** A document's words, without the marks that format them. */
+function documentWords(text: string): string {
+  return tidyWords(
+    text
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/gm, '')
+      .replace(/^\s*(?:[-*_]\s*){3,}$/gm, '')
+      .replace(/(\*\*|__|\*|~~|`)(?=\S)([^\n]*?\S)\1/g, '$2')
+  )
+}
+
+/** The largest image the Artifacts page draws on a card. Bigger ones show their code. */
+const PICTURE_MAX = 60_000
+
+// Diagram pictures drawn in Claude's own app name their colours by class (box, arr,
+// c-purple and the rest) and leave the look to the page around them. These give
+// those names a look here. Each colour is a fill, an edge, a title and small text.
+const DIAGRAM_COLORS: Record<string, [string, string, string, string]> = {
+  purple: ['#efecfb', '#6f62c9', '#352c80', '#5b50b0'],
+  teal: ['#e3f4ef', '#22806a', '#0c4a3d', '#1f6e5b'],
+  coral: ['#fbebe5', '#c0532e', '#6e2913', '#a0441f'],
+  pink: ['#fbe9f0', '#b8476f', '#6b1f3a', '#9a3a5c'],
+  gray: ['#f2f1ec', '#8a8880', '#3e3d3a', '#64625d'],
+  blue: ['#e8f1fb', '#3a78c2', '#123f70', '#2d65a6'],
+  green: ['#ecf4e2', '#5a8f2a', '#2a4d0e', '#4a7a21'],
+  amber: ['#fbf0dc', '#b07a1f', '#5e3a08', '#8d5c10'],
+  red: ['#fcebea', '#c24141', '#701c1c', '#a33333']
+}
+
+const SHAPES = ['rect', 'circle', 'ellipse', 'polygon']
+
+/** Styles for the class names diagram pictures use without defining. Every rule has no weight, so a picture's own styles win. */
+export const DIAGRAM_CSS = [
+  ":where(svg .t, svg .ts, svg .th) { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; fill: #1f1e1d; }",
+  ':where(svg .t, svg .th) { font-size: 14px; }',
+  ':where(svg .th) { font-weight: 600; }',
+  ':where(svg .ts) { font-size: 12px; fill: #5e5d59; }',
+  ':where(svg .box) { fill: #f6f5f1; stroke: #b9b7ae; }',
+  ':where(svg .bg) { fill: #faf9f6; }',
+  ':where(svg .arr) { fill: none; stroke: #7a7870; stroke-width: 1.5; }',
+  ':where(svg .leader) { fill: none; stroke: #9a988f; stroke-width: 0.5; stroke-dasharray: 3 3; }',
+  ...Object.entries(DIAGRAM_COLORS).flatMap(([name, [fill, edge, title, small]]) => [
+    `:where(${SHAPES.map((s) => `svg .c-${name} > ${s}, svg ${s}.c-${name}`).join(', ')}) { fill: ${fill}; stroke: ${edge}; }`,
+    `:where(svg .c-${name} .t, svg .c-${name} .th) { fill: ${title}; }`,
+    `:where(svg .c-${name} .ts) { fill: ${small}; }`
+  ])
+].join('\n')
+
+/** Whether a picture uses any of the class names that DIAGRAM_CSS gives a look. */
+export function usesDiagramClasses(content: string): boolean {
+  return /\bclass\s*=\s*["'](?:[^"']*\s)?(?:t|ts|th|box|bg|arr|leader|c-[a-z]+)(?:\s[^"']*)?["']/.test(content)
+}
+
+/** An SVG ready to draw from a data address: with its namespace, and with the diagram look it leans on. */
+function pictureOf(content: string): string | null {
+  if (content.length > PICTURE_MAX || !/<svg\b/i.test(content)) return null
+  // An image without its namespace does not draw from a data address.
+  let svg = /<svg\b[^>]*\bxmlns\s*=/i.test(content) ? content : content.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"')
+  if (usesDiagramClasses(svg)) svg = svg.replace(/<svg\b[^>]*>/i, (open) => `${open}<style>${DIAGRAM_CSS}</style>`)
+  return svg
+}
+
+/** What an artifact's card on the Artifacts page shows: its words, its picture, or the start of its code. */
+export function artifactPeek(kind: ArtifactKind, content: string): { excerpt: string; look: ArtifactLook } {
+  const code = { excerpt: content.slice(0, 400), look: 'code' as const }
+  // A widget can be one picture and nothing else; show that the same way.
+  if (kind === 'svg' || (kind === 'html' && /^\s*<svg\b/i.test(content) && /<\/svg>\s*$/i.test(content))) {
+    const svg = pictureOf(content)
+    return svg ? { excerpt: svg, look: 'picture' } : code
+  }
+  const words = kind === 'html' ? pageWords(content) : kind === 'react' ? componentWords(content) : kind === 'markdown' ? documentWords(content) : ''
+  return words ? { excerpt: words.slice(0, 400), look: 'words' } : code
 }
 
 /** Every finished artifact in every chat, the most recently changed first. */
@@ -315,7 +439,7 @@ export function listArtifacts(conversations: { id: string; title: string }[], me
         index: v.index,
         versions: done.length,
         updatedAt: v.createdAt,
-        excerpt: v.content.slice(0, 400)
+        ...artifactPeek(v.kind, v.content)
       })
     }
   }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ARTIFACT_KIND_LABEL, type ArtifactEntry, type ArtifactKind } from '@shared/artifacts'
+import { ARTIFACT_KIND_LABEL, artifactLabel, type ArtifactEntry, type ArtifactKind } from '@shared/artifacts'
 import { chatShown, openChat, setState, useUi } from '../state'
 import { IconArtifact, IconSearch } from '../icons'
 import { whenAgo } from './ProjectView'
@@ -80,11 +80,11 @@ export function ArtifactsView() {
           <div className="projects-grid">
             {shown.map((a) => (
               <button type="button" key={`${a.conversationId}:${a.messageId}:${a.index}`} className="projects-item artifacts-item" data-testid="artifacts-item" onClick={() => open(a)}>
-                <span className="artifacts-peek" aria-hidden="true">
-                  {a.excerpt}
+                <span className={`artifacts-peek artifacts-peek-${a.look}`} aria-hidden="true">
+                  {a.look === 'picture' ? <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(a.excerpt)}`} alt="" draggable={false} /> : a.excerpt}
                 </span>
                 <span className="projects-item-name">
-                  <IconArtifact size={15} /> <span className="artifacts-title">{a.title}</span>
+                  <IconArtifact size={15} /> <span className="artifacts-title" title={a.title}>{artifactLabel(a.title)}</span>
                 </span>
                 <span className="projects-item-sub">
                   {ARTIFACT_KIND_LABEL[a.kind]}

@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/common'
 import { Marked, type Tokens } from 'marked'
-import { ARTIFACT_KIND_LABEL, classifyFence, fenceClosed, parseFenceInfo } from '@shared/artifacts'
+import { ARTIFACT_KIND_LABEL, artifactLabel, classifyFence, fenceClosed, parseFenceInfo } from '@shared/artifacts'
 import { mathExtensions } from './math'
 
 function escapeHtml(s: string): string {
@@ -38,7 +38,7 @@ function artifactCard(token: Tokens.Code): string {
   const index = artifactCount++
   const writing = !fenceClosed(token.raw)
   const sub = `${ARTIFACT_KIND_LABEL[spec.kind]}${spec.kind === 'code' && spec.language !== 'text' ? `, ${escapeHtml(spec.language)}` : ''}`
-  return `<button type="button" class="artifact-card" data-testid="artifact-card" data-artifact-index="${index}" data-kind="${spec.kind}"${writing ? ' data-writing="1"' : ''}><span class="artifact-card-icon">${ICON}</span><span class="artifact-card-text"><span class="artifact-card-title">${escapeHtml(spec.title)}</span><span class="artifact-card-sub">${sub}</span></span><span class="artifact-card-open">${writing ? 'Writing' : 'Open'}</span></button>`
+  return `<button type="button" class="artifact-card" data-testid="artifact-card" data-artifact-index="${index}" data-kind="${spec.kind}"${writing ? ' data-writing="1"' : ''}><span class="artifact-card-icon">${ICON}</span><span class="artifact-card-text"><span class="artifact-card-title">${escapeHtml(artifactLabel(spec.title))}</span><span class="artifact-card-sub">${sub}</span></span><span class="artifact-card-open">${writing ? 'Writing' : 'Open'}</span></button>`
 }
 
 const marked = new Marked({ gfm: true, breaks: false, renderer: { code: artifactCard }, extensions: mathExtensions })

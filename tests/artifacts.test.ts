@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { join } from 'node:path'
 import type { Message, ProviderStatus, Settings } from '@shared/types'
 import { ARTIFACT_GUIDE } from '@shared/context'
-import { artifactBlocks, artifactFileName, classifyFence, collectArtifacts, fenceClosed, findArtifact, parseFenceInfo, type ArtifactSource } from '@shared/artifacts'
+import { artifactBlocks, artifactFileName, artifactLabel, classifyFence, collectArtifacts, fenceClosed, findArtifact, parseFenceInfo, type ArtifactSource } from '@shared/artifacts'
 import { artifactDocument, compileComponent, htmlDocument, mermaidDocument, moduleUrl, REACT_IMPORTS, svgDocument } from '@shared/artifactDoc'
 import { ARTIFACT_SCHEME, artifactCsp, ERROR_MESSAGE_TYPE, frameUrlAllowed } from '@shared/artifactPolicy'
 import { Store } from '../src/main/store'
@@ -128,6 +128,13 @@ describe('artifacts across a conversation', () => {
     expect(artifacts[0].title).toBe('my page')
   })
 
+  it('shows snake_case titles as words and leaves other titles alone', () => {
+    expect(artifactLabel('everything_we_never_had_quiz_set6')).toBe('Everything we never had quiz set6')
+    expect(artifactLabel('Pricing page')).toBe('Pricing page')
+    expect(artifactLabel('App.tsx')).toBe('App.tsx')
+    expect(artifactLabel('_private')).toBe('_private')
+  })
+
   it('names saved files after the title, with the right extension', () => {
     expect(artifactFileName({ kind: 'html', language: 'html', title: 'Pricing page' })).toBe('pricing-page.html')
     expect(artifactFileName({ kind: 'react', language: 'tsx', title: 'Sales Chart' })).toBe('sales-chart.tsx')
@@ -156,6 +163,14 @@ describe('preview pages', () => {
     const diagram = mermaidDocument('graph TD; A["<b>x</b>"] --> B')
     expect(diagram).toContain('A[&quot;&lt;b&gt;x&lt;/b&gt;&quot;] --&gt; B')
     expect(diagram).toContain('cdn.jsdelivr.net/npm/mermaid@11')
+  })
+
+  it('gives the class names of Claude diagram pictures a look, in the panel and in widgets', () => {
+    const picture = '<svg viewBox="0 0 10 10"><g class="c-purple"><rect class="box"/><text class="th">Battery</text></g><line class="arr"/></svg>'
+    expect(svgDocument(picture)).toContain(':where(svg .c-purple > rect')
+    expect(htmlDocument(picture)).toContain(':where(svg .arr)')
+    expect(svgDocument('<svg><rect/></svg>')).not.toContain(':where(svg')
+    expect(htmlDocument('<div class="box">Not a picture</div>')).not.toContain(':where(svg')
   })
 
   it('turns a React component into a module that loads React and its packages from esm.sh', () => {

@@ -36,5 +36,6 @@ describe('shortPath', () => {
     expect(shortPath('C:\\Code\\App\\src\\a.ts', 'C:\\code\\app\\')).toBe('src/a.ts')
     expect(shortPath('/etc/hosts', '/Users/me/app')).toBe('/etc/hosts')
     expect(shortPath('src/a.ts', '')).toBe('src/a.ts')
+    expect(shortPath('C:\\Users\\me\\Coding\\My App\\src\\main\\index.ts', '/Users/me/Coding/My App')).toBe('src/main/index.ts')
   })
 })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolCall } from '@shared/types'
 import { claudeToolDiff, codexFileDiffs, diffTexts, MAX_LINES, parseUnifiedDiff } from '@shared/diff'
-import { groupSteps } from '@shared/steps'
+import { groupSteps, summarizeSteps } from '@shared/steps'
 import { claudeToolKind, createClaudeParser, todoPlan } from '../src/main/providers/claudeParser'
 import { codexItemToTool, codexPlan } from '../src/main/providers/codex'
 
@@ -68,6 +68,18 @@ describe('steps and plans', () => {
     expect(groups.map((g) => g.label)).toEqual(['Read 2 files', 'Edited 2 files', 'Running 3 commands', 'Looked something up on the web', 'T', 'T'])
     expect(groups[1]).toMatchObject({ added: 4, removed: 1 })
     expect(groups[2]).toMatchObject({ running: true, problems: 1 })
+  })
+
+  it('sums up all of an answer\'s steps as one line', () => {
+    const line = summarizeSteps([
+      tool('1', 'command'),
+      tool('/repo/src/a.ts', 'read'),
+      tool('2', 'command', { status: 'denied' }),
+      tool('3', 'edit', { diff: [{ path: '/repo/src/openers.ts', added: 78, removed: 0, created: true, lines: [] }] }),
+      tool('4', undefined)
+    ])
+    expect(line).toMatchObject({ label: 'Ran 2 commands, read a.ts, created openers.ts, T', added: 78, removed: 0, running: false, problems: 1 })
+    expect(summarizeSteps([tool('x', 'read'), tool('y', 'read', { status: 'running' })]).label).toBe('Reading 2 files')
   })
 
   it("knows the sort of each of Claude's tools", () => {

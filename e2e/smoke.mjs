@@ -362,13 +362,12 @@ try {
   await waitForReply(a.page, 'claude', 'The work is done')
   const last = `${tid('assistant-message')}:last-of-type`
   assert((await a.page.textContent(`${last} ${tid('plan')}`)).includes('3 of 3 done'), 'the checklist should be all ticked off')
-  const groupText = async (kind) => a.page.textContent(`${last} [data-kind="${kind}"] > summary`)
-  const edited = await groupText('edit')
-  assert(edited.includes('Edited 2 files') && edited.includes('+5') && edited.includes('−1'), `the edits should be grouped with their counts, got ${edited}`)
-  assert((await groupText('command')).includes('Ran 2 commands'), 'the commands should be grouped')
+  const steps = (await a.page.textContent(`${last} ${tid('step-group')} > summary`)).toLowerCase()
+  assert(steps.includes('edited 2 files') && steps.includes('+5') && steps.includes('−1'), `the edits should be summed up with their counts, got ${steps}`)
+  assert(steps.includes('ran 2 commands'), 'the commands should be summed up')
   assert(!(await a.page.$(`${last} ${tid('tool-row')}[data-kind="other"]`)), 'the to-do list should not show as a step')
-  await a.page.click(`${last} [data-kind="edit"] > summary`)
-  await a.page.click(`${last} ${tid('step-group')}[data-kind="edit"] ${tid('tool-row')}:first-of-type > summary`)
+  await a.page.click(`${last} ${tid('step-group')} > summary`)
+  await a.page.click(`${last} ${tid('tool-row')}[data-kind="edit"] > summary`)
   await a.page.waitForSelector(`${last} ${tid('diff')} .diff-line.add:has-text("hello there")`)
   await shot(a.page, '33-steps-claude')
   await pickProvider(a.page, 'chatgpt')
@@ -377,7 +376,7 @@ try {
   assert((await a.page.textContent(`${last} ${tid('plan')}`)).includes('2 of 2 done'), "ChatGPT's plan should show as a checklist")
   const readme = await a.page.textContent(`${last} ${tid('tool-row')}[data-kind="edit"] > summary`)
   assert(readme.includes('README.md') && readme.includes('+2') && readme.includes('−1'), `ChatGPT's edit should carry its diff, got ${readme}`)
-  ok('a checklist, grouped steps and diffs show what Claude and ChatGPT did')
+  ok('a checklist, a one-line step summary and diffs show what Claude and ChatGPT did')
 
   // Math is drawn as formulas, and prices stay text.
   await pickProvider(a.page, 'claude')

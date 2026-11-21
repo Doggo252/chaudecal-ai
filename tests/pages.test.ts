@@ -3,7 +3,7 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { Store } from '../src/main/store'
-import { listArtifacts } from '@shared/artifacts'
+import { artifactPeek, listArtifacts } from '@shared/artifacts'
 import { filterArtifacts } from '../src/renderer/src/components/ArtifactsView'
 import { filterChats } from '../src/renderer/src/components/ChatsView'
 import type { Conversation, Message } from '@shared/types'
@@ -40,6 +40,33 @@ describe('artifacts page', () => {
     ])
     expect(list[1]).toMatchObject({ kind: 'html', messageId: 'a2', index: 0, updatedAt: 20 })
     expect(list[1].excerpt).toContain('two')
+    expect(list[1].look).toBe('words')
+    expect(list[0]).toMatchObject({ look: 'code', excerpt: 'print(1 + 2)' })
+  })
+
+  it('shows a card the words of a page, not its markup', () => {
+    const html = '<!doctype html><html><head><title>T</title><style>.qz{margin:0}</style></head><body><h2 class="sr-only">Quiz three</h2><script>let a = 1 < 2</script><p>Pick the best answer &amp; explain.</p><!-- note --></body></html>'
+    expect(artifactPeek('html', html)).toEqual({ excerpt: 'Quiz three\nPick the best answer & explain.', look: 'words' })
+    const jsx = 'import { useState } from "react"\nexport default function App() {\n  const [n, setN] = useState(0)\n  return <div><h1>Counter</h1>{n > 0 && <b>Up</b>}<button onClick={() => setN(n + 1)}>Add one</button></div>\n}'
+    expect(artifactPeek('react', jsx)).toEqual({ excerpt: 'Counter\nUp\nAdd one', look: 'words' })
+    expect(artifactPeek('markdown', '# Study guide\n\n- **Main idea:** the [theme](https://x.y)\n- snake_case_name')).toEqual({ excerpt: 'Study guide\nMain idea: the theme\nsnake_case_name', look: 'words' })
+    expect(artifactPeek('html', '<style>p{}</style>').look).toBe('code')
+  })
+
+  it('draws an image on its card, and adds the namespace it needs', () => {
+    expect(artifactPeek('svg', '<svg viewBox="0 0 2 2"><circle r="1"/></svg>')).toEqual({ excerpt: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 2"><circle r="1"/></svg>', look: 'picture' })
+    const big = `<svg xmlns="http://www.w3.org/2000/svg">${'<g/>'.repeat(20_000)}</svg>`
+    expect(artifactPeek('svg', big).look).toBe('code')
+    expect(artifactPeek('mermaid', 'graph TD; A-->B').look).toBe('code')
+  })
+
+  it('draws a diagram picture with its colours, and a widget that is only a picture as one', () => {
+    const svg = '<svg width="100%" viewBox="0 0 680 420" role="img"><g class="node c-teal"><rect x="1"/><text class="th">Battery +</text></g></svg>'
+    const card = artifactPeek('svg', svg)
+    expect(card.look).toBe('picture')
+    expect(card.excerpt).toMatch(/^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="100%" viewBox="0 0 680 420" role="img"><style>[^<]*\.c-teal > rect/)
+    expect(artifactPeek('html', `\n${svg}\n`).look).toBe('picture')
+    expect(artifactPeek('html', `<p>Intro</p>${svg}`).look).toBe('words')
   })
 
   it('leaves out an artifact that is still being written', () => {

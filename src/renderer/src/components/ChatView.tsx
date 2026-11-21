@@ -6,7 +6,8 @@ import { estimateTokens, formatTokens } from '@shared/tokens'
 import { formatReset, limitWarning } from '@shared/usage'
 import { switchTarget } from '@shared/router'
 import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, queueMessage, setState, toast, useUi } from '../state'
-import { IconColumns, IconDiff, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
+import { IconColumns, IconDiff, IconFolder, IconLock, IconMore, IconPanel, IconSwitch } from '../icons'
+import { ContextRing, DetailsPanel, useDetailsOpen, useWorkspace } from './DetailsPanel'
 import { ChangesPanel, FILES_LABEL, openIn, useChanges } from './ChangesPanel'
 import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList, Plan, currentPlanMessage, planPinned } from './Messages'
@@ -66,6 +67,23 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
     asked.current = waiting
     if (el && stick.current) el.scrollTop = el.scrollHeight
   }, [messages, approvals, denial])
+
+  // Pictures, highlighted code and a side panel opening all change the height after the
+  // first scroll. While the view sits at the end it stays there. A click inside the
+  // conversation (opening a step, say) is left where the user put it.
+  const touched = useRef(0)
+  useEffect(() => {
+    const el = scroller.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const follow = () => {
+      if (stick.current && Date.now() - touched.current > 700) el.scrollTop = el.scrollHeight
+    }
+    const watch = new ResizeObserver(follow)
+    watch.observe(el)
+    const column = el.firstElementChild
+    if (column) watch.observe(column)
+    return () => watch.disconnect()
+  }, [conversationId, messages.length > 0])
 
   useEffect(() => {
     if (!focusMessageId) return
@@ -148,10 +166,16 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
       window.removeEventListener('chaude-open-editor', editor)
     }
   })
+  const [detailsOpen, setDetailsOpen] = useDetailsOpen()
+  const folder = useWorkspace(conversation?.id, codeChat)
+  const folderName = folder?.split(/[\\/]/).filter(Boolean).pop() ?? ''
+  const project = conversation?.projectId ? projects.find((p) => p.id === conversation.projectId) : undefined
   const thread = useMemo(() => threadMessages(stored), [stored])
   const contextTokens = useMemo(() => thread.reduce((n, m) => n + estimateTokens(m.role === 'user' ? messageBody(m) : m.text) + 6, 0), [thread])
   const windowProvider = conversation?.provider === 'chatgpt' || conversation?.provider === 'local' ? conversation.provider : 'claude'
   const windowTokens = modelWindow(windowProvider, conversation?.models[windowProvider] || app.settings[windowProvider].defaultModel, app.settings)
+  const memoryPercent = Math.min(100, Math.round((contextTokens / windowTokens) * 100))
+  const showDetails = detailsOpen && !!conversation && !!stored.length && !panel && !showChanges
 
   const send = async (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean, computer?: boolean) => {
     try {
@@ -249,9 +273,31 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                 conversation.title
               )}
             </div>
-            {conversation.projectId && projects.some((p) => p.id === conversation.projectId) && (
-              <button type="button" className="chip no-drag" data-testid="conversation-project" title="Open the project" onClick={() => setState({ view: { kind: 'project', projectId: conversation.projectId! } })}>
-                <IconFolder size={14} /> {projects.find((p) => p.id === conversation.projectId)!.name}
+            {codeChat && folder && (
+              <Popover align="left" className="chip topbar-folder no-drag" title={folder} label={<><IconFolder size={14} /> <span className="chip-text">{folderName}</span></>} testId="topbar-folder">
+                {(close) => (
+                  <>
+                    <div className="menu-path" title={folder}>{folder}</div>
+                    {project && (
+                      <MenuItem testId="folder-open-project" onClick={() => (setState({ view: { kind: 'project', projectId: project.id } }), close())}>
+                        Open the project
+                      </MenuItem>
+                    )}
+                    {onThisComputer && (
+                      <>
+                        <MenuItem onClick={() => (openIn(conversation.id, 'editor'), close())}>Open in code editor</MenuItem>
+                        <MenuItem onClick={() => (openIn(conversation.id, 'files'), close())}>Show in {FILES_LABEL}</MenuItem>
+                        <MenuItem onClick={() => (openIn(conversation.id, 'terminal'), close())}>Open in terminal</MenuItem>
+                      </>
+                    )}
+                    <MenuItem onClick={() => (void navigator.clipboard.writeText(folder), toast('Folder path copied'), close())}>Copy path</MenuItem>
+                  </>
+                )}
+              </Popover>
+            )}
+            {project && !(codeChat && folder && project.name === folderName) && (
+              <button type="button" className="chip topbar-folder no-drag" data-testid="conversation-project" title="Open the project" onClick={() => setState({ view: { kind: 'project', projectId: project.id } })}>
+                <IconFolder size={14} /> <span className="chip-text">{project.name}</span>
               </button>
             )}
             <span className="topbar-spacer" />
@@ -261,20 +307,36 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
               </span>
             ) : (
               <>
-                <span className="ctx-meter" title="How much of what the model can read at once this conversation fills. Past that, Chaude sends a summary of the older part." data-testid="context-meter">
-                  {Math.min(100, Math.round((contextTokens / windowTokens) * 100))}% of memory used
-                </span>
                 {codeChat && (changes.length > 0 || changesOpen) && (
                   <button type="button" className={`chip ${showChanges ? 'on' : ''}`} data-testid="open-changes" onClick={toggleChanges} title="Every file this chat changed">
                     <IconDiff size={15} /> {changes.length} {changes.length === 1 ? 'file' : 'files'}
                     <Counts added={changes.reduce((n, c) => n + c.added, 0)} removed={changes.reduce((n, c) => n + c.removed, 0)} />
                   </button>
                 )}
-                <button type="button" className="chip" data-testid="open-switch" disabled={busy} onClick={() => openSwitch()} title="Continue this conversation with a different assistant">
-                  <IconSwitch size={15} /> Switch
+                <button
+                  type="button"
+                  className="icon-btn ctx-btn"
+                  data-testid="context-meter"
+                  title={`${memoryPercent}% of memory used. How much of what the model can read at once this conversation fills. Past that, Chaude sends a summary of the older part.`}
+                  onClick={() => setDetailsOpen(!detailsOpen)}
+                >
+                  <ContextRing percent={memoryPercent} />
+                  <span className="ctx-pct">{memoryPercent}%</span>
+                </button>
+                <button type="button" className="icon-btn" data-testid="open-switch" disabled={busy} onClick={() => openSwitch()} title="Continue this conversation with a different assistant">
+                  <IconSwitch size={16} />
                 </button>
               </>
             )}
+            <button type="button" className={`icon-btn ${showDetails ? 'on' : ''}`} data-testid="toggle-details" title={showDetails ? 'Hide details' : 'Show details: context, tasks, environment, connectors and outputs'} onClick={() => {
+              if (!detailsOpen) {
+                closeArtifact()
+                setChangesOpen(false)
+              }
+              setDetailsOpen(!detailsOpen)
+            }}>
+              <IconPanel size={16} />
+            </button>
             <Popover align="right" className="icon-btn" title="More" label={<IconMore />} testId="conversation-menu">
               {(close) => (
                 <>
@@ -308,16 +370,11 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                   {codeChat && onThisComputer && (
                     <>
                       <div className="menu-sep" />
-                      <div className="menu-title">Folder</div>
-                      <MenuItem testId="menu-open-editor" onClick={() => (openIn(conversation.id, 'editor'), close())}>
-                        Open in code editor
-                      </MenuItem>
-                      <MenuItem onClick={() => (openIn(conversation.id, 'files'), close())}>
-                        Show in {FILES_LABEL}
-                      </MenuItem>
-                      <MenuItem onClick={() => (openIn(conversation.id, 'terminal'), close())}>
-                        Open in terminal
-                      </MenuItem>
+                      {!folder && (
+                        <MenuItem testId="menu-open-editor" onClick={() => (openIn(conversation.id, 'editor'), close())}>
+                          Open in code editor
+                        </MenuItem>
+                      )}
                       <MenuItem
                         onClick={() => {
                           close()
@@ -341,9 +398,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                     </MenuItem>
                   )}
                   {projects.some((p) => projectKindOf(p) === kindOf(conversation)) && (
-                    <>
-                      <div className="menu-sep" />
-                      <div className="menu-title">Project</div>
+                    <details className="menu-more" data-testid="move-menu">
+                      <summary>{project ? `Project: ${project.name}` : 'Move to a project'}</summary>
                       {projects.filter((p) => projectKindOf(p) === kindOf(conversation)).map((p) => (
                         <MenuItem
                           key={p.id}
@@ -367,7 +423,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                           Not in a project
                         </MenuItem>
                       )}
-                    </>
+                    </details>
                   )}
                   <div className="menu-sep" />
                   <MenuItem
@@ -478,13 +534,23 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
             ref={scroller}
             data-testid="message-scroll"
             onClick={showCard}
+            onWheel={() => {
+              touched.current = Date.now()
+            }}
+            onPointerDown={(e) => {
+              // Only a press on the scroll bar itself, not a click on something in the chat.
+              if (e.target === e.currentTarget) touched.current = Date.now()
+            }}
+            onKeyDown={(e) => {
+              if (/^(Arrow|Page|Home|End| )/.test(e.key)) touched.current = Date.now()
+            }}
             onScroll={(e) => {
               const el = e.currentTarget
               stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
             }}
           >
             <div className="column">
-              <MessageList messages={messages} focusId={focusMessageId} onRetry={retry} onSwitch={() => openSwitch()} onBranch={(id) => void branch(id)} onSecondOpinion={opinionFrom && !webChat ? secondOpinion : undefined} onEdit={busy ? undefined : editQuestion} />
+              <MessageList messages={messages} focusId={focusMessageId} folder={folder} onRetry={retry} onSwitch={() => openSwitch()} onBranch={(id) => void branch(id)} onSecondOpinion={opinionFrom && !webChat ? secondOpinion : undefined} onEdit={busy ? undefined : editQuestion} />
               {conversation &&
                 approvals?.map((a) => (
                   <ApprovalCard
@@ -549,6 +615,19 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
       </div>
       {panel && <ArtifactPanel open={panel} messages={messages} onAskFix={busy ? undefined : askFix} onSaveEdit={busy ? undefined : saveArtifactEdit} />}
       {showChanges && conversation && <ChangesPanel conversationId={conversation.id} changes={changes} local={onThisComputer} onClose={() => setChangesOpen(false)} />}
+      {showDetails && conversation && (
+        <DetailsPanel
+          conversation={conversation}
+          messages={thread}
+          contextTokens={contextTokens}
+          windowTokens={windowTokens}
+          changes={changes}
+          folder={folder}
+          onThisComputer={onThisComputer}
+          onOpenChanges={() => setChangesOpen(true)}
+          onClose={() => setDetailsOpen(false)}
+        />
+      )}
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHandoff, composeChatMessages, composePrompt, extractiveSummary, planTurn, providerBudget, threadMessages, titleFromText } from '@shared/context'
+import { buildHandoff, composeChatMessages, composePrompt, extractiveSummary, planTurn, providerBudget, splitHandoff, threadMessages, titleFromText } from '@shared/context'
 import { estimateTokens } from '@shared/tokens'
 import { defaultSettings, type Conversation, type Message } from '@shared/types'
 
@@ -71,6 +71,16 @@ describe('composePrompt', () => {
     expect(text).toContain('<conversation_since_your_last_reply>')
     expect(text).toContain('three day plan')
     expect(text).not.toContain('Plan a trip to Lisbon')
+  })
+  it('splits a handoff back into the history and the new message for showing it', () => {
+    const handoff = composePrompt({ plan: { kind: 'handoff', unseen: prior }, userText: 'Add a day in Sintra', conversation: conv, variant: 'full', budgetTokens: 5000 })
+    const split = splitHandoff(handoff)
+    expect(split?.message).toBe('Add a day in Sintra')
+    expect(split?.history).toContain('Plan a trip to Lisbon')
+    expect(split?.history).not.toContain('<context_file>')
+    const catchup = composePrompt({ plan: { kind: 'catchup', sessionId: 's', unseen: [prior[1]] }, userText: 'next', conversation: conv, variant: 'summary', budgetTokens: 5000 })
+    expect(splitHandoff(catchup)?.message).toBe('next')
+    expect(splitHandoff('Plan a trip to Lisbon')).toBeUndefined()
   })
 })
 

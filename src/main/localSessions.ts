@@ -63,7 +63,8 @@ function typedText(raw: string): string {
     const args = /<command-args>([^<]*)<\/command-args>/.exec(raw)?.[1]?.trim()
     return `${command[1].startsWith('/') ? command[1] : `/${command[1]}`}${args ? ` ${args}` : ''}`
   }
-  raw = raw.replace(/<task-notification>[\s\S]*?<\/task-notification>/g, '')
+  // What an editor adds about the open file or the selected lines is context, not something typed.
+  raw = raw.replace(/<task-notification>[\s\S]*?<\/task-notification>/g, '').replace(/<(ide_selection|ide_opened_file|ide_diagnostics)>[\s\S]*?<\/\1>/g, '')
   if (/^\s*<(local-command-stdout|local-command-stderr|system-reminder|bash-stdout|bash-stderr)/.test(raw) || raw.startsWith('Caveat:')) return ''
   return raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
 }
@@ -137,7 +138,8 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
   }
   const kept = messages.filter((m) => m.role === 'user' || m.text || m.tools?.length || m.plan?.length)
   if (!sessionId || !kept.some((m) => m.role === 'user')) return undefined
-  const first = kept.find((m) => m.role === 'user')!
+  // A chat that starts with a command such as /clear is named after the first thing asked instead.
+  const first = kept.find((m) => m.role === 'user' && m.text && !/^\/[\w:-]+(?:\s|$)/.test(m.text)) ?? kept.find((m) => m.role === 'user')!
   return {
     tool: 'claude-code',
     sessionId,
@@ -150,7 +152,7 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
 }
 
 /** Raised when the readers change, so every session is read again. */
-const SESSION_READER = 3
+const SESSION_READER = 4
 
 /** The session's id, from its first lines. */
 export function codexSessionId(text: string): string {

@@ -194,5 +194,10 @@ export function shortPath(path: string, folder: string): string {
   if (!folder) return path
   const p = path.replace(/\\/g, '/')
   const f = folder.replace(/\\/g, '/').replace(/\/+$/, '') + '/'
-  return p.toLowerCase().startsWith(f.toLowerCase()) ? p.slice(f.length) : path
+  if (p.toLowerCase().startsWith(f.toLowerCase())) return p.slice(f.length)
+  // The same project on another computer (a step run on Windows, say) sits in a folder of the same name.
+  const name = f.slice(0, -1).split('/').pop()
+  if (!name) return path
+  const at = p.toLowerCase().lastIndexOf(`/${name.toLowerCase()}/`)
+  return at >= 0 ? p.slice(at + name.length + 2) : path
 }

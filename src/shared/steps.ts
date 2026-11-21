@@ -64,3 +64,54 @@ export function groupSteps(tools: ToolCall[]): StepGroup[] {
     }
   })
 }
+
+/** All of one answer's steps as one quiet line: "Ran 2 commands, read 3 files, edited openers.ts". */
+export interface StepSummary {
+  label: string
+  added: number
+  removed: number
+  running: boolean
+  problems: number
+}
+
+const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p
+
+function phrase(kind: ToolKind, list: ToolCall[], running: boolean): string {
+  if (kind === 'edit' || kind === 'read') {
+    const paths = [...new Set(list.flatMap((t) => (t.diff?.length ? t.diff.map((d) => d.path) : [t.summary.split('\n')[0].trim()])))].filter(Boolean)
+    if (paths.length === 1 && paths[0].length < 260) {
+      const created = kind === 'edit' && list.every((t) => !!t.diff?.length && t.diff.every((d) => d.created))
+      const verb = kind === 'read' ? (running ? 'Reading' : 'Read') : created ? (running ? 'Creating' : 'Created') : running ? 'Editing' : 'Edited'
+      return `${verb} ${baseName(paths[0])}`
+    }
+  }
+  return labelFor(kind, list, running)
+}
+
+export function summarizeSteps(tools: ToolCall[]): StepSummary {
+  const order: ToolKind[] = []
+  const byKind = new Map<ToolKind, ToolCall[]>()
+  for (const t of tools) {
+    const kind = t.kind ?? 'other'
+    if (!byKind.has(kind)) {
+      byKind.set(kind, [])
+      order.push(kind)
+    }
+    byKind.get(kind)?.push(t)
+  }
+  const parts = order.map((kind) => {
+    const list = byKind.get(kind) ?? []
+    const text = phrase(kind, list, list.some((t) => t.status === 'running'))
+    // A tool's own name keeps its capitals; the app's own words read on as one sentence.
+    return { text, own: kind === 'other' }
+  })
+  const label = parts.map((p, i) => (i === 0 || p.own ? p.text : p.text.charAt(0).toLowerCase() + p.text.slice(1))).join(', ')
+  const diffs = tools.flatMap((t) => t.diff ?? [])
+  return {
+    label,
+    added: diffs.reduce((a, d) => a + d.added, 0),
+    removed: diffs.reduce((a, d) => a + d.removed, 0),
+    running: tools.some((t) => t.status === 'running'),
+    problems: tools.filter((t) => t.status === 'error' || t.status === 'denied').length
+  }
+}

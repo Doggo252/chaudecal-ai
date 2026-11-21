@@ -58,7 +58,7 @@ export function ChatsView() {
               </button>
             )}
           </div>
-          {!chats.length && <div className="project-none">{query ? 'No chat has that title. Search (Ctrl K or ⌘K) also looks inside chats.' : archived ? 'No archived chats.' : 'No chats yet.'}</div>}
+          {!chats.length && <div className="project-none">{query ? `No chat has that title. Search (${navigator.platform.toLowerCase().includes('mac') ? '⌘K' : 'Ctrl K'}) also looks inside chats.` : archived ? 'No archived chats.' : 'No chats yet.'}</div>}
           <div className="chats-list">
             {chats.map((c) => (
               <div key={c.id} className="chats-row-wrap">

@@ -353,7 +353,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                   key={`${c.app ? 'app' : 'tool'}-${c.name}`}
                   className={`slash-item ${i === slashActive ? 'active' : ''}`}
                   data-testid="slash-item"
-                  onMouseEnter={() => setSlashActive(i)}
+                  onMouseMove={() => setSlashActive(i)}
                   onMouseDown={(e) => {
                     e.preventDefault()
                     pickSlash(c)
@@ -378,7 +378,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                     key={f}
                     className={`slash-item ${i === mentionActive ? 'active' : ''}`}
                     data-testid="mention-item"
-                    onMouseEnter={() => setMentionActive(i)}
+                    onMouseMove={() => setMentionActive(i)}
                     onMouseDown={(e) => {
                       e.preventDefault()
                       pickMention(f)

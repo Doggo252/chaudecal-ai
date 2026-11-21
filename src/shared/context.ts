@@ -241,6 +241,27 @@ export function planTurn(prior: Message[], session: SessionState | undefined): T
 export const HANDOFF_OPENING =
   'You are picking up a conversation that is already under way. Its context file follows. Read it as the history of this conversation, then answer the new message at the end. Continue naturally and do not comment on the handoff unless asked.'
 
+const CATCHUP_OPENING =
+  'Since your last reply, this conversation continued with another assistant. Here is what happened in between. Treat it as part of our conversation.'
+
+/**
+ * A message the app wrote to carry a chat into a session (the history first, then
+ * what the user asked), split back into those two parts for showing it. Nothing
+ * for any other message.
+ */
+export function splitHandoff(text: string): { history: string; message: string } | undefined {
+  const start = text.trimStart()
+  const tag = start.startsWith(HANDOFF_OPENING) ? 'context_file' : start.startsWith(CATCHUP_OPENING) ? 'conversation_since_your_last_reply' : undefined
+  if (!tag) return undefined
+  const open = start.indexOf(`<${tag}>`)
+  const close = start.lastIndexOf(`</${tag}>`)
+  if (open < 0 || close < open) return undefined
+  const history = start.slice(open + tag.length + 2, close).trim()
+  const rest = start.slice(close + tag.length + 3).trim()
+  const message = rest.replace(/^New message from the user:\s*/, '').trim()
+  return { history, message }
+}
+
 /** The text actually sent to a provider that keeps its own session. */
 export function composePrompt(input: {
   plan: TurnPlan
@@ -267,7 +288,7 @@ export function composePrompt(input: {
   let delta = renderTranscript(plan.unseen)
   if (estimateTokens(delta) > room) delta = keepTail(delta, room)
   return [
-    'Since your last reply, this conversation continued with another assistant. Here is what happened in between. Treat it as part of our conversation.',
+    CATCHUP_OPENING,
     '<conversation_since_your_last_reply>',
     delta,
     '</conversation_since_your_last_reply>',
