@@ -265,8 +265,9 @@ export function parseCodexSession(text: string): LocalSession | undefined {
  */
 export function appOwnFolder(cwd: string): boolean {
   const parts = cwd.split(/[\\/]+/).filter(Boolean)
-  if (parts.some((p) => /^chaudecal-(test|e2e)-/i.test(p))) return true
-  return parts.some((p, i) => /^chaudecal[ -]ai$/i.test(p) && /^(workspace|tmp)$/i.test(parts[i + 1] ?? ''))
+  if (parts.some((p) => /^chaudecal-test-/i.test(p))) return true
+  // The end-to-end check's app folders, but not the pretend home folder it makes, whose projects stand for the user's own.
+  return parts.some((p, i) => /^(chaudecal[ -]ai|chaudecal-e2e-(?!home-).+)$/i.test(p) && /^(workspace|tmp)$/i.test(parts[i + 1] ?? ''))
 }
 
 function sessionFiles(root: string, depth: number): string[] {

@@ -99,6 +99,7 @@ describe('Claude Code and Codex sessions on this computer', () => {
     expect(appOwnFolder('/Users/me/Library/Application Support/Chaudecal AI/workspace')).toBe(true)
     expect(appOwnFolder('C:\\Users\\me\\AppData\\Roaming\\Chaudecal AI\\workspace')).toBe(true)
     expect(appOwnFolder('/var/folders/w_/x/T/chaudecal-e2e-hub-HonlVa/workspace')).toBe(true)
+    expect(appOwnFolder('/var/folders/w_/x/T/chaudecal-e2e-home-Ab12/projects/website')).toBe(false)
     expect(appOwnFolder('/Users/me/Coding/Chaudecal AI')).toBe(false)
     expect(appOwnFolder('/Users/me/code/workspace')).toBe(false)
   })
