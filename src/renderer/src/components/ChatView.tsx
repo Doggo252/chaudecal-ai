@@ -5,7 +5,7 @@ import { messageBody, modelWindow, SECOND_OPINION_PROMPT, threadMessages } from 
 import { estimateTokens, formatTokens } from '@shared/tokens'
 import { formatReset, limitWarning } from '@shared/usage'
 import { switchTarget } from '@shared/router'
-import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, setState, toast, useUi } from '../state'
+import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, queueMessage, setState, toast, useUi } from '../state'
 import { IconColumns, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
 import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList, Plan, currentPlanMessage, planPinned } from './Messages'
@@ -132,6 +132,11 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
       const conv = conversation ?? (await createFromDraft())
       stick.current = true
       dismissRemoved(conv.id)
+      // Written while the chat is answering: it waits its turn instead of being turned away.
+      if (getState().app?.busy.includes(conv.id) || getState().queued[conv.id]?.length) {
+        queueMessage(conv.id, { text, compare, attachments, research, computer })
+        return
+      }
       const variant = getState().variants[conv.id]
       await window.api.send({ conversationId: conv.id, text, compare, variant, attachments, ...(research ? { research } : {}), ...(computer ? { computer } : {}) })
     } catch (e) {

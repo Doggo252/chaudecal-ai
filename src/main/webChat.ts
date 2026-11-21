@@ -219,12 +219,18 @@ export class WebChat {
     await this.tabs.open('chatgpt', page)
     const sentAt = Date.now()
     const pictures = (input.files ?? []).filter((f) => f.base64).map((f) => ({ name: f.name, mime: f.mime, base64: f.base64! }))
-    const typed = await this.tabs.run<string>('chatgpt', chatgptTypeScript(withFileText(input.text, input.files), pictures))
-    if (typed !== 'sent') {
-      if (typed === 'no-composer') throw new WebChatError('chatgpt.com did not show its message box. You may need to sign in again under Settings.', 'signed-out')
-      if (typed === 'no-upload') throw new WebChatError('chatgpt.com did not take the pictures. Try again, or send them in a chat that works on this computer.', 'site')
-      throw new WebChatError('chatgpt.com did not take the message. Try again in a moment.', 'site')
+    const text = withFileText(input.text, input.files)
+    const ready = await this.tabs.run<string>('chatgpt', chatgptPrepareScript(pictures))
+    if (ready === 'signed-out') throw new WebChatError('Not signed in to chatgpt.com in Chaude. Sign in under Settings, "Claude and ChatGPT".', 'signed-out')
+    if (ready === 'no-upload') throw new WebChatError('chatgpt.com did not take the pictures. Try again, or send them in a chat that works on this computer.', 'site')
+    if (ready !== 'ready') {
+      const [, title, shown] = ready.split('|')
+      throw new WebChatError(`chatgpt.com did not show its message box${title ? ` (the page says "${title}${shown ? `: ${shown}` : ''}")` : ''}. Try again in a moment.`, 'site')
     }
+    // Typed as a keyboard would, which every version of the site's message box takes.
+    await this.tabs.insertText('chatgpt', text)
+    const typed = await this.tabs.run<string>('chatgpt', chatgptSendScript(text, pictures.length > 0))
+    if (typed !== 'sent') throw new WebChatError('chatgpt.com did not take the message. Try again in a moment.', 'site')
     // A new chat gets its address once the site has started it.
     let remoteId = input.remoteId
     const until = Date.now() + 60_000
@@ -235,7 +241,7 @@ export class WebChat {
     }
     if (!remoteId) throw new WebChatError('chatgpt.com did not start the chat.', 'site')
     input.onChat?.(remoteId)
-    const stopOnSite = () => void this.tabs.run('chatgpt', `(() => { const b = document.querySelector('[data-testid="stop-button"]'); if (b) b.click(); return 1 })()`).catch(() => {})
+    const stopOnSite = () => void this.tabs.run('chatgpt', `(() => { const b = document.querySelector('[data-testid="stop-button"], button[aria-label="Stop generating"]'); if (b) b.click(); return 1 })()`).catch(() => {})
     input.signal.addEventListener('abort', stopOnSite, { once: true })
     try {
       const deadline = Date.now() + this.options.timeoutMs
@@ -260,16 +266,35 @@ export class WebChat {
   }
 }
 
-/** Types a message into chatgpt.com's own message box and presses its send button. */
-export function chatgptTypeScript(text: string, pictures: { name: string; mime: string; base64: string }[] = []): string {
+// chatgpt.com has changed its message box more than once, so each of its known forms is tried.
+const CHATGPT_FIND = `
+  const findBox = () =>
+    document.querySelector('#prompt-textarea') ||
+    document.querySelector('form textarea[name="prompt"]') ||
+    document.querySelector('main form [contenteditable="true"]') ||
+    document.querySelector('form textarea');
+  const findSend = () =>
+    [...document.querySelectorAll('[data-testid="send-button"], [data-composer-submit], button[aria-label="Send message"], button[aria-label="Send prompt"]')].find((b) => !b.disabled && b.offsetParent !== null) ||
+    [...document.querySelectorAll('[data-testid="send-button"], [data-composer-submit]')].find((b) => !b.disabled);
+  const boxText = (box) => (box.isContentEditable ? box.innerText : box.value) || '';
+  const wait = async (find, ms) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) { const v = find(); if (v) return v; await new Promise((r) => setTimeout(r, 200)); }
+    return null;
+  };
+`
+
+/**
+ * Gets chatgpt.com's message box ready: found, emptied and focused, with any pictures added.
+ * Gives back 'ready', 'signed-out', 'no-upload', or 'no-composer' with what the page shows.
+ */
+export function chatgptPrepareScript(pictures: { name: string; mime: string; base64: string }[] = []): string {
   return `(async () => {
-    const wait = async (find, ms) => {
-      const end = Date.now() + ms;
-      while (Date.now() < end) { const v = find(); if (v) return v; await new Promise((r) => setTimeout(r, 200)); }
-      return null;
-    };
-    const box = await wait(() => document.querySelector('#prompt-textarea'), 30000);
-    if (!box) return 'no-composer';
+    ${CHATGPT_FIND}
+    const box = await wait(findBox, 30000);
+    // The page for people who are not signed in has a message box too.
+    if (document.querySelector('form[data-logged-out], form[action*="/unauth"]')) return 'signed-out';
+    if (!box) return 'no-composer|' + document.title + '|' + (document.body ? document.body.innerText : '').replace(/\\s+/g, ' ').trim().slice(0, 160);
     const pictures = ${JSON.stringify(pictures)};
     if (pictures.length) {
       // Pictures go in through the page's own file picker, as if chosen there.
@@ -281,21 +306,44 @@ export function chatgptTypeScript(text: string, pictures: { name: string; mime: 
       input.dispatchEvent(new Event('change', { bubbles: true }));
       await new Promise((r) => setTimeout(r, 500));
     }
-    const text = ${JSON.stringify(text)};
     box.focus();
-    if (box.isContentEditable) {
-      document.execCommand('selectAll', false);
-      document.execCommand('insertText', false, text);
-      if (!box.innerText.trim()) { box.textContent = text; box.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text })); }
-    } else {
-      const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
-      set.call(box, text);
-      box.dispatchEvent(new Event('input', { bubbles: true }));
+    if (boxText(box).trim()) document.execCommand('selectAll', false);
+    return 'ready';
+  })()`
+}
+
+/**
+ * After the text was typed in: makes sure it is in the box, then presses send.
+ * Gives back 'sent', 'no-composer' or 'no-send'.
+ */
+export function chatgptSendScript(text: string, withPictures = false): string {
+  return `(async () => {
+    ${CHATGPT_FIND}
+    const box = findBox();
+    if (!box) return 'no-composer';
+    const text = ${JSON.stringify(text)};
+    // Typing did not reach the box: put the text in the way a paste would.
+    if (boxText(box).trim() !== text.trim()) {
+      box.focus();
+      if (box.isContentEditable) {
+        document.execCommand('selectAll', false);
+        document.execCommand('insertText', false, text);
+        if (!box.innerText.trim()) { box.textContent = text; box.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text })); }
+      } else {
+        const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+        set.call(box, text);
+        box.dispatchEvent(new Event('input', { bubbles: true }));
+      }
     }
-    const send = await wait(() => { const b = document.querySelector('[data-testid="send-button"]'); return b && !b.disabled ? b : null; }, pictures.length ? 120000 : 15000);
-    if (!send) return 'no-send';
-    send.click();
-    return 'sent';
+    const send = await wait(findSend, ${withPictures ? 120000 : 15000});
+    if (send) {
+      // Give the page a moment to see the text before the button is pressed.
+      await wait(() => !send.hasAttribute('data-visually-disabled'), 1500);
+      send.click();
+      return 'sent';
+    }
+    if (box.form && box.form.requestSubmit) { box.form.requestSubmit(); return 'sent'; }
+    return 'no-send';
   })()`
 }
 

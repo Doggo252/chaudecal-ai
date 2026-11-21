@@ -281,6 +281,12 @@ export class WebTabs {
     return (await wc.executeJavaScript(script, true)) as T
   }
 
+  /** Types text into whatever has focus in the site's hidden page, as a keyboard would. */
+  async insertText(service: WebService, text: string): Promise<void> {
+    const wc = await this.settled(service)
+    await wc.insertText(text)
+  }
+
   /** Sends the hidden page to an address on the site and waits for it to load. */
   async open(service: WebService, path: string): Promise<void> {
     const url = `${siteOrigin(service)}${path}`

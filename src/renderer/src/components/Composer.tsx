@@ -4,12 +4,12 @@ import { kindOf, MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
 import { headroom } from '@shared/usage'
 import type { AttachResult } from '@shared/ipc'
 import type { ModelInfo } from '@shared/models'
-import { createFromDraft, getState, openChat, setState, toast, useUi, type Draft } from '../state'
+import { createFromDraft, getState, openChat, sendQueued, setState, stopChat, toast, unqueue, useUi, type Draft } from '../state'
 import { DictationButton } from './Speech'
 import { CaptureButton } from './Capture'
 import { isWeb } from '../webApi'
 import { draftKey, loadDraft, saveDraft } from '../drafts'
-import { IconBook, IconChevron, IconClip, IconColumns, IconComputer, IconFolder, IconLock, IconSearch, IconSend, IconStop } from '../icons'
+import { IconBook, IconChevron, IconClip, IconClose, IconColumns, IconComputer, IconFolder, IconLock, IconSearch, IconSend, IconStop } from '../icons'
 import { AttachmentList, fileToBase64 } from './Attachments'
 import { HubFolder } from './HubFolder'
 import { MenuItem, Popover, ProviderDot, PROVIDERS, providerName } from './ui'
@@ -79,6 +79,8 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   const [dragging, setDragging] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
   const busy = conversation ? app.busy.includes(conversation.id) : false
+  const queued = useUi((s) => (conversation ? s.queued[conversation.id] : undefined))
+  const held = useUi((s) => !!conversation && !!s.held[conversation.id])
 
   // A regular chat goes through claude.ai or chatgpt.com, so only the choices that make sense there are shown.
   const web = (conversation ? kindOf(conversation) : draft.kind) === 'chat'
@@ -179,7 +181,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
       runAppCommand(own)
       return
     }
-    if ((!value && !attached.length) || busy) return
+    if (!value && !attached.length) return
     setText('')
     setAttached([])
     onSend(value, compare && compare.length > 1 ? compare : undefined, attached.length ? attached : undefined, research || undefined, (web && computer) || undefined)
@@ -256,8 +258,44 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   return (
     <div className="composer-wrap">
       <div className="composer-col">
+        {conversation && !!queued?.length && (
+          <div className="queue" data-testid="queue">
+            <div className="queue-head">
+              <span>{held ? 'Waiting. The answer was stopped.' : busy ? 'Sends when this answer finishes' : 'Sending'}</span>
+              {held && !busy && (
+                <button type="button" className="btn btn-small" data-testid="queue-send" onClick={() => sendQueued(conversation.id, true)}>
+                  Send now
+                </button>
+              )}
+            </div>
+            {queued.map((q) => (
+              <div key={q.id} className="queue-item" data-testid="queued-message">
+                <span className="queue-text">{q.text || 'Files only'}</span>
+                {!!q.attachments?.length && <span className="queue-files">{q.attachments.length === 1 ? '1 file' : `${q.attachments.length} files`}</span>}
+                <button
+                  type="button"
+                  className="icon-btn queue-edit"
+                  title="Edit"
+                  onClick={() => {
+                    // Back into the message box, after anything already typed there.
+                    setText(text.trim() ? `${text.trimEnd()}\n${q.text}` : q.text)
+                    setAttached([...attachedRef.current, ...(q.attachments ?? [])].slice(0, MAX_ATTACHMENTS))
+                    setState((s) => ({ queued: { ...s.queued, [conversation.id]: (s.queued[conversation.id] ?? []).filter((x) => x.id !== q.id) } }))
+                    ref.current?.focus()
+                  }}
+                >
+                  Edit
+                </button>
+                <button type="button" className="icon-btn" title="Remove" data-testid="unqueue" onClick={() => unqueue(conversation.id, q.id)}>
+                  <IconClose size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         <div
-          className={`composer ${dragging ? 'dragging' : ''}`}
+          className={`composer ${dragging ? 'dragging' : ''} ${busy ? 'working' : ''}`}
+          style={busy ? { ['--work' as string]: `var(--${effective})` } : undefined}
           onDragOver={(e) => {
             if (!e.dataTransfer.types.includes('Files')) return
             e.preventDefault()
@@ -799,12 +837,13 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
             </Popover>
             )}
 
-            {busy ? (
-              <button type="button" className="send" title="Stop" data-testid="stop" onClick={() => conversation && void window.api.stop(conversation.id)}>
+            {busy && (
+              <button type="button" className="send stop" title="Stop" data-testid="stop" onClick={() => conversation && stopChat(conversation.id)}>
                 <IconStop />
               </button>
-            ) : (
-              <button type="button" className="send" title="Send" data-testid="send" disabled={(!text.trim() && !attached.length) || (!!compare && compare.length < 2)} onClick={submit}>
+            )}
+            {(!busy || !!text.trim() || !!attached.length) && (
+              <button type="button" className="send" title={busy ? 'Send when this answer finishes' : 'Send'} data-testid="send" disabled={(!text.trim() && !attached.length) || (!!compare && compare.length < 2)} onClick={submit}>
                 <IconSend />
               </button>
             )}

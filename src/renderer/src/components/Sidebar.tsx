@@ -5,6 +5,7 @@ import { chatShown, openChat, projectShown, setShow, setState, setTab, toast, us
 import { IconArtifact, IconBubble, IconChevron, IconDownload, IconFolder, IconLock, IconPlus, IconSearch, IconSettings, IconColumns } from '../icons'
 import { MenuItem, Meter, Popover, ProviderDot } from './ui'
 import { newChatIn } from './ProjectView'
+import { WorkMark } from './Working'
 
 /** How many chats an open project shows in the sidebar before "View all". */
 const PROJECT_PEEK = 5
@@ -85,7 +86,11 @@ export function Sidebar() {
         </span>
       )}
       <span className="conv-title">{c.title}</span>
-      {asking[c.id]?.length ? <span className="conv-ask" data-testid="conversation-asking" title="Waiting for your answer" /> : busy.has(c.id) && <span className="spinner" />}
+      {asking[c.id]?.length ? <span className="conv-ask" data-testid="conversation-asking" title="Waiting for your answer" /> : busy.has(c.id) && (
+        <span className="conv-busy" data-testid="conversation-busy" title="Working">
+          <WorkMark provider={c.provider === 'auto' ? undefined : c.provider} size={13} />
+        </span>
+      )}
       {c.private && (
         <span className="conv-meta" title="Private: local AI only">
           <IconLock size={13} />

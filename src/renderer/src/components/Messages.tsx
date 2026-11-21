@@ -15,6 +15,7 @@ import { IconBranch, IconCheck, IconCopy, IconEdit, IconOpinion, IconRetry, Icon
 import { ProviderDot } from './ui'
 import { AttachmentList, GeneratedImages } from './Attachments'
 import { ReadAloudButton } from './Speech'
+import { Working } from './Working'
 
 function shortModel(model?: string): string {
   if (!model) return ''
@@ -190,7 +191,6 @@ function Who({ m }: { m: Message }) {
 
 function AssistantBody({ m, answerable = false }: { m: Message; answerable?: boolean }) {
   const current = useContext(CurrentPlan)
-  const waiting = m.status === 'streaming' && !m.text && !(m.tools ?? []).some((t) => t.status === 'running')
   return (
     <>
       {m.thinking && (
@@ -203,13 +203,7 @@ function AssistantBody({ m, answerable = false }: { m: Message; answerable?: boo
       {!!m.tools?.length && <Tools tools={m.tools} />}
       {m.text && <Prose text={m.text} answerable={answerable && m.status === 'complete'} />}
       {!!m.images?.length && <GeneratedImages items={m.images} />}
-      {waiting && (
-        <span className="typing" aria-label="Working">
-          <i />
-          <i />
-          <i />
-        </span>
-      )}
+      {m.status === 'streaming' && <Working m={m} />}
       {m.status === 'stopped' && <div className="muted tiny" style={{ marginTop: 6 }}>Stopped</div>}
     </>
   )

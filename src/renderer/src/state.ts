@@ -4,6 +4,7 @@ import { useSyncExternalStore } from 'react'
 import type { AppState, SearchHit, WebService, WebState } from '@shared/ipc'
 import type {
   ApprovalRequest,
+  Attachment,
   Conversation,
   HandoffVariant,
   McpServer,
@@ -118,6 +119,20 @@ export interface UiState {
   tab: ConversationKind
   /** All assistants, or one only. */
   show: Show
+  /** Messages written while a chat was answering, sent in turn once it finishes. */
+  queued: Record<string, Queued[]>
+  /** Chats whose queue waits because the answer was stopped. */
+  held: Record<string, true>
+}
+
+/** A message waiting for its chat to finish answering. */
+export interface Queued {
+  id: string
+  text: string
+  compare?: ProviderId[]
+  attachments?: Attachment[]
+  research?: boolean
+  computer?: boolean
 }
 
 export interface OpenArtifact {
@@ -146,6 +161,8 @@ let state: UiState = {
   dialog: null,
   toast: '',
   artifact: null,
+  queued: {},
+  held: {},
   tab: (() => {
     try {
       return localStorage.getItem(TAB_KEY) === 'code' || localStorage.getItem(SHOW_KEY) === 'local' ? 'code' : 'chat'
@@ -183,6 +200,55 @@ function subscribe(listener: () => void): () => void {
 /** Select a slice of state. The selector must return a value that is stable when nothing changed. */
 export function useUi<T>(selector: (s: UiState) => T): T {
   return useSyncExternalStore(subscribe, () => selector(state))
+}
+
+/** Chats a queued message was just sent to, before the backend says they are answering. */
+const starting = new Set<string>()
+
+/** Keeps a message until the chat has finished answering. */
+export function queueMessage(conversationId: string, item: Omit<Queued, 'id'>): void {
+  setState((s) => {
+    const held = { ...s.held }
+    delete held[conversationId]
+    return { queued: { ...s.queued, [conversationId]: [...(s.queued[conversationId] ?? []), { ...item, id: crypto.randomUUID() }] }, held }
+  })
+  // The answer may have finished while this was being written.
+  sendQueued(conversationId)
+}
+
+/** Takes a waiting message back off the queue, with the files it carried. */
+export function unqueue(conversationId: string, id: string): void {
+  const item = state.queued[conversationId]?.find((q) => q.id === id)
+  for (const a of item?.attachments ?? []) void window.api.discardAttachment(a.id)
+  setState((s) => ({ queued: { ...s.queued, [conversationId]: (s.queued[conversationId] ?? []).filter((q) => q.id !== id) } }))
+}
+
+/** Stops the answer. Waiting messages stay until sent or removed, since the user may want to change course. */
+export function stopChat(conversationId: string): void {
+  if (state.queued[conversationId]?.length) setState((s) => ({ held: { ...s.held, [conversationId]: true } }))
+  void window.api.stop(conversationId)
+}
+
+/** Sends the next waiting message if the chat is free. `force` also sends after a stop. */
+export function sendQueued(conversationId: string, force = false): void {
+  const next = state.queued[conversationId]?.[0]
+  if (!next || starting.has(conversationId) || state.app?.busy.includes(conversationId)) return
+  if (state.held[conversationId] && !force) return
+  starting.add(conversationId)
+  setState((s) => {
+    const held = { ...s.held }
+    delete held[conversationId]
+    return { queued: { ...s.queued, [conversationId]: (s.queued[conversationId] ?? []).slice(1) }, held }
+  })
+  const { id: _id, ...rest } = next
+  window.api
+    .send({ conversationId, ...rest, variant: state.variants[conversationId] })
+    .catch((e) => {
+      // Not sent: it goes back to the front of the queue and waits for the user.
+      setState((s) => ({ queued: { ...s.queued, [conversationId]: [next, ...(s.queued[conversationId] ?? [])] }, held: { ...s.held, [conversationId]: true } }))
+      toast(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e))
+    })
+    .finally(() => starting.delete(conversationId))
 }
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined
@@ -274,7 +340,8 @@ export async function boot(): Promise<void> {
   const api = window.api
   api.on('records', applyRecords)
   api.on('stream', (m) => setState((s) => ({ streaming: { ...s.streaming, [m.id]: m } })))
-  api.on('busy', ({ conversationId, busy }) =>
+  api.on('busy', ({ conversationId, busy }) => {
+    if (busy) starting.delete(conversationId)
     setState((s) => {
       if (!s.app) return {}
       const set = new Set(s.app.busy)
@@ -290,7 +357,8 @@ export async function boot(): Promise<void> {
       }
       return patch
     })
-  )
+    if (!busy) sendQueued(conversationId)
+  })
   api.on('route', ({ conversationId, decision }) => setState((s) => ({ routes: { ...s.routes, [conversationId]: decision } })))
   api.on('approval', ({ conversationId, messageId, request, settled }) =>
     setState((s) => {

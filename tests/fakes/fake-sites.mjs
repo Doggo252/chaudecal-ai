@@ -317,20 +317,21 @@ export function serveSite(sites, service) {
       return
     }
     res.writeHead(200, { 'content-type': 'text/html' })
-    // chatgpt.com's page has a message box and a send button, which the app uses for regular chats.
+    // chatgpt.com's page has a message box and a send button (its markup since late 2026), which the app uses for regular chats.
     const composer =
       service === 'chatgpt'
-        ? `<input type="file" accept="image/*" multiple hidden><div id="prompt-textarea" contenteditable="true"></div><button data-testid="send-button">Send</button>
+        ? `<form><input type="file" accept="image/*" multiple hidden><textarea name="prompt" id="mobile-composer-prompt"></textarea><button type="button" data-composer-submit aria-label="Send message">Send</button></form>
 <script>
-document.querySelector('[data-testid="send-button"]').addEventListener('click', async () => {
-  const text = document.querySelector('#prompt-textarea').innerText.trim();
+const box = document.querySelector('textarea[name="prompt"]');
+document.querySelector('[data-composer-submit]').addEventListener('click', async () => {
+  const text = box.value.trim();
   const m = /\\/c\\/([^/?#]+)/.exec(location.pathname);
   const picker = document.querySelector('input[type="file"]');
   const files = [...picker.files].map((f) => f.name);
   picker.value = '';
   const r = await fetch('/backend-api/fake-send', { method: 'POST', body: JSON.stringify({ conversation_id: m ? m[1] : null, text, files, model: new URLSearchParams(location.search).get('model') }) });
   const out = await r.json();
-  document.querySelector('#prompt-textarea').textContent = '';
+  box.value = '';
   if (!m) history.pushState({}, '', '/c/' + out.conversation_id);
 });
 </script>`
