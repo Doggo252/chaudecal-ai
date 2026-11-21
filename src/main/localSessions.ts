@@ -266,6 +266,9 @@ export function parseCodexSession(text: string): LocalSession | undefined {
 export function appOwnFolder(cwd: string): boolean {
   const parts = cwd.split(/[\\/]+/).filter(Boolean)
   if (parts.some((p) => /^chaudecal-test-/i.test(p))) return true
+  // A Claude Code session's own scratch folder, where a helper tried the app's tools out.
+  const helper = parts.findIndex((p) => /^claude-\d+$/.test(p))
+  if (helper >= 0 && parts.indexOf('scratchpad', helper) > helper) return true
   // The end-to-end check's app folders, but not the pretend home folder it makes, whose projects stand for the user's own.
   return parts.some((p, i) => /^(chaudecal[ -]ai|chaudecal-e2e-(?!home-).+)$/i.test(p) && /^(workspace|tmp)$/i.test(parts[i + 1] ?? ''))
 }
@@ -314,10 +317,11 @@ export class LocalSessions {
   /**
    * Takes out chats an earlier version brought in from the app's own sessions:
    * its tests and the folder it runs code chats in. Covers every computer's, so
-   * one pass cleans up all of them. A chat carried on in the app stays. Once.
+   * one pass cleans up all of them. A chat carried on in the app stays. Runs
+   * once for each widening of what counts as the app's own folder.
    */
   tidy(): number {
-    if (this.store.kvGet<boolean>('localsessions:tidy')) return 0
+    if (this.store.kvGet<boolean>('localsessions:tidy2')) return 0
     let n = 0
     for (const c of this.store.list<Conversation>('conversation')) {
       if (!c.origin?.tool || !c.origin.folder) continue
@@ -332,7 +336,7 @@ export class LocalSessions {
       this.store.remove('project', p.id)
       n++
     }
-    this.store.kvSet('localsessions:tidy', true)
+    this.store.kvSet('localsessions:tidy2', true)
     return n
   }
 

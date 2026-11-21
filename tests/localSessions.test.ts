@@ -102,6 +102,8 @@ describe('Claude Code and Codex sessions on this computer', () => {
     expect(appOwnFolder('/var/folders/w_/x/T/chaudecal-e2e-home-Ab12/projects/website')).toBe(false)
     expect(appOwnFolder('/Users/me/Coding/Chaudecal AI')).toBe(false)
     expect(appOwnFolder('/Users/me/code/workspace')).toBe(false)
+    expect(appOwnFolder('/private/tmp/claude-502/-Users-me-Coding-App/af14dba5/scratchpad/cltest')).toBe(true)
+    expect(appOwnFolder('/Users/me/code/claude-2/notes')).toBe(false)
   })
   it('skips sessions from its tests and takes out ones an earlier version brought in, unless carried on', () => {
     const home = tempDir()
