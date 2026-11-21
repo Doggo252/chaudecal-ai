@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createContext, memo, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { parseForm } from '@shared/forms'
 import { ChatFormView } from './ChatForm'
@@ -126,16 +126,40 @@ function Tools({ tools }: { tools: ToolCall[] }) {
   )
 }
 
-function Plan({ steps, live }: { steps: PlanStep[]; live: boolean }) {
+/** The answer whose task list is the chat's current one, and whether that list is pinned above the message box. */
+const CurrentPlan = createContext<{ id?: string; pinned: boolean }>({ pinned: false })
+
+/** The last answer that carries a task list. */
+export function currentPlanMessage(messages: Message[]): Message | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'assistant' && messages[i].plan?.length) return messages[i]
+  return undefined
+}
+
+/**
+ * A task list still being worked through is pinned above the message box: while
+ * the assistant works, or when the last answer left it unfinished. An old list
+ * the chat has moved on from is not.
+ */
+export function planPinned(messages: Message[], m = currentPlanMessage(messages)): boolean {
+  if (!m?.plan?.some((s) => s.status !== 'done')) return false
+  if (messages.some((x) => x.status === 'streaming')) return true
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'assistant') return messages[i].id === m.id
+  return false
+}
+
+/** The task list. Folded to one line unless asked to show, and opens with a click. */
+export function Plan({ steps, live, open, testId = 'plan' }: { steps: PlanStep[]; live: boolean; open: boolean; testId?: string }) {
   const done = steps.filter((s) => s.status === 'done').length
+  const active = steps.find((s) => s.status === 'active')
   return (
-    <div className="plan-card" data-testid="plan">
-      <div className="plan-head">
-        <span>Plan</span>
+    <details className="plan-card" data-testid={testId} open={open}>
+      <summary className="plan-head">
+        <span>Tasks</span>
+        {active && <span className="plan-now">{active.text}</span>}
         <span className="muted">
           {done} of {steps.length} done
         </span>
-      </div>
+      </summary>
       <ul>
         {steps.map((s, i) => (
           <li key={i} className={`plan-step ${s.status}`} data-status={s.status}>
@@ -144,7 +168,7 @@ function Plan({ steps, live }: { steps: PlanStep[]; live: boolean }) {
           </li>
         ))}
       </ul>
-    </div>
+    </details>
   )
 }
 
@@ -165,6 +189,7 @@ function Who({ m }: { m: Message }) {
 }
 
 function AssistantBody({ m, answerable = false }: { m: Message; answerable?: boolean }) {
+  const current = useContext(CurrentPlan)
   const waiting = m.status === 'streaming' && !m.text && !(m.tools ?? []).some((t) => t.status === 'running')
   return (
     <>
@@ -174,7 +199,7 @@ function AssistantBody({ m, answerable = false }: { m: Message; answerable?: boo
           <div className="thinking-body">{m.thinking}</div>
         </details>
       )}
-      {!!m.plan?.length && <Plan steps={m.plan} live={m.status === 'streaming'} />}
+      {!!m.plan?.length && <Plan steps={m.plan} live={m.status === 'streaming'} open={current.id === m.id && !current.pinned} />}
       {!!m.tools?.length && <Tools tools={m.tools} />}
       {m.text && <Prose text={m.text} answerable={answerable && m.status === 'complete'} />}
       {!!m.images?.length && <GeneratedImages items={m.images} />}
@@ -468,9 +493,12 @@ export function MessageList({ messages, focusId, onRetry, onSwitch, onBranch, on
 
   const lastAssistantId = [...messages].reverse().find((m) => m.role === 'assistant' && !m.variantGroup)?.id
   const lastId = messages[messages.length - 1]?.id
+  const planMessage = currentPlanMessage(messages)
+  const pinned = planPinned(messages, planMessage)
+  const current = useMemo(() => ({ id: planMessage?.id, pinned }), [planMessage, pinned])
 
   return (
-    <>
+    <CurrentPlan.Provider value={current}>
       {items.map((item) => {
         if (item.kind === 'group') return <CompareGroup key={item.id} variants={item.variants} />
         const m = item.m
@@ -484,6 +512,6 @@ export function MessageList({ messages, focusId, onRetry, onSwitch, onBranch, on
         if (m.role === 'user') return <UserMessage key={m.id} m={m} focus={m.id === focusId} onEdit={onEdit} />
         return <AssistantMessage key={m.id} m={m} focus={m.id === focusId} onRetry={onRetry} onSwitch={onSwitch} onBranch={onBranch} onSecondOpinion={onSecondOpinion} isLast={m.id === lastAssistantId && m.id === lastId} />
       })}
-    </>
+    </CurrentPlan.Provider>
   )
 }

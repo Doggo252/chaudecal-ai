@@ -1,6 +1,7 @@
 // Turns the Claude Code CLI's stream-json output (one JSON object per line)
 // into the app's provider-neutral run events. Pure: no process handling here.
 
+import { applyTaskTool, isTaskTool } from '@shared/taskList'
 import type { ApprovalRequest, PermissionDenial, PlanStep, RunEvent, ToolCall, ToolKind } from '@shared/types'
 import { claudeToolDiff } from '@shared/diff'
 import { mcpToolLabel, mcpToolParts } from '@shared/mcp'
@@ -68,10 +69,7 @@ export function claudeToolKind(name: string): ToolKind {
 
 /** Claude's to-do list, as a checklist. */
 export function todoPlan(input: Json | undefined): PlanStep[] | undefined {
-  if (!Array.isArray(input?.todos)) return undefined
-  return (input!.todos as Json[])
-    .filter((t) => typeof t?.content === 'string' && t.content.trim())
-    .map((t) => ({ text: String(t.status === 'in_progress' && typeof t.activeForm === 'string' && t.activeForm.trim() ? t.activeForm : t.content).trim(), status: t.status === 'completed' ? 'done' : t.status === 'in_progress' ? 'active' : 'pending' }))
+  return applyTaskTool([], 'TodoWrite', input)
 }
 const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
@@ -128,7 +126,9 @@ export interface ClaudeParser {
 }
 
 /** `mcpNames` are the tool servers this app added to the run. */
-export function createClaudeParser(emit: (event: RunEvent) => void, mcpNames: string[] = [], readCurrent?: (path: string) => string | undefined): ClaudeParser {
+export function createClaudeParser(emit: (event: RunEvent) => void, mcpNames: string[] = [], readCurrent?: (path: string) => string | undefined, plan: PlanStep[] = []): ClaudeParser {
+  /** The task list so far, carried over from the last turn. */
+  let steps = plan
   /** Text for the current block already arrived as deltas, so the full copy is skipped. */
   let streamedText = false
   let anyText = false
@@ -213,10 +213,13 @@ export function createClaudeParser(emit: (event: RunEvent) => void, mcpNames: st
                 text(block.text ?? '')
               }
             } else if (block.type === 'tool_use') {
-              // The to-do list is shown as a checklist, not as a step.
-              if (block.name === 'TodoWrite') {
-                const steps = todoPlan(block.input)
-                if (steps) emit({ type: 'plan', steps })
+              // The task list is shown as a checklist, not as a step.
+              if (isTaskTool(block.name)) {
+                const next = applyTaskTool(steps, block.name, block.input)
+                if (next) {
+                  steps = next
+                  emit({ type: 'plan', steps })
+                }
                 continue
               }
               const diff = FILE_TOOLS.has(block.name) ? claudeToolDiff(block.name, block.input, readCurrent) : undefined

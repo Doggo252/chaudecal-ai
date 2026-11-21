@@ -8,7 +8,8 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
-import type { Conversation, Message, Project, ProviderId, ToolCall } from '@shared/types'
+import type { Conversation, Message, PlanStep, Project, ProviderId, ToolCall } from '@shared/types'
+import { applyTaskTool, isTaskTool } from '@shared/taskList'
 import { titleFromText } from '@shared/context'
 import { claudeToolKind, describeTool, toolLabel } from './providers/claudeParser'
 import type { Store } from './store'
@@ -23,6 +24,8 @@ export interface LocalMessage {
   createdAt: number
   model?: string
   tools?: ToolCall[]
+  /** The task list as this answer left it. */
+  plan?: PlanStep[]
 }
 
 export interface LocalSession {
@@ -86,6 +89,7 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
   let title = ''
   const messages: LocalMessage[] = []
   let turn: LocalMessage | undefined
+  let steps: PlanStep[] = []
   for (const l of lines) {
     if (l.type === 'custom-title' && typeof l.customTitle === 'string') title = l.customTitle
     if (l.type === 'summary' && typeof l.summary === 'string' && !title) title = l.summary
@@ -121,11 +125,17 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
       if (c?.type === 'text' && String(c.text ?? '').trim()) turn.text = turn.text ? `${turn.text}\n\n${String(c.text).trim()}` : String(c.text).trim()
       if (c?.type === 'tool_use') {
         const name = String(c.name ?? 'Tool')
+        // The task list shows as a checklist on the answer, not as a step.
+        if (isTaskTool(name)) {
+          const next = applyTaskTool(steps, name, c.input)
+          if (next) turn.plan = steps = next
+          continue
+        }
         ;(turn.tools ??= []).push({ id: String(c.id ?? `${turn.id}-${turn.tools?.length ?? 0}`), name: toolLabel(name), summary: describeTool(name, c.input) || name, status: 'done', kind: claudeToolKind(name) })
       }
     }
   }
-  const kept = messages.filter((m) => m.role === 'user' || m.text || m.tools?.length)
+  const kept = messages.filter((m) => m.role === 'user' || m.text || m.tools?.length || m.plan?.length)
   if (!sessionId || !kept.some((m) => m.role === 'user')) return undefined
   const first = kept.find((m) => m.role === 'user')!
   return {
@@ -169,6 +179,7 @@ export function parseCodexSession(text: string): LocalSession | undefined {
   let cwd = ''
   const messages: LocalMessage[] = []
   let turn: LocalMessage | undefined
+  let steps: PlanStep[] = []
   let model = ''
   let n = 0
   for (const l of lines) {
@@ -226,6 +237,11 @@ export function parseCodexSession(text: string): LocalSession | undefined {
       }
       const command = Array.isArray(input.command) ? input.command.join(' ') : input.command ?? input.cmd
       const t = ensure()
+      if (isTaskTool(String(p.name ?? ''))) {
+        const next = applyTaskTool(steps, String(p.name), input)
+        if (next) t.plan = steps = next
+        continue
+      }
       ;(t.tools ??= []).push({
         id: String(p.call_id ?? p.id ?? `${t.id}-${t.tools?.length ?? 0}`),
         name: command ? 'Command' : String(p.name ?? 'Tool'),
@@ -235,7 +251,7 @@ export function parseCodexSession(text: string): LocalSession | undefined {
       })
     }
   }
-  const kept = messages.filter((m) => m.role === 'user' || m.text || m.tools?.length)
+  const kept = messages.filter((m) => m.role === 'user' || m.text || m.tools?.length || m.plan?.length)
   if (!sessionId || !kept.some((m) => m.role === 'user')) return undefined
   const first = kept.find((m) => m.role === 'user')!
   return { tool: 'codex', sessionId, cwd, title: titleFromText(first.text), createdAt: kept[0].createdAt, updatedAt: kept[kept.length - 1].createdAt, messages: kept }
@@ -463,7 +479,8 @@ export class LocalSessions {
         status: 'complete',
         ...(m.role === 'assistant' ? { provider } : {}),
         ...(m.model ? { model: m.model } : {}),
-        ...(m.tools?.length ? { tools: m.tools } : {})
+        ...(m.tools?.length ? { tools: m.tools } : {}),
+        ...(m.plan?.length ? { plan: m.plan } : {})
       }
       items.push({ kind: 'message', id: mid, data: message })
     }

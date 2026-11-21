@@ -2373,10 +2373,57 @@ a {
 }
 .plan-head {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   padding: 7px 12px;
   font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.plan-head::-webkit-details-marker {
+  display: none;
+}
+.plan-head::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--text-muted);
+  border-bottom: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform 0.12s;
+}
+.plan-card[open] > .plan-head::before {
+  transform: rotate(45deg);
+}
+.plan-card[open] > .plan-head {
   border-bottom: 1px solid var(--border);
+}
+/* What is being worked on, beside the count. */
+.plan-now {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  color: var(--text-soft);
+}
+.plan-head .muted {
+  margin-left: auto;
+  flex: none;
+}
+.plan-card[open] > .plan-head .plan-now {
+  visibility: hidden;
+}
+/* The list being worked through, pinned above the message box. */
+[data-testid='pinned-plan'] {
+  margin: 0 0 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+[data-testid='pinned-plan'] ul {
+  max-height: 180px;
+  overflow-y: auto;
 }
 .plan-head .muted {
   font-weight: 400;

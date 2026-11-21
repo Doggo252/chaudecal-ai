@@ -523,8 +523,10 @@ export class ChatEngine {
     const allow = compare ? args.allow : [...(args.allow ?? []), ...this.grants(conv.id)]
     // Local models cannot call tools, so the tool servers only go to Claude and ChatGPT.
     const mcp = provider === 'local' ? [] : this.mcpServers()
+    // Carrying on the same session: the task list it left, so tasks can be ticked off by number.
+    const lastPlan = plan.kind === 'resume' && !compare ? this.store.messages(conv.id).filter((m) => m.role === 'assistant' && m.provider === provider && m.plan?.length).pop()?.plan : undefined
     const handle = this.providers[provider].run(
-      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images, mcp, ...(conv.effort ? { effort: conv.effort } : {}), ...(plan.kind === 'handoff' && !compare ? { title: this.store.get<Conversation>('conversation', conv.id)?.title || conv.title } : {}) },
+      { prompt, messages, system, model, mode, cwd, sessionId: plan.kind === 'resume' || plan.kind === 'catchup' ? plan.sessionId : undefined, ephemeral: compare, allow, images, mcp, ...(lastPlan ? { plan: lastPlan } : {}), ...(conv.effort ? { effort: conv.effort } : {}), ...(plan.kind === 'handoff' && !compare ? { title: this.store.get<Conversation>('conversation', conv.id)?.title || conv.title } : {}) },
       onEvent
     )
     args.active.handles.push(handle)

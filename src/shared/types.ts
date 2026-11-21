@@ -112,6 +112,8 @@ export type ToolKind = 'command' | 'read' | 'search' | 'edit' | 'web' | 'agent' 
 export interface PlanStep {
   text: string
   status: 'pending' | 'active' | 'done'
+  /** The tool's own number for the task, where it ticks tasks off by number. */
+  id?: string
 }
 
 export interface MessageUsage {

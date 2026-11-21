@@ -1,4 +1,4 @@
-import type { ApprovalDecision, McpServer, ProviderStatus, RunEvent, RunMode } from '@shared/types'
+import type { ApprovalDecision, McpServer, PlanStep, ProviderStatus, RunEvent, RunMode } from '@shared/types'
 import type { ChatTurn } from '@shared/context'
 
 export interface RunRequest {
@@ -26,6 +26,8 @@ export interface RunRequest {
   effort?: string
   /** A name for a new session, where the first message is not the user's own words (a handoff). */
   title?: string
+  /** The task list as the last turn left it, so a turn that ticks off a task by number has the list to tick. */
+  plan?: PlanStep[]
 }
 
 export interface RunImage {

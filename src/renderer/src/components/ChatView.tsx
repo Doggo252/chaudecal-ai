@@ -8,7 +8,7 @@ import { switchTarget } from '@shared/router'
 import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, setState, toast, useUi } from '../state'
 import { IconColumns, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
 import { Composer } from './Composer'
-import { ApprovalCard, DenialCard, MessageList } from './Messages'
+import { ApprovalCard, DenialCard, MessageList, Plan, currentPlanMessage, planPinned } from './Messages'
 import { ArtifactPanel, closeArtifact, declined, PANEL_COVERS } from './ArtifactPanel'
 import { conversationHtml, conversationMarkdown } from '../export'
 import { artifactBlocks, type ArtifactVersion } from '@shared/artifacts'
@@ -52,6 +52,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
     const live = Object.values(streaming).filter((m) => m.conversationId === conversationId && !stored.some((s) => s.id === m.id))
     return live.length ? [...stored, ...live].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)) : stored
   }, [stored, streaming, conversationId])
+  const planMessage = useMemo(() => currentPlanMessage(messages), [messages])
 
   // A question holds up the whole turn, so it is always brought into view.
   const asked = useRef(0)
@@ -442,6 +443,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
           </div>
           <div className="composer-wrap" style={{ paddingBottom: 0 }}>
             <div className="composer-col">
+              {planMessage && planPinned(messages, planMessage) && <Plan steps={planMessage.plan!} live={busy} open testId="pinned-plan" />}
               {warning && conversation && !webChat && !dismissed[warningKey] && (
                 <div className={`banner ${warning.status === 'exhausted' ? 'exhausted' : ''}`} data-testid="limit-banner">
                   <div className="banner-text">

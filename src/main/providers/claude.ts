@@ -343,7 +343,8 @@ export class ClaudeProvider implements Provider {
       const lines = createClaudeParser(
         emit,
         mcp.map((m) => m.name),
-        readCurrent
+        readCurrent,
+        request.plan
       )
       parser = lines
       let stderr = ''

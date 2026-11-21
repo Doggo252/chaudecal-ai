@@ -7,6 +7,7 @@ import { codexCatalog, type ModelInfo } from '@shared/models'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { homedir } from 'node:os'
 import { codexMcpConfig, mcpToolLabel } from '@shared/mcp'
+import { applyTaskTool } from '@shared/taskList'
 import type { ApprovalDecision, LimitWindow, PlanStep, ProviderStatus, RunEvent, RunMode, Settings, ToolCall } from '@shared/types'
 import { codexFileDiffs } from '@shared/diff'
 import { limitsFromCodex, type CodexRateLimitSnapshot } from '@shared/usage'
@@ -96,9 +97,7 @@ export function codexItemToTool(item: Json): ToolCall | undefined {
 /** ChatGPT's plan for the turn, as a checklist. */
 export function codexPlan(plan: unknown): PlanStep[] | undefined {
   if (!Array.isArray(plan)) return undefined
-  return plan
-    .filter((p: Json) => typeof p?.step === 'string' && p.step.trim())
-    .map((p: Json) => ({ text: String(p.step).trim(), status: /^complete/i.test(String(p.status)) ? 'done' : /progress/i.test(String(p.status)) ? 'active' : 'pending' }))
+  return applyTaskTool([], 'update_plan', { plan })
 }
 
 function mcpResultText(result: Json | null | undefined): string | undefined {
