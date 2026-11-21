@@ -6,6 +6,7 @@
 import { DatabaseSync } from 'node:sqlite'
 import type { Blob, Conversation, Message, RecordKind, SyncRecord } from '@shared/types'
 import type { SearchHit } from '@shared/ipc'
+import { listArtifacts, type ArtifactEntry } from '@shared/artifacts'
 
 type Row = {
   kind: string
@@ -217,6 +218,13 @@ export class Store {
   messages(conversationId: string): Message[] {
     const rows = this.db.prepare("select data from records where kind = 'message' and conv_id = ? and deleted = 0").all(conversationId) as { data: string }[]
     return rows.map((r) => JSON.parse(r.data) as Message).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+  }
+
+  /** Every artifact in every chat, for the Artifacts page. Only messages with a fenced block are read. */
+  artifacts(): ArtifactEntry[] {
+    const rows = this.db.prepare("select data from records where kind = 'message' and deleted = 0 and (data like '%```%' or data like '%~~~%')").all() as { data: string }[]
+    const messages = rows.map((r) => JSON.parse(r.data) as Message)
+    return listArtifacts(this.list<Conversation>('conversation'), messages)
   }
 
   deleteConversation(id: string): void {

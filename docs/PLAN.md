@@ -222,6 +222,7 @@ Imported chats and messages get ids made from their ids on the site, so two devi
 | Light and dark themes, an accent color (seven presets or any color), and four text sizes | Built, tested |
 | Bringing in chats from claude.ai and chatgpt.com through the website tabs' sign-ins, with archived and project chats, Claude artifacts and attached text, and an optional refresh every 30 minutes | Built, tested against stand-in sites that serve the shapes open-source exporters read (November 2026), in the real window and across two devices. Not yet run against the real sites. |
 | Artifacts: web pages, React components, SVG, Mermaid, documents and code in a side panel with live previews and versions | Built, tested against a stand-in assistant in the real window, including the sealed-off preview. React and Mermaid previews checked with the real libraries from the internet. Not yet checked with real Claude or ChatGPT replies. |
+| Chats page and Artifacts page in the sidebar, as on claude.ai | Built, with unit tests and an end-to-end check that lists, searches, filters and opens an artifact |
 | Mac installer | Built and launched |
 | Windows installer | Built by GitHub Actions. Not yet run on a real PC. |
 

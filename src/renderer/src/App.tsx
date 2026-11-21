@@ -9,6 +9,8 @@ import { Modal } from './components/ui'
 import { SHOW_LABEL, Sidebar } from './components/Sidebar'
 import { ProjectsView } from './components/ProjectsView'
 import { ProjectView } from './components/ProjectView'
+import { ChatsView } from './components/ChatsView'
+import { ArtifactsView } from './components/ArtifactsView'
 import { Setup } from './components/Setup'
 import { isWeb } from './webApi'
 import { IconMenu } from './icons'
@@ -66,6 +68,8 @@ export function App() {
         {view.kind === 'settings' && <SettingsView tab={view.tab} />}
         {view.kind === 'project' && <ProjectView key={view.projectId} projectId={view.projectId} />}
         {view.kind === 'projects' && <ProjectsView />}
+        {view.kind === 'chats' && <ChatsView />}
+        {view.kind === 'artifacts' && <ArtifactsView />}
       </main>
       {!setupDone && !isWeb() && <Setup />}
       {dialog?.kind === 'search' && <SearchDialog />}

@@ -677,6 +677,9 @@ const api: Omit<Api, 'on'> = {
   async search(query) {
     return store.search(query)
   },
+  async artifacts() {
+    return store.artifacts()
+  },
   async updateSettings(patch) {
     const before = settings
     settings = merge(settings, patch)

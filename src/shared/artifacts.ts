@@ -271,3 +271,53 @@ export function formBlocks(text: string): ({ title?: string; json: string } | un
     .filter((t) => t.codeBlockStyle !== 'indented' && parseFenceInfo(t.lang).language === 'form')
     .map((t) => ({ title: parseFenceInfo(t.lang).title, json: t.text }))
 }
+
+/** One artifact on the Artifacts page: its newest version, and the chat it was written in. */
+export interface ArtifactEntry {
+  conversationId: string
+  conversationTitle: string
+  title: string
+  kind: ArtifactKind
+  language: string
+  /** Where the newest version was written, to open it. */
+  messageId: string
+  index: number
+  versions: number
+  updatedAt: number
+  /** The start of the newest version, for the card. */
+  excerpt: string
+}
+
+/** Every finished artifact in every chat, the most recently changed first. */
+export function listArtifacts(conversations: { id: string; title: string }[], messages: (ArtifactSource & { conversationId: string })[]): ArtifactEntry[] {
+  const byChat = new Map<string, (ArtifactSource & { conversationId: string })[]>()
+  for (const m of messages) {
+    const list = byChat.get(m.conversationId)
+    if (list) list.push(m)
+    else byChat.set(m.conversationId, [m])
+  }
+  const out: ArtifactEntry[] = []
+  for (const c of conversations) {
+    const list = byChat.get(c.id)
+    if (!list) continue
+    list.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id))
+    for (const a of collectArtifacts(list)) {
+      const done = a.versions.filter((v) => v.complete)
+      const v = done[done.length - 1]
+      if (!v) continue
+      out.push({
+        conversationId: c.id,
+        conversationTitle: c.title,
+        title: a.title,
+        kind: v.kind,
+        language: v.language,
+        messageId: v.messageId,
+        index: v.index,
+        versions: done.length,
+        updatedAt: v.createdAt,
+        excerpt: v.content.slice(0, 400)
+      })
+    }
+  }
+  return out.sort((a, b) => b.updatedAt - a.updatedAt)
+}

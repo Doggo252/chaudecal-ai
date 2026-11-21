@@ -1000,6 +1000,30 @@ try {
   await until(async () => (await (await previewFrame()).$('svg circle')) !== null, 'the image to be drawn')
   ok('Claude writes artifacts, which open in a side panel with a live, sealed-off preview')
 
+  // The Chats and Artifacts pages, like the ones on claude.ai.
+  if (!process.env.E2E_NARROW) {
+    await a.page.click(tid('open-chats'))
+    await a.page.waitForSelector(tid('chats-page'))
+    assert((await a.page.$$(tid('chats-item'))).length > 0, 'the Chats page lists the chats')
+    await a.page.fill(tid('chats-search'), 'no chat is called this')
+    await until(async () => (await a.page.$$(tid('chats-item'))).length === 0, 'the Chats search to narrow the list')
+    await a.page.click(tid('open-artifacts'))
+    await a.page.waitForSelector(tid('artifacts-page'))
+    const titles = async () => a.page.locator(`${tid('artifacts-item')} .artifacts-title`).allTextContents()
+    await until(async () => (await titles()).includes('Greeting page') && (await titles()).includes('Two shapes'), 'the Artifacts page to list the page and the image')
+    await a.page.click(tid('artifacts-filter-pictures'))
+    await until(async () => (await titles()).join() === 'Two shapes', 'the pictures filter to leave only the image')
+    await a.page.click(tid('artifacts-filter-all'))
+    await a.page.fill(tid('artifacts-search'), 'no artifact is called this')
+    await a.page.waitForSelector(tid('artifacts-none'))
+    await a.page.fill(tid('artifacts-search'), '')
+    await until(async () => (await titles()).length >= 2, 'clearing the search to bring them back')
+    await shot(a.page, 'artifacts-page')
+    await a.page.click(`${tid('artifacts-item')}:has-text("Greeting page")`)
+    await until(async () => (await panelTitle()) === 'Greeting page', 'the artifact to open in its chat')
+    ok('the Chats and Artifacts pages list every chat and artifact, and an artifact opens in its chat')
+  }
+
   // A new version of the page, a document, and a component. The page's script fails on purpose.
   await showChat()
   await sendMessage(a.page, 'Change it. [artifact-v2]')

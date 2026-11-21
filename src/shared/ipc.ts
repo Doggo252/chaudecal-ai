@@ -1,4 +1,5 @@
 import type { ModelInfo } from './models'
+import type { ArtifactEntry } from './artifacts'
 // The contract between the window (renderer) and the app's backend (main).
 
 import type {
@@ -169,6 +170,8 @@ export interface AppEvents {
 export interface Api {
   state(): Promise<AppState>
   messages(conversationId: string): Promise<Message[]>
+  /** Every artifact in every chat, newest first. */
+  artifacts(): Promise<ArtifactEntry[]>
   createConversation(partial?: Partial<Conversation>): Promise<Conversation>
   updateConversation(id: string, patch: Partial<Conversation>): Promise<void>
   deleteConversation(id: string): Promise<void>
@@ -300,6 +303,7 @@ export interface Api {
 export const API_METHODS = [
   'state',
   'messages',
+  'artifacts',
   'createConversation',
   'updateConversation',
   'deleteConversation',

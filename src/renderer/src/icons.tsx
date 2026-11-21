@@ -254,3 +254,10 @@ export const IconBubble = (p: P) => (
     <path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
   </Svg>
 )
+/** Artifacts: a page with a shape and lines, like a made thing. */
+export const IconArtifact = (p: P) => (
+  <Svg {...p}>
+    <rect x="4" y="3" width="16" height="18" rx="2" />
+    <path d="M8 8h3v3H8zM14 8.5h2.5M14 11h2.5M8 15h8.5M8 18h5" />
+  </Svg>
+)

@@ -24,7 +24,7 @@ import type {
 } from '@shared/types'
 import { kindOf } from '@shared/types'
 
-export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'settings'; tab?: string } | { kind: 'project'; projectId: string } | { kind: 'projects' }
+export type View = { kind: 'chat'; conversationId?: string; focusMessageId?: string } | { kind: 'settings'; tab?: string } | { kind: 'project'; projectId: string } | { kind: 'projects' } | { kind: 'chats' } | { kind: 'artifacts' }
 
 /** Which assistants the app shows. One assistant alone makes the app look and work like that assistant's own app. */
 export type Show = 'all' | ProviderId

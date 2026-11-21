@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { Conversation, Project, ProviderId } from '@shared/types'
 import { kindOf, PROVIDER_LABEL, projectKindOf } from '@shared/types'
 import { chatShown, openChat, projectShown, setShow, setState, setTab, toast, useUi, type Show } from '../state'
-import { IconChevron, IconDownload, IconFolder, IconLock, IconPlus, IconSearch, IconSettings, IconColumns } from '../icons'
+import { IconArtifact, IconBubble, IconChevron, IconDownload, IconFolder, IconLock, IconPlus, IconSearch, IconSettings, IconColumns } from '../icons'
 import { MenuItem, Meter, Popover, ProviderDot } from './ui'
 import { newChatIn } from './ProjectView'
 
@@ -310,8 +310,14 @@ export function Sidebar() {
         <button type="button" className="side-btn" data-testid="open-search" onClick={() => setState({ dialog: { kind: 'search' } })}>
           <IconSearch /> Search <kbd>{isMac ? '⌘K' : 'Ctrl K'}</kbd>
         </button>
+        <button type="button" className={`side-btn ${view.kind === 'chats' ? 'active' : ''}`} data-testid="open-chats" onClick={() => setState({ view: { kind: 'chats' }, sideOpen: false })}>
+          <IconBubble /> {tab === 'code' ? 'Code chats' : 'Chats'}
+        </button>
         <button type="button" className={`side-btn ${view.kind === 'projects' ? 'active' : ''}`} data-testid="open-projects" onClick={() => setState({ view: { kind: 'projects' }, sideOpen: false })}>
           <IconFolder /> Projects
+        </button>
+        <button type="button" className={`side-btn ${view.kind === 'artifacts' ? 'active' : ''}`} data-testid="open-artifacts" onClick={() => setState({ view: { kind: 'artifacts' }, sideOpen: false })}>
+          <IconArtifact /> Artifacts
         </button>
       </div>
 

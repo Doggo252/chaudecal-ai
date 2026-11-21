@@ -3454,3 +3454,65 @@ html.quick-window #root {
   align-items: center;
   gap: 8px;
 }
+
+/* ---------- Chats and Artifacts pages ---------- */
+
+.chats-count {
+  margin: -6px 0 8px;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--text-scale));
+}
+.chats-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+.chats-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.chats-row:hover {
+  background: var(--bg-hover);
+}
+.chats-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.chats-row-when {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--text-scale));
+}
+.artifacts-item {
+  align-content: start;
+}
+.artifacts-peek {
+  display: block;
+  height: 92px;
+  margin: -4px -6px 4px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  color: var(--text-soft);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: calc(10.5px * var(--text-scale));
+  line-height: 1.45;
+  white-space: pre;
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+.artifacts-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
