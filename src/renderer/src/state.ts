@@ -109,7 +109,7 @@ export interface UiState {
   variants: Record<string, HandoffVariant>
   /** Limit banners the user closed, by "conversation:provider:window". */
   dismissed: Record<string, true>
-  dialog: null | { kind: 'search' } | { kind: 'usage' } | { kind: 'switch'; conversationId: string; target?: ProviderId }
+  dialog: null | { kind: 'search' } | { kind: 'usage' } | { kind: 'shortcuts' } | { kind: 'switch'; conversationId: string; target?: ProviderId }
   toast: string
   /** On a narrow screen the sidebar slides over the page; this says whether it is out. */
   sideOpen?: boolean
@@ -123,6 +123,42 @@ export interface UiState {
   queued: Record<string, Queued[]>
   /** Chats whose queue waits because the answer was stopped. */
   held: Record<string, true>
+  /** Chats that finished an answer you have not looked at yet. Kept on this device only. */
+  unread: Record<string, true>
+}
+
+const UNREAD_KEY = 'chaude:unread'
+
+function readUnread(): Record<string, true> {
+  try {
+    const ids = JSON.parse(localStorage.getItem(UNREAD_KEY) ?? '[]') as string[]
+    return Object.fromEntries(ids.map((id) => [id, true as const]))
+  } catch {
+    return {}
+  }
+}
+
+function saveUnread(unread: Record<string, true>) {
+  try {
+    localStorage.setItem(UNREAD_KEY, JSON.stringify(Object.keys(unread)))
+  } catch {
+    // Remembering is a nicety.
+  }
+}
+
+/** Marks a chat as read or unread, here and across restarts. */
+export function markUnread(conversationId: string, on: boolean): void {
+  if (!!state.unread[conversationId] === on) return
+  const unread = { ...state.unread }
+  if (on) unread[conversationId] = true
+  else delete unread[conversationId]
+  saveUnread(unread)
+  setState({ unread })
+}
+
+/** The chat in front of the user right now, if any. */
+function chatInView(): string | undefined {
+  return !document.hidden && state.view.kind === 'chat' ? state.view.conversationId : undefined
 }
 
 /** A message waiting for its chat to finish answering. */
@@ -163,6 +199,7 @@ let state: UiState = {
   artifact: null,
   queued: {},
   held: {},
+  unread: readUnread(),
   tab: (() => {
     try {
       return localStorage.getItem(TAB_KEY) === 'code' || localStorage.getItem(SHOW_KEY) === 'local' ? 'code' : 'chat'
@@ -357,7 +394,15 @@ export async function boot(): Promise<void> {
       }
       return patch
     })
-    if (!busy) sendQueued(conversationId)
+    if (!busy) {
+      // An answer that finished out of sight waits with a dot in the sidebar.
+      if (chatInView() !== conversationId) markUnread(conversationId, true)
+      sendQueued(conversationId)
+    }
+  })
+  document.addEventListener('visibilitychange', () => {
+    const id = chatInView()
+    if (id) markUnread(id, false)
   })
   api.on('route', ({ conversationId, decision }) => setState((s) => ({ routes: { ...s.routes, [conversationId]: decision } })))
   api.on('approval', ({ conversationId, messageId, request, settled }) =>
@@ -378,6 +423,7 @@ export async function boot(): Promise<void> {
   api.on('command', (command) => {
     if (command === 'new-chat') openChat(undefined)
     else if (command === 'search') setState({ dialog: { kind: 'search' } })
+    else if (command === 'shortcuts') setState({ dialog: { kind: 'shortcuts' } })
     else setState({ view: { kind: 'settings' } })
   })
   api.on('open', (conversationId) => {
@@ -405,7 +451,22 @@ export function openChat(conversationId: string | undefined, focusMessageId?: st
   const conv = conversationId ? app?.conversations.find((c) => c.id === conversationId) : undefined
   if (conv) patch.tab = kindOf(conv)
   setState(patch)
-  if (conversationId) void loadMessages(conversationId)
+  if (conversationId) {
+    markUnread(conversationId, false)
+    void loadMessages(conversationId)
+  }
+}
+
+/** Opens the chat above or below the open one, in the sidebar's order. */
+export function stepChat(by: 1 | -1): void {
+  const app = state.app
+  if (!app) return
+  const list = app.conversations.filter((c) => kindOf(c) === state.tab && !c.archived && chatShown(c, state.show)).sort((a, b) => b.updatedAt - a.updatedAt)
+  if (!list.length) return
+  const view = state.view
+  const at = view.kind === 'chat' ? list.findIndex((c) => c.id === view.conversationId) : -1
+  const next = at < 0 ? (by > 0 ? 0 : list.length - 1) : Math.min(list.length - 1, Math.max(0, at + by))
+  openChat(list[next].id)
 }
 
 export function openSearchHit(hit: SearchHit): void {

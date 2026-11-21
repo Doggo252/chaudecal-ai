@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { HandoffInfo, SearchHit } from '@shared/ipc'
 import type { HandoffVariant, ProviderId } from '@shared/types'
 import { PROVIDER_LABEL } from '@shared/types'
@@ -221,5 +221,42 @@ export function SwitchDialog({ conversationId, target: initial }: { conversation
         </button>
       </div>
     </Modal>
+  )
+}
+
+/** Every keyboard shortcut, in the keys of this computer. */
+export function ShortcutsBody({ mac }: { mac: boolean }) {
+  const mod = mac ? '⌘' : 'Ctrl'
+  const keys = (...k: string[]) => (
+    <span className="keys">
+      {k.map((x) => (
+        <kbd key={x}>{x}</kbd>
+      ))}
+    </span>
+  )
+  const rows: [string, ReactNode][] = [
+    ['New chat', keys(mod, 'N')],
+    ['Search every chat', keys(mod, 'K')],
+    ['Previous chat in the sidebar', keys(mod, 'Shift', '[')],
+    ['Next chat in the sidebar', keys(mod, 'Shift', ']')],
+    ['Show or hide a code chat\'s changes', keys(mod, 'Shift', 'D')],
+    ['Open a code chat\'s folder in your editor', keys(mod, 'Shift', 'E')],
+    ['Settings', keys(mod, ',')],
+    ['Ask from anywhere', keys(mac ? 'Option' : 'Alt', 'Space')],
+    ['Send', keys('Enter')],
+    ['New line', keys('Shift', 'Enter')],
+    ['Commands', keys('/')],
+    ['Mention a file in a code chat', keys('@')],
+    ['This list', keys(mod, '/')]
+  ]
+  return (
+    <div className="shortcuts" data-testid="shortcuts">
+      {rows.map(([label, k]) => (
+        <div className="shortcut-row" key={label}>
+          <span>{label}</span>
+          {k}
+        </div>
+      ))}
+    </div>
   )
 }

@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect } from 'react'
 import { installCopyHandler } from './markdown'
-import { openChat, setState, useUi } from './state'
+import { openChat, setState, stepChat, useUi } from './state'
 import { applyAccent, applyTextSize } from './theme'
 import { ChatView } from './components/ChatView'
-import { SearchDialog, SwitchDialog } from './components/Dialogs'
+import { SearchDialog, ShortcutsBody, SwitchDialog } from './components/Dialogs'
 import { SettingsView, UsageBody } from './components/Settings'
 import { Modal } from './components/ui'
 import { SHOW_LABEL, Sidebar } from './components/Sidebar'
@@ -42,12 +42,28 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
       if (!mod) return
-      if (e.key.toLowerCase() === 'k') {
+      const key = e.key.toLowerCase()
+      if (key === 'k') {
         e.preventDefault()
         setState({ dialog: { kind: 'search' } })
-      } else if (e.key.toLowerCase() === 'n') {
+      } else if (key === 'n' && !e.shiftKey) {
         e.preventDefault()
         openChat(undefined)
+      } else if (key === '/') {
+        e.preventDefault()
+        setState({ dialog: { kind: 'shortcuts' } })
+      } else if (key === ',') {
+        e.preventDefault()
+        setState({ view: { kind: 'settings' }, dialog: null })
+      } else if (e.shiftKey && (e.code === 'BracketLeft' || e.code === 'BracketRight')) {
+        e.preventDefault()
+        stepChat(e.code === 'BracketRight' ? 1 : -1)
+      } else if (e.shiftKey && key === 'd') {
+        e.preventDefault()
+        window.dispatchEvent(new Event('chaude-toggle-changes'))
+      } else if (e.shiftKey && key === 'e') {
+        e.preventDefault()
+        window.dispatchEvent(new Event('chaude-open-editor'))
       }
     }
     document.addEventListener('keydown', onKey)
@@ -77,6 +93,13 @@ export function App() {
         <Modal title="Usage" testId="usage-dialog" wide onClose={() => setState({ dialog: null })}>
           <div className="modal-body">
             <UsageBody />
+          </div>
+        </Modal>
+      )}
+      {dialog?.kind === 'shortcuts' && (
+        <Modal title="Keyboard shortcuts" testId="shortcuts-dialog" onClose={() => setState({ dialog: null })}>
+          <div className="modal-body">
+            <ShortcutsBody mac={platform === 'darwin'} />
           </div>
         </Modal>
       )}

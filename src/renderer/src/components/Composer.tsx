@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { Attachment, Conversation, ProviderChoice, ProviderId, RunMode } from '@shared/types'
 import { kindOf, MAX_ATTACHMENTS, PROVIDER_LABEL } from '@shared/types'
 import { headroom } from '@shared/usage'
+import { insertMention, mentionAt, rankFiles } from '@shared/mention'
 import type { AttachResult } from '@shared/ipc'
 import type { ModelInfo } from '@shared/models'
 import { createFromDraft, getState, openChat, sendQueued, setState, stopChat, toast, unqueue, useUi, type Draft } from '../state'
@@ -172,6 +173,38 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
     ref.current?.focus()
   }
 
+  // In a code chat on this computer, @ mentions a file of its folder.
+  const [caret, setCaret] = useState(0)
+  const [files, setFiles] = useState<string[]>([])
+  const [mentionActive, setMentionActive] = useState(0)
+  // Escape closes the list for that one @.
+  const [mentionShut, setMentionShut] = useState(-1)
+  const canMention = !web && !onHub && !!workspace && !isWeb()
+  const typed = canMention && slashWord === undefined ? mentionAt(text, caret) : undefined
+  const mention = typed && typed.start !== mentionShut ? typed : undefined
+  const wantFiles = mention !== undefined
+  useEffect(() => {
+    if (!wantFiles || !workspace) return
+    let live = true
+    void window.api.listFolderFiles(workspace).then((list) => live && setFiles(list), () => live && setFiles([]))
+    return () => {
+      live = false
+    }
+  }, [wantFiles, workspace])
+  const mentionList = mention ? rankFiles(files, mention.query) : []
+  useEffect(() => setMentionActive(0), [mention?.query])
+  const pickMention = (file: string) => {
+    if (!mention) return
+    const next = insertMention(text, mention, file)
+    setText(next.text)
+    setCaret(next.caret)
+    requestAnimationFrame(() => {
+      ref.current?.focus()
+      ref.current?.setSelectionRange(next.caret, next.caret)
+    })
+  }
+  const trackCaret = (e: { currentTarget: HTMLTextAreaElement }) => setCaret(e.currentTarget.selectionStart ?? 0)
+
   const submit = () => {
     const value = text.trim()
     // Chaude's own commands run here and are not sent.
@@ -333,13 +366,43 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               ))}
             </div>
           )}
+          {mentionList.length > 0 && (
+            <div className="slash-menu" role="listbox" data-testid="mention-menu">
+              {mentionList.map((f, i) => {
+                const slash = f.lastIndexOf('/')
+                return (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === mentionActive}
+                    key={f}
+                    className={`slash-item ${i === mentionActive ? 'active' : ''}`}
+                    data-testid="mention-item"
+                    onMouseEnter={() => setMentionActive(i)}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      pickMention(f)
+                    }}
+                  >
+                    <span className="slash-name">{slash >= 0 ? f.slice(slash + 1) : f}</span>
+                    <span className="slash-hint">{slash >= 0 ? f.slice(0, slash) : ''}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
           <textarea
             ref={ref}
             rows={1}
             value={text}
             data-testid="composer-input"
             placeholder={compare ? 'Ask all selected assistants at once' : effective === 'auto' ? 'Ask anything' : `Message ${providerName(effective)}`}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value)
+              trackCaret(e)
+            }}
+            onSelect={trackCaret}
+            onClick={trackCaret}
             onPaste={(e) => {
               // A pasted screenshot or copied file becomes an attachment. Pasted text is left alone.
               const files = [...e.clipboardData.files]
@@ -348,6 +411,21 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               void addFiles(files)
             }}
             onKeyDown={(e) => {
+              if (mentionList.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                e.preventDefault()
+                setMentionActive((i) => (i + (e.key === 'ArrowDown' ? 1 : mentionList.length - 1)) % mentionList.length)
+                return
+              }
+              if (mentionList.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+                e.preventDefault()
+                pickMention(mentionList[Math.min(mentionActive, mentionList.length - 1)])
+                return
+              }
+              if (mentionList.length && e.key === 'Escape') {
+                e.preventDefault()
+                setMentionShut(mention!.start)
+                return
+              }
               if (slashList.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
                 e.preventDefault()
                 setSlashActive((i) => (i + (e.key === 'ArrowDown' ? 1 : slashList.length - 1)) % slashList.length)

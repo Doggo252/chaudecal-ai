@@ -6,13 +6,15 @@ import { estimateTokens, formatTokens } from '@shared/tokens'
 import { formatReset, limitWarning } from '@shared/usage'
 import { switchTarget } from '@shared/router'
 import { createFromDraft, dismissRemoved, getState, loadMessages, openChat, queueMessage, setState, toast, useUi } from '../state'
-import { IconColumns, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
+import { IconColumns, IconDiff, IconFolder, IconLock, IconMore, IconSwitch } from '../icons'
+import { ChangesPanel, FILES_LABEL, openIn, useChanges } from './ChangesPanel'
 import { Composer } from './Composer'
 import { ApprovalCard, DenialCard, MessageList, Plan, currentPlanMessage, planPinned } from './Messages'
 import { ArtifactPanel, closeArtifact, declined, PANEL_COVERS } from './ArtifactPanel'
 import { conversationHtml, conversationMarkdown } from '../export'
 import { artifactBlocks, type ArtifactVersion } from '@shared/artifacts'
 import { artifactBlock } from '@shared/webImport'
+import { Counts } from './Messages'
 import { MenuItem, Popover, ProviderDot } from './ui'
 
 const EMPTY: Message[] = []
@@ -39,6 +41,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const projects = useUi((s) => s.app?.projects) ?? NO_PROJECTS
   const conversation = app.conversations.find((c) => c.id === conversationId)
   const [renaming, setRenaming] = useState(false)
+  const [changesOpen, setChangesOpen] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
@@ -122,6 +125,29 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
       .catch((e) => toast(String(e.message ?? e)))
   }
   const panel = openArtifact && conversation && openArtifact.conversationId === conversation.id ? openArtifact : undefined
+  // An artifact opened in the side panel takes the place of the changes.
+  useEffect(() => {
+    if (panel) setChangesOpen(false)
+  }, [panel])
+  const codeChat = !!conversation && kindOf(conversation) === 'code'
+  const onThisComputer = !(conversation?.runOnHub && !app.settings.hub.hostEnabled)
+  const changes = useChanges(useMemo(() => (codeChat ? threadMessages(messages) : []), [codeChat, messages]))
+  const showChanges = codeChat && changesOpen && !panel
+  const toggleChanges = () => {
+    if (!changesOpen) closeArtifact()
+    setChangesOpen(!changesOpen)
+  }
+  // The keyboard shortcuts for the changes and the folder, from anywhere in the window.
+  useEffect(() => {
+    const changes = () => codeChat && toggleChanges()
+    const editor = () => conversation && codeChat && onThisComputer && openIn(conversation.id, 'editor')
+    window.addEventListener('chaude-toggle-changes', changes)
+    window.addEventListener('chaude-open-editor', editor)
+    return () => {
+      window.removeEventListener('chaude-toggle-changes', changes)
+      window.removeEventListener('chaude-open-editor', editor)
+    }
+  })
   const thread = useMemo(() => threadMessages(stored), [stored])
   const contextTokens = useMemo(() => thread.reduce((n, m) => n + estimateTokens(m.role === 'user' ? messageBody(m) : m.text) + 6, 0), [thread])
   const windowProvider = conversation?.provider === 'chatgpt' || conversation?.provider === 'local' ? conversation.provider : 'claude'
@@ -131,6 +157,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
     try {
       const conv = conversation ?? (await createFromDraft())
       stick.current = true
+      // Writing in an archived chat brings it back to the sidebar.
+      if (conv.archived) void window.api.updateConversation(conv.id, { archived: false })
       dismissRemoved(conv.id)
       // Written while the chat is answering: it waits its turn instead of being turned away.
       if (getState().app?.busy.includes(conv.id) || getState().queued[conv.id]?.length) {
@@ -197,7 +225,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const composer = <Composer conversation={conversation} onSend={(t, c, a, r, pc) => void send(t, c, a, r, pc)} />
 
   return (
-    <div className={`chat-split ${panel ? 'with-panel' : ''} ${panel?.wide ? 'panel-wide' : ''}`}>
+    <div className={`chat-split ${panel || showChanges ? 'with-panel' : ''} ${panel?.wide ? 'panel-wide' : ''}`}>
       <div className="chat-pane">
       <header className="topbar drag">
         {conversation && !empty ? (
@@ -236,6 +264,12 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                 <span className="ctx-meter" title="How much of what the model can read at once this conversation fills. Past that, Chaude sends a summary of the older part." data-testid="context-meter">
                   {Math.min(100, Math.round((contextTokens / windowTokens) * 100))}% of memory used
                 </span>
+                {codeChat && (changes.length > 0 || changesOpen) && (
+                  <button type="button" className={`chip ${showChanges ? 'on' : ''}`} data-testid="open-changes" onClick={toggleChanges} title="Every file this chat changed">
+                    <IconDiff size={15} /> {changes.length} {changes.length === 1 ? 'file' : 'files'}
+                    <Counts added={changes.reduce((n, c) => n + c.added, 0)} removed={changes.reduce((n, c) => n + c.removed, 0)} />
+                  </button>
+                )}
                 <button type="button" className="chip" data-testid="open-switch" disabled={busy} onClick={() => openSwitch()} title="Continue this conversation with a different assistant">
                   <IconSwitch size={15} /> Switch
                 </button>
@@ -260,10 +294,43 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
                   >
                     {conversation.pinned ? 'Unpin' : 'Pin to top'}
                   </MenuItem>
+                  <MenuItem
+                    testId="archive-chat"
+                    hint={conversation.archived ? undefined : 'Out of the sidebar, still on the Chats page'}
+                    onClick={() => {
+                      void window.api.updateConversation(conversation.id, { archived: !conversation.archived })
+                      if (!conversation.archived) toast('Archived. It is under Archived on the Chats page.')
+                      close()
+                    }}
+                  >
+                    {conversation.archived ? 'Unarchive' : 'Archive'}
+                  </MenuItem>
+                  {codeChat && onThisComputer && (
+                    <>
+                      <div className="menu-sep" />
+                      <div className="menu-title">Folder</div>
+                      <MenuItem testId="menu-open-editor" onClick={() => (openIn(conversation.id, 'editor'), close())}>
+                        Open in code editor
+                      </MenuItem>
+                      <MenuItem onClick={() => (openIn(conversation.id, 'files'), close())}>
+                        Show in {FILES_LABEL}
+                      </MenuItem>
+                      <MenuItem onClick={() => (openIn(conversation.id, 'terminal'), close())}>
+                        Open in terminal
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => {
+                          close()
+                          toggleChanges()
+                        }}
+                      >
+                        {changesOpen ? 'Hide changes' : 'Show changes'}
+                      </MenuItem>
+                    </>
+                  )}
                   {conversation.source && (
                     <MenuItem
-                      hint="The original chat on the website"
-                      testId="open-source"
+                      hint="The original chat on the website"                      testId="open-source"
                       onClick={() => {
                         const source = conversation.source!
                         close()
@@ -481,6 +548,7 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
       )}
       </div>
       {panel && <ArtifactPanel open={panel} messages={messages} onAskFix={busy ? undefined : askFix} onSaveEdit={busy ? undefined : saveArtifactEdit} />}
+      {showChanges && conversation && <ChangesPanel conversationId={conversation.id} changes={changes} local={onThisComputer} onClose={() => setChangesOpen(false)} />}
     </div>
   )
 }

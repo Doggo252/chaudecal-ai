@@ -88,6 +88,9 @@ export interface HandoffInfo {
   summarySource?: 'local' | 'extractive'
 }
 
+/** Where a code chat's folder opens: the code editor, Finder or Explorer, or a terminal. */
+export type OpenHow = 'editor' | 'files' | 'terminal'
+
 export type WebService = 'claude' | 'chatgpt'
 
 /** How bringing in chats from one of the websites is going, on this machine. */
@@ -161,7 +164,7 @@ export interface AppEvents {
   web: WebState
   update: UpdateInfo
   remote: RemoteInfo | undefined
-  command: 'new-chat' | 'search' | 'settings' | 'quick-focus'
+  command: 'new-chat' | 'search' | 'settings' | 'quick-focus' | 'shortcuts'
   /** Show this conversation. Sent when its notification is clicked. */
   open: string
   webImport: WebImportStatus
@@ -196,6 +199,8 @@ export interface Api {
 
   handoffPreview(conversationId: string, variant: HandoffVariant, target?: ProviderId): Promise<HandoffInfo | undefined>
   revealContext(conversationId: string): Promise<void>
+  /** Opens a code chat's folder, or a file in it, in an editor, Finder or Explorer, or a terminal. */
+  openWorkspace(conversationId: string, how: OpenHow, file?: string): Promise<void>
   copyContext(conversationId: string, variant: HandoffVariant): Promise<void>
 
   search(query: string): Promise<SearchHit[]>
@@ -205,6 +210,8 @@ export interface Api {
   providerLogin(provider: 'claude' | 'chatgpt'): Promise<{ ok: boolean; detail: string }>
 
   getWorkspace(conversationId: string): Promise<string>
+  /** The files in a folder on this computer, relative to it, for mentioning one with @. */
+  listFolderFiles(folder: string): Promise<string[]>
   pickWorkspace(conversationId: string): Promise<string>
   clearWorkspace(conversationId: string): Promise<void>
   /** Set the working folder by typing its path. Used for conversations that run on the hub. */
@@ -319,12 +326,14 @@ export const API_METHODS = [
   'switchProvider',
   'handoffPreview',
   'revealContext',
+  'openWorkspace',
   'copyContext',
   'search',
   'updateSettings',
   'refreshProviders',
   'providerLogin',
   'getWorkspace',
+  'listFolderFiles',
   'pickWorkspace',
   'clearWorkspace',
   'setWorkspacePath',

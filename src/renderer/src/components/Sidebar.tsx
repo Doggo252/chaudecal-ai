@@ -52,13 +52,14 @@ export function Sidebar() {
   const app = useUi((s) => s.app)
   const view = useUi((s) => s.view)
   const asking = useUi((s) => s.approvals)
+  const unread = useUi((s) => s.unread)
   const tab = useUi((s) => s.tab)
   const show = useUi((s) => s.show)
   const isMac = app?.platform === 'darwin'
   const [closed, toggleClosed] = useFolds(CLOSED_KEY)
   const [opened, toggleOpened] = useFolds(OPEN_KEY)
 
-  const chats = useMemo(() => (app?.conversations ?? []).filter((c) => kindOf(c) === tab && chatShown(c, show)).sort((a, b) => b.updatedAt - a.updatedAt), [app?.conversations, tab, show])
+  const chats = useMemo(() => (app?.conversations ?? []).filter((c) => kindOf(c) === tab && !c.archived && chatShown(c, show)).sort((a, b) => b.updatedAt - a.updatedAt), [app?.conversations, tab, show])
   // Projects of this tab, the most recently used first.
   const projects = useMemo(() => {
     const latest = new Map<string, number>()
@@ -79,7 +80,7 @@ export function Sidebar() {
   const openProject = (projectId: string) => setState({ view: { kind: 'project', projectId }, sideOpen: false })
 
   const row = (c: Conversation, nested?: boolean) => (
-    <button type="button" key={c.id} className={`conv ${nested ? 'conv-nested' : ''} ${c.id === activeId ? 'active' : ''}`} data-testid={nested ? 'project-side-chat' : 'conversation'} onClick={() => openChat(c.id)} title={c.title}>
+    <button type="button" key={c.id} className={`conv ${nested ? 'conv-nested' : ''} ${c.id === activeId ? 'active' : ''} ${unread[c.id] ? 'unread' : ''}`} data-testid={nested ? 'project-side-chat' : 'conversation'} onClick={() => openChat(c.id)} title={c.title}>
       {marks && (
         <span className="conv-mark" title={c.source ? (c.source.service === 'claude' ? 'From claude.ai' : 'From chatgpt.com') : c.provider === 'auto' ? 'Auto picks the assistant' : PROVIDER_LABEL[c.provider]}>
           <ProviderDot provider={markOf(c)} size={13} />
@@ -91,6 +92,7 @@ export function Sidebar() {
           <WorkMark provider={c.provider === 'auto' ? undefined : c.provider} size={13} />
         </span>
       )}
+      {unread[c.id] && !busy.has(c.id) && !asking[c.id]?.length && <span className="conv-unread" data-testid="conversation-unread" title="New answer" />}
       {c.private && (
         <span className="conv-meta" title="Private: local AI only">
           <IconLock size={13} />

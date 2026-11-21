@@ -30,6 +30,12 @@ The sidebar has two tabs:
 - **Use this computer from a regular chat.** The computer switch in a regular chat's message box does that one message here, with Claude Code or Codex, in a folder you choose. It is marked "On this computer" and stays in Chaude; the website hears about it in a short note with your next message.
 - **Real model lists.** The model picker shows the models your plan offers, by name and version, with a line on what each is for, and older ones under "More models". Code chats also have a thinking level, from Quick to Deepest.
 - **Commands.** Type "/" for a list. /usage shows how much of each plan is used and when it resets; /new, /search and /settings do what they say. In Claude code chats, Claude Code's own commands (like /compact) are listed too.
+- **Changes beside the chat.** In a code chat, the "N files" chip at the top (or ⌘⇧D, Ctrl+Shift+D on Windows) opens every file the chat changed, with the lines added and removed, next to the conversation.
+- **Open the folder in your tools.** A code chat's menu opens its folder in your code editor (Cursor, VS Code, Windsurf, Zed or Sublime Text, whichever is installed), in Finder or File Explorer, or in a terminal. ⌘⇧E opens it in the editor.
+- **Mention a file with @.** In a code chat, type @ and part of a file name to pick a file from its folder.
+- **Archive.** Archive a chat from its menu or from the Chats page to take it out of the sidebar. It stays under "Archived" on the Chats page, and writing in it brings it back.
+- **Unread dots.** A chat that finishes answering while you are somewhere else gets a dot in the sidebar until you open it.
+- **Keyboard shortcuts.** ⌘/ (Ctrl+/ on Windows) lists them all. ⌘⇧[ and ⌘⇧] go to the chat above or below in the sidebar, and ⌘, opens Settings.
 - **Tools for both assistants (MCP).** Add a tool server once, for example for GitHub, your notes or a database, and Claude and ChatGPT can both use it. The list syncs between your machines.
 - **Agent work.** Chat, Plan, Edit and Auto modes control whether the assistant may read and change files in a folder you choose. When Claude or ChatGPT wants to do something outside what the mode allows, it stops and asks, and you answer with one click.
 - **See what the assistant did.** Its plan shows as a checklist that ticks itself off, its steps are grouped ("Ran 3 commands", "Edited 2 files +12 −3"), and every file edit opens to show the lines it changed.

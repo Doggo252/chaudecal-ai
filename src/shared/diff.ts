@@ -151,3 +151,48 @@ export function codexFileDiffs(changes: unknown): FileDiff[] {
       return parseUnifiedDiff(str(c.path), str(c.diff), kind)
     })
 }
+
+/** Everything a chat changed in one file, edit by edit, oldest first. */
+export interface FileChange {
+  path: string
+  added: number
+  removed: number
+  edits: FileDiff[]
+  /** The chat made the file. */
+  created: boolean
+  /** The chat's last step on the file deleted it. */
+  deleted: boolean
+}
+
+/**
+ * The files a chat's steps changed, the most recently changed first. Steps that
+ * failed or were not allowed changed nothing and are left out.
+ */
+export function collectChanges(steps: { status: string; diff?: FileDiff[] }[]): FileChange[] {
+  const byPath = new Map<string, FileChange>()
+  for (const step of steps) {
+    if (step.status !== 'done' && step.status !== 'running') continue
+    for (const d of step.diff ?? []) {
+      const key = d.path.replace(/\\/g, '/')
+      const was = byPath.get(key)
+      const change: FileChange = was ?? { path: d.path, added: 0, removed: 0, edits: [], created: !!d.created, deleted: false }
+      // Deleted and then made again counts as made.
+      if (d.created && was?.deleted) change.created = true
+      change.added += d.added
+      change.removed += d.removed
+      change.edits.push(d)
+      change.deleted = !!d.deleted
+      byPath.delete(key)
+      byPath.set(key, change)
+    }
+  }
+  return [...byPath.values()].reverse()
+}
+
+/** A path as shown under its folder: relative when it is inside, as given otherwise. */
+export function shortPath(path: string, folder: string): string {
+  if (!folder) return path
+  const p = path.replace(/\\/g, '/')
+  const f = folder.replace(/\\/g, '/').replace(/\/+$/, '') + '/'
+  return p.toLowerCase().startsWith(f.toLowerCase()) ? p.slice(f.length) : path
+}

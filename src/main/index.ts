@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { basename, delimiter, join } from 'node:path'
+import { basename, delimiter, isAbsolute, join } from 'node:path'
 import type { Attachment, Blob, Conversation, Project, ScheduledTask, HubStatus, LocalModel, McpServer, MemoryNote, Message, Profile, ProviderId, ProviderStatus, RunWireEvent, SavedPrompt, Settings, UpdateInfo } from '@shared/types'
 import { defaultSettings, kindOf, MAC_LOCAL_NETWORK_SETTINGS, MAX_FILE_BYTES, newId } from '@shared/types'
 import { limitsFromClaudeUsageText } from '@shared/usage'
@@ -29,6 +29,8 @@ import { needsRenewal, renew, signIn as mcpBrowserSignIn } from './mcpAuth'
 import { guardFrames, previewPage, previewUrl, registerArtifactScheme, saveArtifact, servePreviews } from './artifacts'
 import { artifactCsp } from '@shared/artifactPolicy'
 import { LocalSessions } from './localSessions'
+import { openInTool } from './openers'
+import { folderFiles } from './folderFiles'
 import { uninstallPlan } from './uninstall'
 import { fileUnderFolder, sortProjectKinds } from './codeProjects'
 import { WebChat } from './webChat'
@@ -274,8 +276,10 @@ function send<K extends keyof AppEvents>(channel: K, payload: AppEvents[K]): voi
  * how this machine is set up, or replace the pairing code.
  */
 const NOT_FROM_BROWSER = new Set([
+  'listFolderFiles',
   'pickAttachments',
   'revealContext',
+  'openWorkspace',
   'copyContext',
   'updateSettings',
   'providerLogin',
@@ -670,6 +674,10 @@ const api: Omit<Api, 'on'> = {
     engine.writeContextFiles(conversationId)
     await shell.openPath(engine.contextDir(conversationId))
   },
+  async openWorkspace(conversationId, how, file) {
+    if (runsOnHub(conversationId)) throw new Error('This chat works in a folder on the hub PC. Open it there.')
+    await openInTool(engine.workspace(conversationId), how, file)
+  },
   async copyContext(conversationId, variant) {
     const h = engine.handoff(conversationId, variant)
     if (h) clipboard.writeText(h.text)
@@ -728,6 +736,10 @@ const api: Omit<Api, 'on'> = {
     await refreshProviders()
     const ready = !!statuses[provider]?.ready
     return { ok: ready, detail: ready ? 'Signed in.' : `Sign-in did not finish (exit ${code}). You can also run "${provider === 'claude' ? 'claude auth login' : 'codex login'}" in a terminal.` }
+  },
+  async listFolderFiles(folder) {
+    if (!folder || !isAbsolute(folder) || !existsSync(folder)) return []
+    return folderFiles(folder)
   },
   async getWorkspace(conversationId) {
     return runsOnHub(conversationId) ? remote.getWorkspace(conversationId) : engine.workspace(conversationId)
@@ -1039,6 +1051,7 @@ function buildMenu(): void {
       submenu: [
         { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => send('command', 'new-chat') },
         { label: 'Search Chats', accelerator: 'CmdOrCtrl+K', click: () => send('command', 'search') },
+        { label: 'Keyboard Shortcuts', accelerator: 'CmdOrCtrl+/', click: () => send('command', 'shortcuts') },
         ...(isMac ? [] : [{ label: 'Settings', accelerator: 'Ctrl+,', click: () => send('command', 'settings') }]),
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' }

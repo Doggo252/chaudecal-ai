@@ -81,4 +81,10 @@ describe('chats page', () => {
     expect(filterChats(chats, 'chat', '', (c) => c.provider === 'claude').map((c) => c.id)).toEqual(['Trip', 'Soup recipe'])
     expect(filterChats(chats, 'code', '', () => true).map((c) => c.id)).toEqual(['Fix the build'])
   })
+
+  it('keeps archived chats apart', () => {
+    const chats = [conv('Old trip', { kind: 'chat', updatedAt: 2, archived: true }), conv('Soup', { kind: 'chat', updatedAt: 1 })]
+    expect(filterChats(chats, 'chat', '', () => true).map((c) => c.id)).toEqual(['Soup'])
+    expect(filterChats(chats, 'chat', '', () => true, true).map((c) => c.id)).toEqual(['Old trip'])
+  })
 })

@@ -43,6 +43,8 @@ export interface Conversation {
   models: Partial<Record<ProviderId, string>>
   mode: RunMode
   pinned?: boolean
+  /** Out of the sidebar, but kept, and listed under Archived on the Chats page. */
+  archived?: boolean
   /** Keep this conversation on local AI only. */
   private?: boolean
   /** Run this conversation's assistants on the hub machine, whichever device the message is typed on. */

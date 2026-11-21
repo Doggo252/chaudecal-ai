@@ -40,7 +40,7 @@ const Prose = memo(function Prose({ text, answerable = false }: { text: string; 
   )
 })
 
-function Counts({ added, removed }: { added: number; removed: number }) {
+export function Counts({ added, removed }: { added: number; removed: number }) {
   if (!added && !removed) return null
   return (
     <span className="diff-counts">
@@ -50,7 +50,7 @@ function Counts({ added, removed }: { added: number; removed: number }) {
   )
 }
 
-function DiffView({ diff, head }: { diff: FileDiff; head: boolean }) {
+export function DiffView({ diff, head }: { diff: FileDiff; head: boolean }) {
   return (
     <div className="diff" data-testid="diff">
       {head && (

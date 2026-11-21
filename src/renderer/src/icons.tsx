@@ -261,3 +261,25 @@ export const IconArtifact = (p: P) => (
     <path d="M8 8h3v3H8zM14 8.5h2.5M14 11h2.5M8 15h8.5M8 18h5" />
   </Svg>
 )
+export const IconDiff = (p: P) => (
+  <Svg {...p}>
+    <path d="M7 4v8M3 8h8M3 18h8M15 5h4.5A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5H15" />
+  </Svg>
+)
+export const IconTerminal = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4.5" width="18" height="15" rx="2" />
+    <path d="m7 9.5 3 2.5-3 2.5M12.5 15H17" />
+  </Svg>
+)
+export const IconCode = (p: P) => (
+  <Svg {...p}>
+    <path d="m8.5 7-5 5 5 5M15.5 7l5 5-5 5" />
+  </Svg>
+)
+export const IconArchive = (p: P) => (
+  <Svg {...p}>
+    <rect x="3" y="4.5" width="18" height="4" rx="1" />
+    <path d="M5 8.5v9A1.5 1.5 0 0 0 6.5 19h11a1.5 1.5 0 0 0 1.5-1.5v-9M10 12.5h4" />
+  </Svg>
+)
