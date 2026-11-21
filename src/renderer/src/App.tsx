@@ -60,8 +60,10 @@ export function App() {
       </main>
       {dialog?.kind === 'search' && <SearchDialog />}
       {dialog?.kind === 'usage' && (
-        <Modal title="Usage" testId="usage-dialog" onClose={() => setState({ dialog: null })}>
-          <UsageBody />
+        <Modal title="Usage" testId="usage-dialog" wide onClose={() => setState({ dialog: null })}>
+          <div className="modal-body">
+            <UsageBody />
+          </div>
         </Modal>
       )}
       {dialog?.kind === 'switch' && <SwitchDialog conversationId={dialog.conversationId} target={dialog.target} />}
