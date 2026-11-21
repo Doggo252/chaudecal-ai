@@ -21,13 +21,23 @@ type Json = Record<string, unknown>
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
 /**
- * Claude Code's list (from its initialize answer), for example
- * { value: 'opus', displayName: 'Opus', description: 'Opus 4.7 · Most capable for complex work · ~2× usage vs Sonnet' }.
- * The description starts with the versioned name, which is clearer than "Opus".
+ * Claude Code's list (from its initialize answer). Older versions name the model
+ * in the description: { value: 'opus', displayName: 'Opus', description: 'Opus 4.7 · Most capable…' }.
+ * Newer ones put the version in the display name: { value: 'opus', displayName: 'Opus 5.5',
+ * description: 'Best for everyday, complex tasks' }. Either way the versioned name is used.
+ * Pinned models ('claude-opus-4-7' and so on) of a family that also has a plain entry
+ * ('opus') are older ones, kept under "More models".
  */
 export function claudeCatalog(models: unknown): ModelInfo[] {
   if (!Array.isArray(models)) return []
   const out: ModelInfo[] = []
+  // Families with a plain entry such as 'opus' or 'sonnet[1m]'.
+  const families = new Set(
+    (models as Json[])
+      .map((m) => str(m?.value))
+      .filter((v) => v && v !== 'default' && !v.startsWith('claude-'))
+      .map((v) => v.replace(/\[.*\]$/, ''))
+  )
   for (const raw of models as Json[]) {
     const id = str(raw?.value)
     if (!id) continue
@@ -36,21 +46,33 @@ export function claudeCatalog(models: unknown): ModelInfo[] {
       .map((p) => p.trim())
       .filter(Boolean)
     const display = str(raw.displayName)
-    const versioned = /\d/.test(display) ? display : parts[0] || display || id
-    const rest = /\d/.test(display) ? parts.slice(1) : parts.slice(1)
+    // The description may start with the versioned name, as in "Opus 4.7 · …".
+    const leadsWithName = /^[A-Z][a-z]+ \d/.test(parts[0] ?? '')
+    const versioned = /\d/.test(display) ? display : (leadsWithName && parts[0]) || display || id
+    const rest = leadsWithName ? parts.slice(1) : parts
     const isDefault = id === 'default'
     const info: ModelInfo = {
       id,
-      name: isDefault ? `Default (${parts[0] || 'recommended'})` : versioned,
+      name: isDefault ? `Default (${(leadsWithName && parts[0]) || 'recommended'})` : versioned,
       description: rest.join(' · ') || (isDefault ? 'What Claude recommends for your plan' : '')
     }
     if (isDefault) info.isDefault = true
-    const efforts = Array.isArray(raw.supportedEffortLevels) ? (raw.supportedEffortLevels as unknown[]).map(str).filter(Boolean) : []
-    if (efforts.length) info.efforts = efforts
+    const pinned = /^claude-([a-z]+)/.exec(id)
+    if (pinned && families.has(pinned[1])) info.legacy = true
+    // Newer Claude Code says only whether a model takes a thinking level, not which ones.
+    const efforts = Array.isArray(raw.supportedEffortLevels)
+      ? (raw.supportedEffortLevels as unknown[]).map(str).filter(Boolean)
+      : raw.supportsEffort === true
+        ? CLAUDE_EFFORTS
+        : []
+    if (efforts.length) info.efforts = [...efforts]
     out.push(info)
   }
   return out
 }
+
+/** The thinking levels Claude Code's --effort takes, lightest first. */
+const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 
 /** Codex's model/list answer: display names and descriptions come with it. */
 export function codexCatalog(data: unknown): ModelInfo[] {

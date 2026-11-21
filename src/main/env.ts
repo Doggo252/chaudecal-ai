@@ -4,7 +4,7 @@
 // tools a terminal would find are looked up explicitly.
 
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
@@ -49,6 +49,62 @@ export function findBinary(name: string, override: string, fallbacks: string[] =
     }
   }
   return fallbacks.find((p) => existsSync(p))
+}
+
+/**
+ * Copies of Claude Code that the Claude desktop app keeps for itself, in folders
+ * named by version. The app updates them on its own, so they are often newer than
+ * a Claude Code installed by hand. Newest first.
+ */
+export function desktopClaudeCopies(): string[] {
+  const home = homedir()
+  const root = isWin
+    ? join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'Claude', 'claude-code')
+    : join(home, 'Library', 'Application Support', 'Claude', 'claude-code')
+  const name = isWin ? 'claude.exe' : 'claude'
+  let versions: string[]
+  try {
+    versions = readdirSync(root).filter((v) => /^\d+\.\d+\.\d+$/.test(v))
+  } catch {
+    return []
+  }
+  const find = (dir: string, depth: number): string | undefined => {
+    let entries: string[]
+    try {
+      entries = readdirSync(dir)
+    } catch {
+      return undefined
+    }
+    for (const e of entries) {
+      const p = join(dir, e)
+      try {
+        const st = statSync(p)
+        if (st.isFile() && e === name) return p
+        if (st.isDirectory() && depth > 0) {
+          const hit = find(p, depth - 1)
+          if (hit) return hit
+        }
+      } catch {
+        // Skip what cannot be read.
+      }
+    }
+    return undefined
+  }
+  return versions
+    .sort((a, b) => compareVersions(b, a))
+    .map((v) => find(join(root, v), 4))
+    .filter((p): p is string => !!p)
+}
+
+/** Compare "2.1.328" style versions: negative when a is older than b. */
+export function compareVersions(a: string, b: string): number {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d) return d
+  }
+  return 0
 }
 
 /**

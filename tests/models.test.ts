@@ -14,6 +14,32 @@ describe('model lists', () => {
     expect(list[1].description).toBe('Most capable for complex work · ~2× usage vs Sonnet')
     expect(list[0]).toMatchObject({ isDefault: true, efforts: ['low', 'medium', 'high', 'max'] })
     expect(list[4].description).toBe('Most capable for complex work')
+    // A pinned model with no plain entry for its family is not an older one.
+    expect(list[3].legacy).toBeUndefined()
+  })
+  it("reads newer Claude Code's list, with the version in the name, and keeps pinned older models apart", () => {
+    const list = claudeCatalog([
+      { value: 'default', displayName: 'Default (recommended)', description: 'Opus 5.5 · Best for everyday, complex tasks' },
+      { value: 'opus', displayName: 'Opus 5.5', description: 'Best for everyday, complex tasks', supportsEffort: true },
+      { value: 'sonnet', displayName: 'Sonnet 5.5', description: 'Efficient for routine tasks' },
+      { value: 'fable', displayName: 'Fable 5.2', description: 'Most capable for your hardest and longest-running tasks' },
+      { value: 'haiku', displayName: 'Haiku 5.5', description: 'Fastest for quick answers' },
+      { value: 'claude-fable-5-1', displayName: 'Fable 5.1', description: 'Most capable for your hardest and longest-running tasks' },
+      { value: 'claude-opus-4-7', displayName: 'Opus 4.7', description: 'Best for everyday, complex tasks' },
+      { value: 'claude-sonnet-4-6', displayName: 'Sonnet 4.6', description: 'Efficient for routine tasks' }
+    ])
+    const current = list.filter((m) => !m.legacy)
+    expect(current.map((m) => m.name)).toEqual(['Default (Opus 5.5)', 'Opus 5.5', 'Sonnet 5.5', 'Fable 5.2', 'Haiku 5.5'])
+    expect(current.map((m) => m.description)).toEqual([
+      'Best for everyday, complex tasks',
+      'Best for everyday, complex tasks',
+      'Efficient for routine tasks',
+      'Most capable for your hardest and longest-running tasks',
+      'Fastest for quick answers'
+    ])
+    expect(list.filter((m) => m.legacy).map((m) => m.name)).toEqual(['Fable 5.1', 'Opus 4.7', 'Sonnet 4.6'])
+    expect(list[1].efforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max'])
+    expect(list[2].efforts).toBeUndefined()
   })
   it("reads Codex's list and keeps older models apart", () => {
     const list = codexCatalog([

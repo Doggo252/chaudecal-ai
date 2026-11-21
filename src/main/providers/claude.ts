@@ -2,13 +2,13 @@
 // sign-in. Because it is the real CLI, the user's Claude Code settings, plugins,
 // MCP servers, skills and CLAUDE.md files all apply here without extra work.
 
-import { mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { claudeMcpAllow, claudeMcpConfig } from '@shared/mcp'
 import type { ApprovalDecision, ProviderStatus, RunEvent, Settings } from '@shared/types'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
-import { findBinary, lineReader, runCli, spawnCli } from '../env'
+import { compareVersions, desktopClaudeCopies, findBinary, lineReader, runCli, spawnCli } from '../env'
 import { createClaudeParser, readPermissionAsk, sessionRule, type ClaudeParser, type PermissionAsk } from './claudeParser'
 import type { Provider, RunHandle, RunRequest } from './types'
 import { claudeCatalog, type ModelInfo } from '@shared/models'
@@ -41,13 +41,52 @@ export class ClaudeProvider implements Provider {
   /** Whether this Claude Code can give a session a name, which older versions cannot. */
   private canName = false
 
+  /** The newest Claude Code found by the last status check. */
+  private chosen?: string
+  private versions = new Map<string, { mtime: number; version?: string }>()
+
   private bin(): string | undefined {
-    return findBinary('claude', this.settings().claude.cliPath, [join(homedir(), '.claude', 'local', 'claude')])
+    const override = this.settings().claude.cliPath
+    if (!override.trim() && this.chosen && existsSync(this.chosen)) return this.chosen
+    return findBinary('claude', override, [join(homedir(), '.claude', 'local', 'claude')])
+  }
+
+  private async versionOf(bin: string): Promise<string | undefined> {
+    let mtime = 0
+    try {
+      mtime = statSync(bin).mtimeMs
+    } catch {
+      return undefined
+    }
+    const known = this.versions.get(bin)
+    if (known && known.mtime === mtime) return known.version
+    const res = await runCli(bin, ['--version'])
+    const version = /(\d+\.\d+\.\d+)/.exec(res.stdout)?.[1]
+    this.versions.set(bin, { mtime, version })
+    return version
+  }
+
+  /**
+   * Use the newest Claude Code on this machine: the one on the PATH, or the copy the
+   * Claude desktop app keeps, which it updates on its own. An older Claude Code only
+   * knows older models. A path set in Settings is always used as it is.
+   */
+  private async pickBin(): Promise<string | undefined> {
+    this.chosen = undefined
+    if (this.settings().claude.cliPath.trim()) return this.bin()
+    const candidates = [this.bin(), ...desktopClaudeCopies().slice(0, 2)].filter((p): p is string => !!p)
+    let best: { path: string; version: string } | undefined
+    for (const path of candidates) {
+      const version = await this.versionOf(path)
+      if (version && (!best || compareVersions(version, best.version) > 0)) best = { path, version }
+    }
+    this.chosen = best?.path ?? candidates[0]
+    return this.chosen
   }
 
   async status(): Promise<ProviderStatus> {
     const models = this.settings().claude.models
-    const bin = this.bin()
+    const bin = await this.pickBin()
     if (!bin) {
       return { provider: 'claude', installed: false, ready: false, detail: 'Claude Code is not installed. Install it from claude.com/claude-code, then sign in.', models }
     }
@@ -88,7 +127,7 @@ export class ClaudeProvider implements Provider {
     }
   }
 
-  private catalogCache?: { at: number; models: ModelInfo[]; commands: { name: string; description: string }[] }
+  private catalogCache?: { at: number; bin: string; models: ModelInfo[]; commands: { name: string; description: string }[] }
 
   /**
    * The plan's models and Claude Code's commands, from the answer Claude Code gives
@@ -96,9 +135,11 @@ export class ClaudeProvider implements Provider {
    * Kept for an hour.
    */
   async catalog(): Promise<{ models: ModelInfo[]; commands: { name: string; description: string }[] } | undefined> {
-    if (this.catalogCache && Date.now() - this.catalogCache.at < 3600_000) return this.catalogCache
     const bin = this.bin()
     if (!bin) return undefined
+    // A different Claude Code may know different models.
+    if (this.catalogCache && this.catalogCache.bin !== bin) this.catalogCache = undefined
+    if (this.catalogCache && Date.now() - this.catalogCache.at < 3600_000) return this.catalogCache
     const found = await new Promise<{ models: ModelInfo[]; commands: { name: string; description: string }[] } | undefined>((resolveFound) => {
       let proc: ChildProcessWithoutNullStreams
       try {
@@ -135,7 +176,7 @@ export class ClaudeProvider implements Provider {
       )
       proc.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: 'catalog', request: { subtype: 'initialize' } })}\n`)
     })
-    if (found?.models.length) this.catalogCache = { at: Date.now(), ...found }
+    if (found?.models.length) this.catalogCache = { at: Date.now(), bin, ...found }
     return found ?? this.catalogCache
   }
 
