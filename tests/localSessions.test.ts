@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { LocalSessions, parseClaudeSession, parseCodexSession } from '../src/main/localSessions'
+import { LocalSessions, appOwnFolder, parseClaudeSession, parseCodexSession } from '../src/main/localSessions'
 import { Store } from '../src/main/store'
 import { tempDir } from './helpers'
 
@@ -91,5 +91,52 @@ describe('Claude Code and Codex sessions on this computer', () => {
     sessions.scan()
     expect(store.get<any>('conversation', 'local-claude-s-1')).toMatchObject({ title: 'My name for it', origin: { toolTitle: 'Login bug again' } })
     store.close()
+  })
+  it('knows the folders the app and its tests make for themselves, on a Mac or a PC', () => {
+    expect(appOwnFolder('/private/var/folders/w_/x/T/chaudecal-test-GDGYPT')).toBe(true)
+    expect(appOwnFolder('C:\\Users\\me\\AppData\\Local\\Temp\\chaudecal-test-0GjFtg')).toBe(true)
+    expect(appOwnFolder('/Users/me/Library/Application Support/Chaudecal AI/workspace')).toBe(true)
+    expect(appOwnFolder('C:\\Users\\me\\AppData\\Roaming\\Chaudecal AI\\workspace')).toBe(true)
+    expect(appOwnFolder('/Users/me/Coding/Chaudecal AI')).toBe(false)
+    expect(appOwnFolder('/Users/me/code/workspace')).toBe(false)
+  })
+  it('skips sessions from its tests and takes out ones an earlier version brought in, unless carried on', () => {
+    const home = tempDir()
+    const testDir = '/private/var/folders/T/chaudecal-test-abc'
+    const dir = join(home, '.claude', 'projects', '-test')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 's-t.jsonl'), claudeFile('s-t', testDir))
+    const store = new Store(join(home, 'db.sqlite'))
+    const sessions = new LocalSessions(store, { home, appData: join(home, 'appdata'), deviceName: 'Mac' }, () => {}, () => '')
+    expect(sessions.scan()).toBe(0)
+    expect(store.get('conversation', 'local-claude-s-t')).toBeUndefined()
+    // What an earlier version left behind, from this computer and from a PC, with their folder projects.
+    sessions.save({ ...parseClaudeSession(claudeFile('s-old', testDir))!, sessionId: 's-old' })
+    sessions.save({ ...parseClaudeSession(claudeFile('s-pc', 'C:\\Users\\me\\AppData\\Roaming\\Chaudecal AI\\workspace'))!, sessionId: 's-pc' })
+    sessions.save({ ...parseClaudeSession(claudeFile('s-kept', testDir))!, sessionId: 's-kept' })
+    store.put('message', 'mine', { id: 'mine', conversationId: 'local-claude-s-kept', role: 'user', text: 'More', createdAt: Date.now(), deviceId: 'd', status: 'complete' })
+    sessions.save({ ...parseClaudeSession(claudeFile('s-real', '/work/app'))!, sessionId: 's-real' })
+    expect(store.get('project', 'code-folder-workspace')).toBeTruthy()
+    sessions.tidy()
+    expect(store.get('conversation', 'local-claude-s-old')).toBeUndefined()
+    expect(store.get('conversation', 'local-claude-s-pc')).toBeUndefined()
+    expect(store.get('conversation', 'local-claude-s-kept')).toBeTruthy()
+    expect(store.get('conversation', 'local-claude-s-real')).toBeTruthy()
+    expect(store.get('project', 'code-folder-workspace')).toBeUndefined()
+    expect(store.get('project', 'code-folder-chaudecal-test-abc')).toBeTruthy()
+    expect(store.get('project', 'code-folder-app')).toBeTruthy()
+    store.close()
+  })
+  it('shows a finished background task as a step in the answer it led to, not as something typed', () => {
+    const note = '<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Background command "Run the tests" completed (exit code 0)</summary>\n</task-notification>'
+    const s = parseClaudeSession([
+      line({ type: 'user', uuid: 'u1', sessionId: 's', cwd: '/w', timestamp: '2026-11-01T10:00:00Z', message: { role: 'user', content: 'Run the tests.' } }),
+      line({ type: 'assistant', uuid: 'a1', sessionId: 's', cwd: '/w', timestamp: '2026-11-01T10:00:01Z', message: { role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Started.' }] } }),
+      line({ type: 'user', uuid: 'n1', sessionId: 's', cwd: '/w', timestamp: '2026-11-01T10:05:00Z', message: { role: 'user', content: note } }),
+      line({ type: 'assistant', uuid: 'a2', sessionId: 's', cwd: '/w', timestamp: '2026-11-01T10:05:01Z', message: { role: 'assistant', model: 'claude-opus-5-5', content: [{ type: 'text', text: 'They pass.' }] } })
+    ].join('\n'))!
+    expect(s.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'assistant'])
+    expect(s.messages[2]).toMatchObject({ text: 'They pass.', model: 'claude-opus-5-5', tools: [{ name: 'Background task', summary: '"Run the tests" completed (exit code 0)', status: 'done' }] })
+    expect(s.messages.some((m) => m.text.includes('task-notification'))).toBe(false)
   })
 })

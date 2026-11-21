@@ -1281,6 +1281,7 @@ app.whenReady().then(async () => {
   sortProjectKinds(store)
   if (sessionHome) {
     const localSessions = new LocalSessions(store, { home: sessionHome, appData: dataDir, deviceName: settings.deviceName }, (id, path) => engine.setWorkspace(id, path), (id) => engine.workspace(id))
+    localSessions.tidy()
     localSessions.sortIntoFolders()
     scanSessions = () => {
       if (settings.localSessions === false) return 0

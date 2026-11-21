@@ -8,7 +8,7 @@
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
-import type { Conversation, Message, ProviderId, ToolCall } from '@shared/types'
+import type { Conversation, Message, Project, ProviderId, ToolCall } from '@shared/types'
 import { titleFromText } from '@shared/context'
 import { claudeToolKind, describeTool, toolLabel } from './providers/claudeParser'
 import type { Store } from './store'
@@ -60,8 +60,22 @@ function typedText(raw: string): string {
     const args = /<command-args>([^<]*)<\/command-args>/.exec(raw)?.[1]?.trim()
     return `${command[1].startsWith('/') ? command[1] : `/${command[1]}`}${args ? ` ${args}` : ''}`
   }
+  raw = raw.replace(/<task-notification>[\s\S]*?<\/task-notification>/g, '')
   if (/^\s*<(local-command-stdout|local-command-stderr|system-reminder|bash-stdout|bash-stderr)/.test(raw) || raw.startsWith('Caveat:')) return ''
   return raw.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+}
+
+/** What a background task that finished reported, as a step: "Run the tests" completed. */
+export function taskNotices(raw: string): ToolCall[] {
+  const notes: ToolCall[] = []
+  for (const m of raw.matchAll(/<task-notification>([\s\S]*?)<\/task-notification>/g)) {
+    const body = m[1]
+    const tag = (name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(body)?.[1]?.trim() ?? ''
+    const status = tag('status')
+    const summary = tag('summary').replace(/^Background command /, '') || 'A background task finished'
+    notes.push({ id: tag('task-id') || `task-${notes.length}`, name: 'Background task', summary, status: /fail|error|kill/i.test(status) ? 'error' : 'done', kind: 'other' })
+  }
+  return notes
 }
 
 /** One Claude Code session file (~/.claude/projects/<folder>/<session>.jsonl). */
@@ -85,6 +99,14 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
       const parts = typeof content === 'string' ? [content] : Array.isArray(content) ? content.filter((c: Json) => c?.type === 'text').map((c: Json) => String(c.text ?? '')) : []
       const said = parts.map(typedText).filter(Boolean).join('\n\n')
       const images = Array.isArray(content) ? content.filter((c: Json) => c?.type === 'image').length : 0
+      // A background task that finished: not something the person typed, so it shows as a step in the answer it led to.
+      const notices = parts.flatMap(taskNotices)
+      if (notices.length && !said && !images) {
+        turn = { id: String(l.uuid), role: 'assistant', text: '', createdAt: at }
+        messages.push(turn)
+        ;(turn.tools ??= []).push(...notices)
+        continue
+      }
       if (!said && !images) continue
       turn = undefined
       messages.push({ id: String(l.uuid), role: 'user', text: [said, images ? `[${images === 1 ? 'An image' : `${images} images`}]` : ''].filter(Boolean).join('\n\n'), createdAt: at })
@@ -94,7 +116,7 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
     if (!turn) {
       turn = { id: String(l.uuid), role: 'assistant', text: '', createdAt: at, ...(l.message?.model && l.message.model !== '<synthetic>' ? { model: String(l.message.model) } : {}) }
       messages.push(turn)
-    }
+    } else if (!turn.model && l.message?.model && l.message.model !== '<synthetic>') turn.model = String(l.message.model)
     for (const c of Array.isArray(content) ? (content as Json[]) : []) {
       if (c?.type === 'text' && String(c.text ?? '').trim()) turn.text = turn.text ? `${turn.text}\n\n${String(c.text).trim()}` : String(c.text).trim()
       if (c?.type === 'tool_use') {
@@ -118,7 +140,7 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
 }
 
 /** Raised when the readers change, so every session is read again. */
-const SESSION_READER = 2
+const SESSION_READER = 3
 
 /** The session's id, from its first lines. */
 export function codexSessionId(text: string): string {
@@ -220,6 +242,18 @@ export function parseCodexSession(text: string): LocalSession | undefined {
 }
 
 /** Every session file under a folder, newest first, at most a few levels down. */
+/**
+ * A folder the app or its tests made for themselves, on any computer: a test's
+ * throwaway folder, or the "workspace" folder in the app's data folder where code
+ * chats run when no folder was picked.
+ */
+export function appOwnFolder(cwd: string): boolean {
+  const parts = cwd.split(/[\\/]+/).filter(Boolean)
+  const last = parts[parts.length - 1] ?? ''
+  if (/^chaudecal-(test|e2e)-/i.test(last)) return true
+  return parts.some((p, i) => /^chaudecal[ -]ai$/i.test(p) && /^(workspace|tmp)$/i.test(parts[i + 1] ?? ''))
+}
+
 function sessionFiles(root: string, depth: number): string[] {
   const out: string[] = []
   const walk = (dir: string, left: number) => {
@@ -254,10 +288,36 @@ export class LocalSessions {
     private workspaceOf: (conversationId: string) => string
   ) {}
 
+  /** Sessions the app started itself, in its own data folder, or that its tests started in a throwaway folder. */
   private ours(cwd: string): boolean {
     if (!cwd) return false
     const data = resolve(this.options.appData) + sep
-    return (resolve(cwd) + sep).startsWith(data)
+    return (resolve(cwd) + sep).startsWith(data) || appOwnFolder(cwd)
+  }
+
+  /**
+   * Takes out chats an earlier version brought in from the app's own sessions:
+   * its tests and the folder it runs code chats in. Covers every computer's, so
+   * one pass cleans up all of them. A chat carried on in the app stays. Once.
+   */
+  tidy(): number {
+    if (this.store.kvGet<boolean>('localsessions:tidy')) return 0
+    let n = 0
+    for (const c of this.store.list<Conversation>('conversation')) {
+      if (!c.origin?.tool || !c.origin.folder) continue
+      if ((c.origin.device === this.options.deviceName && this.ours(c.origin.folder)) || appOwnFolder(c.origin.folder)) {
+        if (this.forget(c.id)) n++
+      }
+    }
+    // The folder projects those chats made, once nothing is left in them.
+    const left = this.store.list<Conversation>('conversation')
+    for (const p of this.store.list<Project>('project')) {
+      if (p.kind !== 'code' || !p.folder || !appOwnFolder(p.folder) || left.some((c) => c.projectId === p.id)) continue
+      this.store.remove('project', p.id)
+      n++
+    }
+    this.store.kvSet('localsessions:tidy', true)
+    return n
   }
 
   /** Codex keeps the names given to its chats apart from the chats, in one file. */
@@ -312,7 +372,8 @@ export class LocalSessions {
   /** Removes a chat brought in from a session, unless it was carried on in this app. */
   private forget(id: string): boolean {
     if (id === 'local-codex-' || !this.store.get('conversation', id)) return false
-    if (this.store.messages(id).some((m) => !m.id.startsWith('local-codex-m-'))) return false
+    const prefix = id.startsWith('local-claude-') ? 'local-claude-m-' : 'local-codex-m-'
+    if (this.store.messages(id).some((m) => !m.id.startsWith(prefix))) return false
     this.store.deleteConversation(id)
     return true
   }

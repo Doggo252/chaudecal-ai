@@ -137,15 +137,21 @@ button:disabled {
   background: var(--select);
 }
 
-::-webkit-scrollbar {
+/* On a Mac the system's own scroll bars are used: they stay hidden until you scroll.
+   On Windows and in a browser they are thin, and only show over what you are pointing at. */
+.app:not(.mac) ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
+  background: transparent;
 }
-::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+.app:not(.mac) ::-webkit-scrollbar-thumb {
+  background-color: transparent;
   border-radius: 8px;
   border: 2px solid transparent;
   background-clip: content-box;
+}
+.app:not(.mac) :hover::-webkit-scrollbar-thumb {
+  background-color: var(--border-strong);
 }
 
 /* ---------- Layout ---------- */
@@ -715,6 +721,7 @@ a {
 .scroll {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
 }
 .column {
@@ -1027,6 +1034,8 @@ a {
 .tools {
   margin: 0 0 10px;
   display: grid;
+  /* One column no wider than the chat, so a long command is cut short instead of widening the page. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
 }
 .tool {
