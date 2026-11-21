@@ -28,6 +28,7 @@ import type {
 } from '@shared/types'
 import { kindOf, MAX_ATTACHMENTS, newId, PROVIDER_LABEL } from '@shared/types'
 import { FORM_GUIDE } from '@shared/forms'
+import { PONYTAIL_GUIDE } from '@shared/ponytail'
 import {
   buildHandoff,
   composeChatMessages,
@@ -93,6 +94,11 @@ export interface ChatEvents {
 }
 
 /** Images from earlier in the conversation that are sent again when a provider is caught up. */
+/** Whether an error says the tool no longer has the session the chat runs on. */
+export function sessionGone(message: string | undefined): boolean {
+  return /no (conversation|session|thread|rollout) found|(conversation|session|thread) not found/i.test(message ?? '')
+}
+
 const EARLIER_IMAGES = 4
 
 interface Active {
@@ -230,7 +236,9 @@ export class ChatEngine {
     // A local model's window is small. Its files get about a quarter of it: as many characters as the window has tokens.
     const room = provider === 'local' ? Math.max(2000, providerBudget('local', this.settings())) : 400_000
     const projectText = projectSystemText(project, room)
-    return [shared, projectText, this.settings().artifacts === false ? '' : `${ARTIFACT_GUIDE}\n\n${FORM_GUIDE}`].filter(Boolean).join('\n\n')
+    const s = this.settings()
+    const ponytail = s.ponytail !== false && !!conv && kindOf(conv) === 'code' ? PONYTAIL_GUIDE : ''
+    return [shared, projectText, s.artifacts === false ? '' : `${ARTIFACT_GUIDE}\n\n${FORM_GUIDE}`, ponytail].filter(Boolean).join('\n\n')
   }
 
   // ----- context files -----
@@ -548,8 +556,9 @@ export class ChatEngine {
     if (!compare && answered && sessionId && provider !== 'local') {
       this.store.kvSet(this.sessionKey(conv.id, provider), { sessionId, syncedMessageId: message.id } satisfies SessionState)
     }
-    if (message.status === 'error' && message.error?.code === 'auth') {
-      // The stored session cannot be trusted after a sign-in problem.
+    // A sign-in problem leaves the session as it was, so the chat carries on in it once signed in.
+    // Only a session the tool no longer has is let go, and the next turn starts a new one.
+    if (message.status === 'error' && sessionGone(message.error?.message)) {
       this.store.kvDelete(this.sessionKey(conv.id, provider))
     }
     this.updateConversation(conv.id, { updatedAt: Date.now() })

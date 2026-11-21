@@ -181,6 +181,9 @@ function General() {
         <Row title="Artifacts" sub="Assistants are asked to put web pages, components, diagrams, images and longer documents in a panel beside the conversation, with a live preview. Off stops asking. Artifacts already written still open.">
           <Toggle checked={s.artifacts} onChange={(v) => save({ artifacts: v })} label="Artifacts" testId="artifacts-toggle" />
         </Row>
+        <Row title="Ponytail" sub="In code chats, Claude and ChatGPT are asked for the smallest change that fully does the job: no extra features, layers or code nobody asked for. Uses less of your limits. Each reply ends with a line on what was skipped.">
+          <Toggle checked={s.ponytail !== false} onChange={(v) => save({ ponytail: v })} label="Ponytail" testId="ponytail-toggle" />
+        </Row>
       </div>
 
       <div className="group-title">Context and limits</div>

@@ -160,6 +160,20 @@ describe.skipIf(!canRunFakes)('conversation engine', () => {
     expect(last(outside.id).text).not.toContain('I know the project')
   })
 
+  it('asks for the smallest change in code chats while Ponytail is on, and nowhere else', async () => {
+    const systemOf = async (kind: 'code' | 'chat', ponytail: boolean) => {
+      const { engine, runtime } = await setup((s) => {
+        s.ponytail = ponytail
+      })
+      const conv = engine.createConversation({ provider: 'local', kind })
+      await engine.send({ conversationId: conv.id, text: 'Add a button.' })
+      return runtime.requests[runtime.requests.length - 1].messages.find((m: { role: string }) => m.role === 'system')?.content ?? ''
+    }
+    expect(await systemOf('code', true)).toContain('You are a lazy senior developer.')
+    expect(await systemOf('code', false)).not.toContain('lazy senior developer')
+    expect(await systemOf('chat', true)).not.toContain('lazy senior developer')
+  })
+
   it('keeps pictures ChatGPT makes, with image generation switched on', async () => {
     const { engine, store, last } = await setup()
     const conv = engine.createConversation({ provider: 'chatgpt' })

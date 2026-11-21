@@ -111,6 +111,12 @@ export class Store {
     this.db.prepare('delete from kv where key = ?').run(key)
   }
 
+  /** Every entry whose key starts with the prefix. */
+  kvEntries<T>(prefix: string): [string, T][] {
+    const rows = this.db.prepare("select key, value from kv where key like ? escape '\\'").all(`${prefix.replace(/[\\%_]/g, '\\$&')}%`) as { key: string; value: string }[]
+    return rows.map((r) => [r.key, JSON.parse(r.value) as T])
+  }
+
   kvDeletePrefix(prefix: string): void {
     this.db.prepare("delete from kv where key like ? escape '\\'").run(`${prefix.replace(/[\\%_]/g, '\\$&')}%`)
   }

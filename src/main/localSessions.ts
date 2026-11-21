@@ -10,7 +10,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import type { Conversation, Message, PlanStep, Project, ProviderId, ToolCall } from '@shared/types'
 import { applyTaskTool, isTaskTool } from '@shared/taskList'
-import { titleFromText } from '@shared/context'
+import { HANDOFF_OPENING, titleFromText } from '@shared/context'
 import { claudeToolKind, describeTool, toolLabel } from './providers/claudeParser'
 import type { Store } from './store'
 import { ensureFolderProject } from './codeProjects'
@@ -265,8 +265,7 @@ export function parseCodexSession(text: string): LocalSession | undefined {
  */
 export function appOwnFolder(cwd: string): boolean {
   const parts = cwd.split(/[\\/]+/).filter(Boolean)
-  const last = parts[parts.length - 1] ?? ''
-  if (/^chaudecal-(test|e2e)-/i.test(last)) return true
+  if (parts.some((p) => /^chaudecal-(test|e2e)-/i.test(p))) return true
   return parts.some((p, i) => /^chaudecal[ -]ai$/i.test(p) && /^(workspace|tmp)$/i.test(parts[i + 1] ?? ''))
 }
 
@@ -356,7 +355,10 @@ export class LocalSessions {
       ...sessionFiles(join(this.options.home, '.claude', 'projects'), 1).map((path) => ({ path, tool: 'claude-code' as const })),
       ...sessionFiles(join(this.options.home, '.codex', 'sessions'), 4).map((path) => ({ path, tool: 'codex' as const }))
     ]
+    const claimed = this.claimedSessions()
     let changed = 0
+    // A chat carried on here may have gone on in a new session since it was last looked at.
+    for (const [sessionId, tool] of claimed) if (this.forget(`local-${tool}-${sessionId}`)) changed++
     for (const f of files) {
       let st: { mtimeMs: number; size: number }
       try {
@@ -371,7 +373,10 @@ export class LocalSessions {
         const text = readFileSync(f.path, 'utf8')
         const session = f.tool === 'claude-code' ? parseClaudeSession(text) : parseCodexSession(text)
         if (session && f.tool === 'codex' && names.has(session.sessionId)) session.title = names.get(session.sessionId)!
-        if (session && !this.ours(session.cwd) && this.save(session)) changed++
+        if (session && (this.ours(session.cwd) || this.appSession(session, claimed))) {
+          // The app's own session, perhaps brought in by an earlier version.
+          if (this.forget(`local-${f.tool === 'claude-code' ? 'claude' : 'codex'}-${session.sessionId}`)) changed++
+        } else if (session && this.save(session)) changed++
         // A helper session an older version brought in as a chat goes again.
         if (!session && f.tool === 'codex' && this.forget(`local-codex-${codexSessionId(text)}`)) changed++
       } catch {
@@ -383,6 +388,28 @@ export class LocalSessions {
     // A Codex chat renamed without anything else changing.
     for (const [sessionId, name] of names) if (this.retitle(`local-codex-${sessionId}`, name)) changed++
     return changed
+  }
+
+  /**
+   * Sessions the app runs for its own chats, by session: when a chat goes on in a
+   * new session (after a sign-in problem, say), that session is the chat's, not another chat.
+   */
+  private claimedSessions(): Map<string, 'claude' | 'codex'> {
+    const out = new Map<string, 'claude' | 'codex'>()
+    for (const [key, state] of this.store.kvEntries<{ sessionId?: string }>('session:')) {
+      const m = /^session:(.+):(claude|chatgpt)$/.exec(key)
+      const sessionId = state?.sessionId
+      if (!m || !sessionId) continue
+      const tool = m[2] === 'claude' ? 'claude' : 'codex'
+      if (m[1] !== `local-${tool}-${sessionId}`) out.set(sessionId, tool)
+    }
+    return out
+  }
+
+  /** A session the app started: one a chat here runs on, or one that opens with the app's context file. */
+  private appSession(session: LocalSession, claimed: Map<string, string>): boolean {
+    if (claimed.has(session.sessionId)) return true
+    return !!session.messages.find((m) => m.role === 'user')?.text.trimStart().startsWith(HANDOFF_OPENING)
   }
 
   /** Removes a chat brought in from a session, unless it was carried on in this app. */

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { LocalSessions, appOwnFolder, parseClaudeSession, parseCodexSession } from '../src/main/localSessions'
 import { Store } from '../src/main/store'
 import { tempDir } from './helpers'
+import { HANDOFF_OPENING } from '../src/shared/context'
 
 const line = (o: unknown) => JSON.stringify(o)
 const claudeFile = (sessionId: string, cwd: string) =>
@@ -97,6 +98,7 @@ describe('Claude Code and Codex sessions on this computer', () => {
     expect(appOwnFolder('C:\\Users\\me\\AppData\\Local\\Temp\\chaudecal-test-0GjFtg')).toBe(true)
     expect(appOwnFolder('/Users/me/Library/Application Support/Chaudecal AI/workspace')).toBe(true)
     expect(appOwnFolder('C:\\Users\\me\\AppData\\Roaming\\Chaudecal AI\\workspace')).toBe(true)
+    expect(appOwnFolder('/var/folders/w_/x/T/chaudecal-e2e-hub-HonlVa/workspace')).toBe(true)
     expect(appOwnFolder('/Users/me/Coding/Chaudecal AI')).toBe(false)
     expect(appOwnFolder('/Users/me/code/workspace')).toBe(false)
   })
@@ -125,6 +127,33 @@ describe('Claude Code and Codex sessions on this computer', () => {
     expect(store.get('project', 'code-folder-workspace')).toBeUndefined()
     expect(store.get('project', 'code-folder-chaudecal-test-abc')).toBeTruthy()
     expect(store.get('project', 'code-folder-app')).toBeTruthy()
+    store.close()
+  })
+  it('does not show the sessions a chat goes on in after a handoff as chats of their own', () => {
+    const home = tempDir()
+    const dir = join(home, '.claude', 'projects', '-work-app')
+    mkdirSync(dir, { recursive: true })
+    const handoffFile = (sessionId: string) =>
+      [
+        line({ type: 'user', uuid: 'h1', sessionId, cwd: '/work/app', timestamp: '2026-11-03T10:00:00Z', message: { role: 'user', content: [{ type: 'text', text: `${HANDOFF_OPENING}\n\n<context_file>\n\n# Context file: Login bug\n</context_file>\n\nNew message from the user:\n\nAnd the logout?` }] } }),
+        line({ type: 'assistant', uuid: 'h2', sessionId, cwd: '/work/app', timestamp: '2026-11-03T10:00:05Z', message: { role: 'assistant', content: [{ type: 'text', text: 'On it.' }] } }),
+        line({ type: 'custom-title', customTitle: 'Login bug', sessionId })
+      ].join('\n')
+    writeFileSync(join(dir, 's-1.jsonl'), claudeFile('s-1', '/work/app'))
+    writeFileSync(join(dir, 's-new.jsonl'), claudeFile('s-new', '/work/app'))
+    const store = new Store(join(home, 'db.sqlite'))
+    const sessions = new LocalSessions(store, { home, appData: join(home, 'appdata'), deviceName: 'Mac' }, () => {}, () => '')
+    sessions.scan()
+    expect(store.get('conversation', 'local-claude-s-new')).toBeTruthy()
+    // The chat from s-1 went on here, in s-new (a turn after a sign-in problem, say).
+    store.put('message', 'mine', { id: 'mine', conversationId: 'local-claude-s-1', role: 'user', text: 'And the logout?', createdAt: Date.now(), deviceId: 'd', status: 'complete' })
+    store.kvSet('session:local-claude-s-1:claude', { sessionId: 's-new', syncedMessageId: 'mine' })
+    // And an earlier try that was stopped, which opens with the app's context file.
+    writeFileSync(join(dir, 's-try.jsonl'), handoffFile('s-try'))
+    sessions.scan()
+    expect(store.get('conversation', 'local-claude-s-new')).toBeUndefined()
+    expect(store.get('conversation', 'local-claude-s-try')).toBeUndefined()
+    expect(store.get('conversation', 'local-claude-s-1')).toBeTruthy()
     store.close()
   })
   it('shows a finished background task as a step in the answer it led to, not as something typed', () => {

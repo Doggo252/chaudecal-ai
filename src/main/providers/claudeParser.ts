@@ -273,7 +273,8 @@ export function createClaudeParser(emit: (event: RunEvent) => void, mcpNames: st
             .map((d) => ({ toolName: d.tool_name, summary: describeTool(d.tool_name, d.tool_input), rule: ruleFor(d.tool_name, d.tool_input) }))
           if (denials.length) emit({ type: 'denials', denials })
           if (msg.is_error && !errored) {
-            const body = typeof msg.result === 'string' ? msg.result : 'Claude reported an error.'
+            const errors = Array.isArray(msg.errors) ? msg.errors.filter((e: unknown) => typeof e === 'string' && e.trim()).join('\n') : ''
+            const body = typeof msg.result === 'string' && msg.result.trim() ? msg.result : errors || 'Claude reported an error.'
             if (msg.api_error_status === 401) fail('auth', 'Claude is not signed in on this machine. Sign in again from Settings.')
             else if (msg.api_error_status === 429 || /usage limit|rate limit/i.test(body)) fail('rate_limit', body)
             else fail('unknown', body)

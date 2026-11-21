@@ -382,6 +382,8 @@ export interface Settings {
   textSize: 'small' | 'default' | 'large' | 'larger'
   /** Ask the assistants to put pages, components, diagrams and documents in artifacts, which open in a side panel. */
   artifacts: boolean
+  /** In code chats, ask the assistant for the smallest change that fully does the job (Ponytail), to use less of the plan's limits. */
+  ponytail: boolean
   /** Keep bringing in chats from claude.ai and chatgpt.com, through the sign-ins in the website tabs on this machine. */
   webImport: { claude: boolean; chatgpt: boolean }
   /** Context budget for the running context file, in tokens. */
@@ -446,6 +448,7 @@ export function defaultSettings(deviceName: string): Settings {
     accent: 'default',
     textSize: 'default',
     artifacts: true,
+    ponytail: true,
     webImport: { claude: false, chatgpt: false },
     contextBudgetTokens: 400_000,
     warnThresholdPct: 80,

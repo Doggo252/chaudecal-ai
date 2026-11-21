@@ -237,6 +237,10 @@ export function planTurn(prior: Message[], session: SessionState | undefined): T
   return unseen.length ? { kind: 'catchup', sessionId: session.sessionId, unseen } : { kind: 'resume', sessionId: session.sessionId }
 }
 
+/** How a session the app starts for a chat that already has history begins. */
+export const HANDOFF_OPENING =
+  'You are picking up a conversation that is already under way. Its context file follows. Read it as the history of this conversation, then answer the new message at the end. Continue naturally and do not comment on the handoff unless asked.'
+
 /** The text actually sent to a provider that keeps its own session. */
 export function composePrompt(input: {
   plan: TurnPlan
@@ -252,7 +256,7 @@ export function composePrompt(input: {
   if (plan.kind === 'handoff') {
     const handoff = buildHandoff({ conversation: input.conversation, messages: plan.unseen, variant: input.variant, budgetTokens: room, profile: input.profile })
     return [
-      'You are picking up a conversation that is already under way. Its context file follows. Read it as the history of this conversation, then answer the new message at the end. Continue naturally and do not comment on the handoff unless asked.',
+      HANDOFF_OPENING,
       '<context_file>',
       handoff.text,
       '</context_file>',

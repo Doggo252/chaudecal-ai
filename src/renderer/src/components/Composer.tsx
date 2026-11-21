@@ -8,6 +8,7 @@ import { createFromDraft, getState, openChat, setState, toast, useUi, type Draft
 import { DictationButton } from './Speech'
 import { CaptureButton } from './Capture'
 import { isWeb } from '../webApi'
+import { draftKey, loadDraft, saveDraft } from '../drafts'
 import { IconBook, IconChevron, IconClip, IconColumns, IconComputer, IconFolder, IconLock, IconSearch, IconSend, IconStop } from '../icons'
 import { AttachmentList, fileToBase64 } from './Attachments'
 import { HubFolder } from './HubFolder'
@@ -60,15 +61,17 @@ function shortPath(p: string): string {
 export function Composer({ conversation, onSend }: { conversation?: Conversation; onSend: (text: string, compare?: ProviderId[], attachments?: Attachment[], research?: boolean, computer?: boolean) => void }) {
   const app = useUi((s) => s.app)!
   const draft = useUi((s) => s.draft)
-  const [text, setText] = useState('')
+  // What was typed and attached stays with the chat until it is sent.
+  const key = draftKey(conversation?.id, draft.kind)
+  const [text, setText] = useState(() => loadDraft(key).text)
   const [compare, setCompare] = useState<ProviderId[] | null>(null)
   const [research, setResearch] = useState(false)
   // In a regular chat: do the next message on this computer instead of on the website.
   const [computer, setComputer] = useState(false)
   const [workspace, setWorkspace] = useState('')
-  const [attached, setAttachedState] = useState<Attachment[]>([])
+  const [attached, setAttachedState] = useState<Attachment[]>(() => loadDraft(key).attached)
   // Files can arrive several at a time (a drop, a paste), so the latest list is also kept outside React state.
-  const attachedRef = useRef<Attachment[]>([])
+  const attachedRef = useRef<Attachment[]>(attached)
   const setAttached = (list: Attachment[]) => {
     attachedRef.current = list
     setAttachedState(list)
@@ -109,20 +112,33 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   }
 
   const lastId = useRef<string | undefined>(conversation?.id)
+  const lastKey = useRef(key)
   useEffect(() => {
     // Keep what was typed when a new chat becomes a saved conversation.
     const created = lastId.current === undefined && conversation !== undefined
     lastId.current = conversation?.id
-    if (!created) {
-      setText('')
-      setAttached([])
+    if (lastKey.current !== key) {
+      if (created) {
+        saveDraft(lastKey.current, { text: '', attached: [] })
+        saveDraft(key, { text, attached: attachedRef.current })
+      } else {
+        const d = loadDraft(key)
+        setText(d.text)
+        setAttached(d.attached)
+      }
+      lastKey.current = key
     }
     setCompare(null)
     setWorkspace('')
     if (conversation) void window.api.getWorkspace(conversation.id).then(setWorkspace)
     ref.current?.focus()
     // The folder is kept per machine, so it is looked up again when the conversation moves to or from the hub.
-  }, [conversation?.id, conversation?.runOnHub])
+  }, [key, conversation?.runOnHub])
+
+  // Only a change made in this box is written, under the chat it belongs to.
+  useEffect(() => {
+    if (lastKey.current === key) saveDraft(key, { text, attached })
+  }, [text, attached])
 
   useLayoutEffect(() => {
     const el = ref.current

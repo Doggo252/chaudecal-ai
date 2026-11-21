@@ -5,6 +5,7 @@ import type { RunEvent } from '@shared/types'
 import { ClaudeProvider } from '../src/main/providers/claude'
 import { createClaudeParser, describeTool, readPermissionAsk, ruleFor, sessionRule } from '../src/main/providers/claudeParser'
 import { CodexProvider, codexErrorCode, codexItemToTool } from '../src/main/providers/codex'
+import { sessionGone } from '../src/main/chat'
 import { canRunFakes, tempDir, testSettings, until } from './helpers'
 
 const cleanup: (() => void)[] = []
@@ -118,6 +119,16 @@ describe('Claude stream parser', () => {
     expect(errors[0]).toMatchObject({ code: 'auth' })
     expect(c.text()).toBe('')
     expect(p.sawError()).toBe(true)
+  })
+
+  it('says why a turn failed when Claude Code only lists the errors', () => {
+    const c = collect()
+    const p = createClaudeParser(c.emit)
+    p.line(JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['No conversation found with session ID: abc'] }))
+    const error = c.events.find((e) => e.type === 'error')
+    expect(error).toMatchObject({ code: 'unknown', message: 'No conversation found with session ID: abc' })
+    expect(sessionGone(error?.type === 'error' ? error.message : '')).toBe(true)
+    expect(sessionGone('Claude is not signed in on this machine. Sign in again from Settings.')).toBe(false)
   })
 
   it('ignores lines that are not JSON and subagent chatter', () => {
