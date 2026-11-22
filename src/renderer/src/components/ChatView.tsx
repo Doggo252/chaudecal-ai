@@ -61,6 +61,13 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'c' && scroller.current) {
+        const last = [...shownMessages.current].reverse().find((m) => m.role === 'assistant' && m.status !== 'streaming' && m.text.trim())
+        if (!last) return
+        e.preventDefault()
+        void navigator.clipboard.writeText(last.text).then(() => toast('Copied the last answer'))
+        return
+      }
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f' || !scroller.current) return
       e.preventDefault()
       setFinding(true)
@@ -75,6 +82,8 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
     return live.length ? [...stored, ...live].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id)) : stored
   }, [stored, streaming, conversationId])
   const planMessage = useMemo(() => currentPlanMessage(messages), [messages])
+  const shownMessages = useRef(messages)
+  shownMessages.current = messages
 
   // A question holds up the whole turn, so it is always brought into view.
   const asked = useRef(0)

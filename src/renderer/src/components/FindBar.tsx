@@ -51,7 +51,11 @@ export function FindBar({ root, onClose }: { root: RefObject<HTMLElement | null>
     const now = ranges[at]
     if (now) {
       highlights.set('find-now', new Highlight(now))
-      now.startContainer.parentElement?.scrollIntoView({ block: 'center' })
+      const el = now.startContainer.parentElement
+      // A match inside a folded message or a closed section is opened so it can be seen.
+      for (let d = el?.closest('details'); d; d = d.parentElement?.closest('details')) d.open = true
+      if (el?.closest('.bubble-folded')) el.closest('.msg')?.querySelector<HTMLButtonElement>('[data-testid="bubble-more"]')?.click()
+      el?.scrollIntoView({ block: 'center' })
     } else highlights.delete('find-now')
   }, [ranges, at, highlights, Highlight])
 

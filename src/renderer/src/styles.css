@@ -4494,3 +4494,10 @@ html.quick-window #root {
   border-top-color: transparent;
   animation: spin 1s linear infinite;
 }
+
+.conv-draft {
+  flex: none;
+  margin-left: 6px;
+  color: var(--claude);
+  font-size: calc(11px * var(--text-scale));
+}

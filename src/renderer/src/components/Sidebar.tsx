@@ -6,6 +6,7 @@ import { IconArtifact, IconBubble, IconChevron, IconDownload, IconFolder, IconLo
 import { MenuItem, Meter, Popover, ProviderDot } from './ui'
 import { newChatIn } from './ProjectView'
 import { WorkMark } from './Working'
+import { loadDraft } from '../drafts'
 
 /** How many chats an open project shows in the sidebar before "View all". */
 const PROJECT_PEEK = 5
@@ -87,6 +88,7 @@ export function Sidebar() {
         </span>
       )}
       <span className="conv-title">{c.title}</span>
+      {c.id !== activeId && loadDraft(c.id).text.trim() && <span className="conv-draft" data-testid="conversation-draft" title="You started a message here">Draft</span>}
       {asking[c.id]?.length ? <span className="conv-ask" data-testid="conversation-asking" title="Waiting for your answer" /> : busy.has(c.id) && (
         <span className="conv-busy" data-testid="conversation-busy" title="Working">
           <WorkMark provider={c.provider === 'auto' ? undefined : c.provider} size={13} />
