@@ -67,13 +67,19 @@ function firstMatch(text: string, re: RegExp): string | undefined {
   return m?.[1]?.replace(/\s+/g, ' ').trim() || undefined
 }
 
+/** An untitled picture is named by its first few labels, so two of them do not both read "Image". */
+function svgLabels(code: string): string | undefined {
+  const labels = [...new Set([...code.matchAll(/<text\b[^>]*>([^<]+)</g)].map((m) => m[1].replace(/\s+/g, ' ').trim()).filter(Boolean))]
+  return labels.slice(0, 3).join(', ') || undefined
+}
+
 function looksLikeReact(code: string): boolean {
   return /export\s+default\b/.test(code) && (/from\s+['"]react['"]/.test(code) || /<[A-Za-z][\w.]*[\s/>]/.test(code) || /\buse(State|Effect|Ref|Memo)\b/.test(code))
 }
 
 function defaultTitle(kind: ArtifactKind, code: string): string {
   if (kind === 'html') return firstMatch(code, /<title[^>]*>([^<]*)<\/title>/i) ?? 'Web page'
-  if (kind === 'svg') return firstMatch(code, /<svg[\s\S]*?<title[^>]*>([^<]*)<\/title>/i) ?? 'Image'
+  if (kind === 'svg') return firstMatch(code, /<svg[\s\S]*?<title[^>]*>([^<]*)<\/title>/i) ?? firstMatch(code, /<svg\b[^>]*\saria-label="([^"]+)"/i) ?? svgLabels(code) ?? 'Image'
   if (kind === 'react') return firstMatch(code, /export\s+default\s+(?:async\s+)?(?:function|class)\s+([A-Za-z_$][\w$]*)/) ?? firstMatch(code, /export\s+default\s+([A-Z][\w$]*)\s*;?\s*$/m) ?? 'Component'
   if (kind === 'mermaid') return 'Diagram'
   return ARTIFACT_KIND_LABEL[kind]

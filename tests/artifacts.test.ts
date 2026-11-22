@@ -30,6 +30,8 @@ describe('finding artifacts in a reply', () => {
     expect(classifyFence('html title="Page"', '<p>hi</p>')).toMatchObject({ kind: 'html', title: 'Page', titled: true })
     expect(classifyFence('html', '<!DOCTYPE html><html><head><title>My site</title></head></html>')).toMatchObject({ kind: 'html', title: 'My site', titled: false })
     expect(classifyFence('svg', '<svg viewBox="0 0 1 1"></svg>')).toMatchObject({ kind: 'svg', title: 'Image' })
+    expect(classifyFence('svg', '<svg><text x="1">Your Mac</text><text>School</text><text>Your Mac</text><text>Home</text><text>PC</text></svg>')?.title).toBe('Your Mac, School, Home')
+    expect(classifyFence('svg', '<svg role="img" aria-label="Two routers"><text>eero</text></svg>')?.title).toBe('Two routers')
     expect(classifyFence('xml', '<?xml version="1.0"?>\n<svg><title>Logo</title></svg>')).toMatchObject({ kind: 'svg', title: 'Logo' })
     expect(classifyFence('mermaid', 'graph TD; A-->B')).toMatchObject({ kind: 'mermaid', title: 'Diagram' })
     expect(classifyFence('jsx', 'export default function TodoList() { return <ul/> }')).toMatchObject({ kind: 'react', title: 'TodoList' })

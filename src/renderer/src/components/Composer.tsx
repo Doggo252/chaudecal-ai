@@ -179,7 +179,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
   const [mentionActive, setMentionActive] = useState(0)
   // Escape closes the list for that one @.
   const [mentionShut, setMentionShut] = useState(-1)
-  const canMention = !web && !onHub && !!workspace && !isWeb()
+  const canMention = !web && !onHub && !isWeb()
   const typed = canMention && slashWord === undefined ? mentionAt(text, caret) : undefined
   const mention = typed && typed.start !== mentionShut ? typed : undefined
   const wantFiles = mention !== undefined
@@ -191,7 +191,9 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
       live = false
     }
   }, [wantFiles, workspace])
-  const mentionList = mention ? rankFiles(files, mention.query) : []
+  const mentionList = mention && workspace ? rankFiles(files, mention.query) : []
+  // Without a folder there are no files to offer, so @ says how to get some.
+  const folderHint = !!mention && !workspace
   useEffect(() => setMentionActive(0), [mention?.query])
   const pickMention = (file: string) => {
     if (!mention) return
@@ -391,6 +393,22 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
               })}
             </div>
           )}
+          {folderHint && (
+            <div className="slash-menu" data-testid="mention-menu">
+              <button
+                type="button"
+                className="slash-item active"
+                data-testid="mention-choose-folder"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  void pickFolder()
+                }}
+              >
+                <span className="slash-name">Choose a folder</span>
+                <span className="slash-hint">to mention its files with @</span>
+              </button>
+            </div>
+          )}
           <textarea
             ref={ref}
             rows={1}
@@ -421,7 +439,7 @@ export function Composer({ conversation, onSend }: { conversation?: Conversation
                 pickMention(mentionList[Math.min(mentionActive, mentionList.length - 1)])
                 return
               }
-              if (mentionList.length && e.key === 'Escape') {
+              if ((mentionList.length || folderHint) && e.key === 'Escape') {
                 e.preventDefault()
                 setMentionShut(mention!.start)
                 return

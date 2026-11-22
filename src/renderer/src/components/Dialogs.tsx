@@ -8,6 +8,7 @@ import { headroom } from '@shared/usage'
 import { switchTarget } from '@shared/router'
 import { chatShown, openSearchHit, setState, toast, useUi } from '../state'
 import { Modal, ProviderDot, PROVIDERS, SourceTag } from './ui'
+import { whenAgo } from './ProjectView'
 
 function Snippet({ text }: { text: string }) {
   // The backend marks matches with [[ and ]].
@@ -27,7 +28,7 @@ export function SearchDialog() {
   const all = useUi((s) => s.app?.conversations)
   // With one assistant shown, search only finds its chats.
   const conversations = useMemo(() => (all ?? []).filter((c) => chatShown(c, show)), [all, show])
-  const shownIds = useMemo(() => new Set(conversations.map((c) => c.id)), [conversations])
+  const byId = useMemo(() => new Map(conversations.map((c) => [c.id, c])), [conversations])
   const seq = useRef(0)
 
   useEffect(() => {
@@ -40,13 +41,13 @@ export function SearchDialog() {
     const timer = setTimeout(() => {
       void window.api.search(q).then((res) => {
         if (mine === seq.current) {
-          setHits(res.filter((h) => shownIds.has(h.conversationId)))
+          setHits(res.filter((h) => byId.has(h.conversationId)))
           setActive(0)
         }
       })
     }, 120)
     return () => clearTimeout(timer)
-  }, [query, shownIds])
+  }, [query, byId])
 
   const recent = useMemo(
     () =>
@@ -85,12 +86,15 @@ export function SearchDialog() {
         />
         <div className="search-results">
           {!query.trim() && recent.length > 0 && <div className="menu-title">Recent</div>}
-          {list.map((h, i) => (
+          {list.map((h, i) => {
+            const c = byId.get(h.conversationId)
+            return (
             <button type="button" key={`${h.conversationId}:${h.messageId ?? 't'}:${i}`} className={`hit ${i === active ? 'active' : ''}`} data-testid="search-hit" onMouseMove={() => setActive(i)} onClick={() => openSearchHit(h)}>
               <div className="hit-title">
+                {show === 'all' && c && <ProviderDot provider={c.source?.service ?? c.provider} size={14} />}
                 <span className="hit-name">{h.title}</span>
                 {h.source && <SourceTag service={h.source} />}
-                {(h.matches ?? 0) > 1 && <span className="hit-count">{h.matches} matches</span>}
+                {(h.matches ?? 0) > 1 ? <span className="hit-count">{h.matches} matches</span> : !query.trim() && <span className="hit-count">{whenAgo(h.createdAt)}</span>}
               </div>
               {h.snippet && (
                 <div className="hit-snippet">
@@ -98,7 +102,8 @@ export function SearchDialog() {
                 </div>
               )}
             </button>
-          ))}
+            )
+          })}
           {query.trim() && !hits.length && <div className="muted pad">No chats match that.</div>}
           {!query.trim() && !recent.length && <div className="muted pad">Nothing to search yet.</div>}
         </div>
