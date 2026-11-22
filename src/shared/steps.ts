@@ -115,3 +115,14 @@ export function summarizeSteps(tools: ToolCall[]): StepSummary {
     problems: tools.filter((t) => t.status === 'error' || t.status === 'denied').length
   }
 }
+
+/** When a message was sent: the time today, the day and time before that. */
+export function sentAt(at: number, now = Date.now()): string {
+  const d = new Date(at)
+  const today = new Date(now).toDateString() === d.toDateString()
+  const sameYear = new Date(now).getFullYear() === d.getFullYear()
+  return today ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : d.toLocaleString([], { month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }), hour: 'numeric', minute: '2-digit' })
+}
+
+/** A long message folds to its first lines, the way a long paste does in the Claude apps. */
+export const isLong = (text: string): boolean => text.length > 1200 || text.split('\n').length > 14

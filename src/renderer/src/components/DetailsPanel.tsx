@@ -123,6 +123,7 @@ export function DetailsPanel({
   const percent = Math.min(100, Math.round((contextTokens / Math.max(1, windowTokens)) * 100))
   const artifacts = useMemo(() => collectArtifacts(messages), [messages])
   const plan = currentPlanMessage(messages)?.plan ?? []
+  const live = messages.some((m) => m.status === 'streaming')
   const lastAnswer = [...messages].reverse().find((m) => m.role === 'assistant' && m.model)
   const provider = conversation.private ? 'local' : conversation.provider !== 'auto' ? conversation.provider : lastAnswer?.provider
   const model = lastAnswer?.model || (provider && settings ? settings[provider]?.defaultModel : '')
@@ -165,7 +166,8 @@ export function DetailsPanel({
           <Section title="Tasks" count={plan.length}>
             <ul className="details-tasks" data-testid="details-tasks">
               {plan.map((s, i) => (
-                <li key={i} className={s.status}>
+                // A step left going in a finished chat does not spin.
+                <li key={i} className={s.status === 'active' && !live ? 'pending' : s.status}>
                   <span className="details-check" aria-hidden />
                   <span>{s.text}</span>
                 </li>

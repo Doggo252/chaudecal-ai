@@ -4,7 +4,7 @@ import { parseForm } from '@shared/forms'
 import { ChatFormView } from './ChatForm'
 import type { ApprovalDecision, ApprovalRequest, Message, PermissionDenial, PlanStep, ProviderId, ToolCall } from '@shared/types'
 import { shortPath, type FileDiff } from '@shared/diff'
-import { summarizeSteps } from '@shared/steps'
+import { isLong, sentAt, summarizeSteps } from '@shared/steps'
 import { artifactBlocks, formBlocks } from '@shared/artifacts'
 
 const hasArtifact = (text: string) => /```|~~~/.test(text) && artifactBlocks(text).length > 0
@@ -21,7 +21,10 @@ import { Working } from './Working'
 export function shortModel(model?: string): string {
   if (!model) return ''
   const m = model.includes('/') ? model.slice(model.indexOf('/') + 1) : model
-  return m.replace(/^claude-/, '').replace(/-\d{8}$/, '')
+  const short = m.replace(/^claude-/, '').replace(/-\d{8}$/, '')
+  // claude-fable-5-2 reads as Fable 5.2, the way the Claude apps name it.
+  const named = /^(opus|sonnet|haiku|fable)-(\d+)(?:-(\d+))?$/.exec(short)
+  return named ? `${named[1][0].toUpperCase()}${named[1].slice(1)} ${named[2]}${named[3] ? `.${named[3]}` : ''}` : short
 }
 
 const Prose = memo(function Prose({ text, answerable = false }: { text: string; answerable?: boolean }) {
@@ -255,6 +258,21 @@ interface Actions {
   onEdit?: (messageId: string, text: string) => void
 }
 
+function Bubble({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  const long = isLong(text)
+  return (
+    <>
+      <div className={`bubble ${long && !open ? 'bubble-folded' : ''}`}>{text}</div>
+      {long && (
+        <button type="button" className="bubble-more" data-testid="bubble-more" onClick={() => setOpen(!open)}>
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </>
+  )
+}
+
 function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?: (messageId: string, text: string) => void }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(m.text)
@@ -285,7 +303,7 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
         </details>
       )}
       {handoff && !editing ? (
-        handoff.message && <div className="bubble">{handoff.message}</div>
+        handoff.message && <Bubble text={handoff.message} />
       ) : editing ? (
         <div className="edit-box">
           <textarea
@@ -318,10 +336,12 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
           <Prose text={m.text} />
         </div>
       ) : (
-        m.text && <div className="bubble">{m.text}</div>
+        m.text && <Bubble text={m.text} />
       )}
-      {!editing && onEdit && !handoff && (
+      {!editing && (
         <div className="msg-actions user-actions">
+          <span className="msg-time" data-testid="msg-time">{sentAt(m.createdAt)}</span>
+          {onEdit && !handoff && (
           <button
             type="button"
             className="icon-btn"
@@ -334,6 +354,7 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
           >
             <IconEdit size={15} />
           </button>
+          )}
         </div>
       )}
     </div>
@@ -378,6 +399,7 @@ function AssistantMessage({ m, focus, onRetry, onSwitch, onBranch, onSecondOpini
           <button type="button" className="icon-btn" title="Branch: start a new conversation from here" data-testid="branch" onClick={() => onBranch(m.id)}>
             <IconBranch size={15} />
           </button>
+          <span className="msg-time">{sentAt(m.createdAt)}</span>
         </div>
       )}
     </div>
