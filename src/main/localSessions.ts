@@ -7,7 +7,7 @@
 // session continued in the app is not read again, so nothing appears twice.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, resolve, sep } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import type { Conversation, Message, PlanStep, Project, ProviderId, ToolCall } from '@shared/types'
 import { applyTaskTool, isTaskTool } from '@shared/taskList'
 import { HANDOFF_OPENING, titleFromText } from '@shared/context'
@@ -36,6 +36,10 @@ export interface LocalSession {
   createdAt: number
   updatedAt: number
   messages: LocalMessage[]
+  /** Claude Code: the first message's id, which a branch made from this session keeps. */
+  root?: string
+  /** Claude Code: the session this one carries on after running out of room. */
+  continues?: string
 }
 
 const parseLines = (text: string): Json[] =>
@@ -91,10 +95,17 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
   const messages: LocalMessage[] = []
   let turn: LocalMessage | undefined
   let steps: PlanStep[] = []
+  let root: string | undefined
+  let continues: string | undefined
   for (const l of lines) {
     if (l.type === 'custom-title' && typeof l.customTitle === 'string') title = l.customTitle
     if (l.type === 'summary' && typeof l.summary === 'string' && !title) title = l.summary
     if (l.type !== 'user' && l.type !== 'assistant') continue
+    if (l.type === 'user' && !root && !l.isSidechain && l.uuid) {
+      root = String(l.uuid)
+      const opening = JSON.stringify(l.message?.content ?? '')
+      if (opening.includes('being continued from a previous conversation')) continues = /transcript at: \S*?[\\/]([0-9a-f-]{36})\.jsonl/.exec(opening)?.[1]
+    }
     if (l.isSidechain || l.isMeta || l.isCompactSummary || l.isVisibleInTranscriptOnly) continue
     sessionId ||= String(l.sessionId ?? '')
     cwd ||= String(l.cwd ?? '')
@@ -147,12 +158,14 @@ export function parseClaudeSession(text: string): LocalSession | undefined {
     title: title || titleFromText(first.text),
     createdAt: kept[0].createdAt,
     updatedAt: kept[kept.length - 1].createdAt,
-    messages: kept
+    messages: kept,
+    ...(root ? { root } : {}),
+    ...(continues ? { continues } : {})
   }
 }
 
 /** Raised when the readers change, so every session is read again. */
-const SESSION_READER = 4
+const SESSION_READER = 5
 
 /** The session's id, from its first lines. */
 export function codexSessionId(text: string): string {
@@ -365,7 +378,7 @@ export class LocalSessions {
     const claimed = this.claimedSessions()
     let changed = 0
     // A chat carried on here may have gone on in a new session since it was last looked at.
-    for (const [sessionId, tool] of claimed) if (this.forget(`local-${tool}-${sessionId}`)) changed++
+    for (const [sessionId, { tool, owner }] of claimed) if (this.forget(`local-${tool}-${sessionId}`, owner)) changed++
     for (const f of files) {
       let st: { mtimeMs: number; size: number }
       try {
@@ -383,6 +396,8 @@ export class LocalSessions {
         if (session && (this.ours(session.cwd) || this.appSession(session, claimed))) {
           // The app's own session, perhaps brought in by an earlier version.
           if (this.forget(`local-${f.tool === 'claude-code' ? 'claude' : 'codex'}-${session.sessionId}`)) changed++
+        } else if (session && this.olderBranch(session, f.path)) {
+          if (this.forget(`local-claude-${session.sessionId}`)) changed++
         } else if (session && this.save(session)) changed++
         // A helper session an older version brought in as a chat goes again.
         if (!session && f.tool === 'codex' && this.forget(`local-codex-${codexSessionId(text)}`)) changed++
@@ -401,31 +416,67 @@ export class LocalSessions {
    * Sessions the app runs for its own chats, by session: when a chat goes on in a
    * new session (after a sign-in problem, say), that session is the chat's, not another chat.
    */
-  private claimedSessions(): Map<string, 'claude' | 'codex'> {
-    const out = new Map<string, 'claude' | 'codex'>()
+  private claimedSessions(): Map<string, { tool: 'claude' | 'codex'; owner: string }> {
+    const out = new Map<string, { tool: 'claude' | 'codex'; owner: string }>()
     for (const [key, state] of this.store.kvEntries<{ sessionId?: string }>('session:')) {
       const m = /^session:(.+):(claude|chatgpt)$/.exec(key)
       const sessionId = state?.sessionId
       if (!m || !sessionId) continue
       const tool = m[2] === 'claude' ? 'claude' : 'codex'
-      if (m[1] !== `local-${tool}-${sessionId}`) out.set(sessionId, tool)
+      if (m[1] !== `local-${tool}-${sessionId}`) out.set(sessionId, { tool, owner: m[1] })
     }
     return out
   }
 
   /** A session the app started: one a chat here runs on, or one that opens with the app's context file. */
-  private appSession(session: LocalSession, claimed: Map<string, string>): boolean {
+  private appSession(session: LocalSession, claimed: Map<string, unknown>): boolean {
     if (claimed.has(session.sessionId)) return true
     return !!session.messages.find((m) => m.role === 'user')?.text.trimStart().startsWith(HANDOFF_OPENING)
   }
 
-  /** Removes a chat brought in from a session, unless it was carried on in this app. */
-  private forget(id: string): boolean {
+  /**
+   * Removes a chat brought in from a session, unless it was carried on in this app.
+   * With `into`, what was typed here moves to that chat (the one running the same session) first.
+   */
+  private forget(id: string, into?: string): boolean {
     if (id === 'local-codex-' || !this.store.get('conversation', id)) return false
     const prefix = id.startsWith('local-claude-') ? 'local-claude-m-' : 'local-codex-m-'
-    if (this.store.messages(id).some((m) => !m.id.startsWith(prefix))) return false
+    const typedHere = this.store.messages(id).filter((m) => !m.id.startsWith(prefix))
+    if (typedHere.length && (!into || !this.store.get('conversation', into))) return false
+    if (typedHere.length) this.store.putMany(typedHere.map((m) => ({ kind: 'message' as const, id: m.id, data: { ...m, conversationId: into } })))
     this.store.deleteConversation(id)
     return true
+  }
+
+  /**
+   * Branches of one Claude Code conversation (a rewind, or a session carried on after
+   * running out of room) show as one chat: the one used last. Gives back whether this
+   * session is an older branch, and takes out the older chat when this one is newer.
+   */
+  private olderBranch(session: LocalSession, path: string): boolean {
+    if (session.tool !== 'claude-code' || !session.root) return false
+    let family = session.root
+    let parent = session.continues
+    for (let hops = 0; parent && hops < 10; hops++) {
+      let up: LocalSession | undefined
+      try {
+        up = parseClaudeSession(readFileSync(join(dirname(path), `${parent}.jsonl`), 'utf8'))
+      } catch {
+        break
+      }
+      if (!up?.root) break
+      family = up.root
+      parent = up.continues
+    }
+    const key = `localsession:family:${family}`
+    const id = `local-claude-${session.sessionId}`
+    const last = this.store.kvGet<{ id: string; updatedAt: number }>(key)
+    if (last && last.id !== id && this.store.get('conversation', last.id)) {
+      if (last.updatedAt > session.updatedAt) return true
+      this.forget(last.id)
+    }
+    this.store.kvSet(key, { id, updatedAt: session.updatedAt })
+    return false
   }
 
   /** Follows a new name from the tool, unless the chat was renamed in this app. */

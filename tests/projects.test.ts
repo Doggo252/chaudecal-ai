@@ -3,7 +3,7 @@
 
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ensureFolderProject, fileUnderFolder, sortProjectKinds } from '../src/main/codeProjects'
+import { ensureFolderProject, fileUnderFolder, projectFolder, refileFolderProjects, sortProjectKinds } from '../src/main/codeProjects'
 import { Store } from '../src/main/store'
 import { chatShown, projectShown } from '../src/renderer/src/state'
 import { sessionSources } from '../src/renderer/src/components/SessionSources'
@@ -76,6 +76,32 @@ describe('code projects by folder', () => {
     expect(store.get<Project>('project', 'web-claude-p-1')!.kind).toBeUndefined()
     store.put('project', 'p-new', project('p-new'))
     expect(sortProjectKinds(store)).toBe(0)
+  })
+})
+
+describe('folders that are not really a project', () => {
+  it('puts chats in a throwaway folder under No folder, and a worktree under its repository', () => {
+    expect(projectFolder('/Users/n/Documents/Codex/2026-11-09/i')).toBe('')
+    expect(projectFolder('C:\\Users\\n\\Documents\\Codex\\2026-11-08\\hovercraft-3')).toBe('')
+    expect(projectFolder('/Users/n/Library/Application Support/Claude/scratch-workspaces/abc/scratch-2026-11-14')).toBe('')
+    expect(projectFolder('/Users/n/Coding/game/.claude/worktrees/mystifying-chaum')).toBe('/Users/n/Coding/game')
+    expect(projectFolder('/Users/n/Coding/Codex tools')).toBe('/Users/n/Coding/Codex tools')
+    const store = newStore()
+    const old = (folder: string) => {
+      const id = folderProjectId(folder)!
+      store.put('project', id, { id, name: folderName(folder), instructions: '', files: [], createdAt: 1, updatedAt: 1, kind: 'code', folder } satisfies Project)
+      return id
+    }
+    const scratch = old('/Users/n/Documents/Codex/2026-11-09/i')
+    const tree = old('/Users/n/Coding/game/.claude/worktrees/mystifying-chaum')
+    store.put('conversation', 'a', { id: 'a', title: 'A', provider: 'chatgpt', createdAt: 1, updatedAt: 1, kind: 'code', projectId: scratch } as Conversation)
+    store.put('conversation', 'b', { id: 'b', title: 'B', provider: 'claude', createdAt: 1, updatedAt: 1, kind: 'code', projectId: tree } as Conversation)
+    expect(refileFolderProjects(store)).toBe(2)
+    expect(store.get<Conversation>('conversation', 'a')?.projectId).toBeUndefined()
+    expect(store.get<Conversation>('conversation', 'b')?.projectId).toBe(folderProjectId('/Users/n/Coding/game'))
+    expect(store.list<Project>('project').map((p) => p.name)).toEqual(['game'])
+    expect(refileFolderProjects(store)).toBe(0)
+    store.close()
   })
 })
 

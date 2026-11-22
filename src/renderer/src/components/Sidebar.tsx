@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 import type { Conversation, Project, ProviderId } from '@shared/types'
 import { kindOf, PROVIDER_LABEL, projectKindOf } from '@shared/types'
 import { chatShown, openChat, projectShown, setShow, setState, setTab, toast, useUi, type Show } from '../state'
-import { IconArtifact, IconBubble, IconChevron, IconDownload, IconFolder, IconLock, IconPlus, IconSearch, IconSettings, IconColumns } from '../icons'
+import { IconArtifact, IconBubble, IconChevron, IconDownload, IconFolder, IconLock, IconPlus, IconSearch, IconSettings } from '../icons'
 import { MenuItem, Meter, Popover, ProviderDot } from './ui'
 import { newChatIn } from './ProjectView'
 import { WorkMark } from './Working'
@@ -251,7 +251,7 @@ export function Sidebar() {
                     <span className={`side-chev ${closed.has('f:none') ? '' : 'open'}`}>
                       <IconChevron size={12} />
                     </span>
-                    <IconColumns size={14} />
+                    <IconFolder size={14} />
                     <span className="side-project-name">No folder</span>
                   </button>
                 </div>

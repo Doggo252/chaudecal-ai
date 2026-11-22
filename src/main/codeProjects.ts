@@ -6,8 +6,19 @@ import type { Conversation, Project } from '@shared/types'
 import { folderName, folderProjectId, kindOf, projectKindOf } from '@shared/types'
 import type { Store } from './store'
 
-/** The code project for this folder, made if it is not there yet. Nothing if the user deleted it. */
+/**
+ * The folder a code chat belongs under: a git worktree counts as its repository, and
+ * the throwaway folder Codex or the Claude app makes when no folder was picked counts as none.
+ */
+export function projectFolder(folder: string): string {
+  if (/[\\/]Documents[\\/]Codex[\\/]\d{4}-\d{2}-\d{2}[\\/][^\\/]+[\\/]?$/i.test(folder) || /[\\/]Claude[\\/]scratch-workspaces[\\/]/i.test(folder)) return ''
+  return folder.split(/[\\/]\.claude[\\/]worktrees[\\/]/)[0]
+}
+
+/** The code project for this folder, made if it is not there yet. Nothing if the user deleted it, or for no real folder. */
 export function ensureFolderProject(store: Store, folder: string): string | undefined {
+  folder = projectFolder(folder)
+  if (!folder) return undefined
   const id = folderProjectId(folder)
   if (!id || store.isDeleted('project', id)) return undefined
   const existing = store.get<Project>('project', id)
@@ -39,4 +50,22 @@ export function fileUnderFolder(store: Store, conversationId: string, folder: st
   if (!conv || !folder || kindOf(conv) !== 'code' || conv.projectId) return
   const projectId = ensureFolderProject(store, folder)
   if (projectId) store.put('conversation', conv.id, { ...conv, projectId } satisfies Conversation)
+}
+
+/** Moves code chats out of the projects that throwaway folders and worktrees made before, once, and drops those projects. */
+export function refileFolderProjects(store: Store): number {
+  if (store.kvGet<boolean>('projects:refile1')) return 0
+  let n = 0
+  const projects = store.list<Project>('project').filter((p) => p.kind === 'code' && p.folder && p.id === folderProjectId(p.folder) && projectFolder(p.folder) !== p.folder)
+  for (const p of projects) {
+    const to = ensureFolderProject(store, p.folder!)
+    for (const c of store.list<Conversation>('conversation').filter((c) => c.projectId === p.id)) {
+      const { projectId: _old, ...rest } = c
+      store.put('conversation', c.id, (to ? { ...rest, projectId: to } : rest) satisfies Conversation)
+      n++
+    }
+    store.remove('project', p.id)
+  }
+  store.kvSet('projects:refile1', true)
+  return n
 }

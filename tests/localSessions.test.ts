@@ -154,11 +154,13 @@ describe('Claude Code and Codex sessions on this computer', () => {
         line({ type: 'custom-title', customTitle: 'Login bug', sessionId })
       ].join('\n')
     writeFileSync(join(dir, 's-1.jsonl'), claudeFile('s-1', '/work/app'))
-    writeFileSync(join(dir, 's-new.jsonl'), claudeFile('s-new', '/work/app'))
+    writeFileSync(join(dir, 's-new.jsonl'), claudeFile('s-new', '/work/app').replace(/"uuid":"(\w+)"/g, '"uuid":"n-$1"'))
     const store = new Store(join(home, 'db.sqlite'))
     const sessions = new LocalSessions(store, { home, appData: join(home, 'appdata'), deviceName: 'Mac' }, () => {}, () => '')
     sessions.scan()
     expect(store.get('conversation', 'local-claude-s-new')).toBeTruthy()
+    // A message typed in that chat before the app knew it was the same session moves over, not away.
+    store.put('message', 'typed', { id: 'typed', conversationId: 'local-claude-s-new', role: 'user', text: 'Typed in the double', createdAt: Date.now(), deviceId: 'd', status: 'complete' })
     // The chat from s-1 went on here, in s-new (a turn after a sign-in problem, say).
     store.put('message', 'mine', { id: 'mine', conversationId: 'local-claude-s-1', role: 'user', text: 'And the logout?', createdAt: Date.now(), deviceId: 'd', status: 'complete' })
     store.kvSet('session:local-claude-s-1:claude', { sessionId: 's-new', syncedMessageId: 'mine' })
@@ -168,6 +170,35 @@ describe('Claude Code and Codex sessions on this computer', () => {
     expect(store.get('conversation', 'local-claude-s-new')).toBeUndefined()
     expect(store.get('conversation', 'local-claude-s-try')).toBeUndefined()
     expect(store.get('conversation', 'local-claude-s-1')).toBeTruthy()
+    expect(store.messages('local-claude-s-1').map((m) => m.text)).toContain('Typed in the double')
+    store.close()
+  })
+
+  it('shows the branches of one conversation, and a session carried on after running out of room, as one chat', () => {
+    const home = tempDir()
+    const dir = join(home, '.claude', 'projects', '-work-app')
+    mkdirSync(dir, { recursive: true })
+    // Two branches share their first messages; the second was used last.
+    writeFileSync(join(dir, 'b-1.jsonl'), claudeFile('b-1', '/work/app'))
+    const b2 = 'b0000000-0000-4000-8000-000000000002'
+    writeFileSync(join(dir, `${b2}.jsonl`), `${claudeFile(b2, '/work/app')}\n${line({ type: 'user', uuid: 'b2-more', sessionId: b2, cwd: '/work/app', timestamp: '2026-11-05T10:00:00Z', message: { role: 'user', content: 'Branch two goes on.' } })}`)
+    // A new session that carries on b-2 after it ran out of room.
+    const id = 'c0ffee00-0000-4000-8000-000000000000'
+    writeFileSync(join(dir, `${id}.jsonl`), [
+      line({ type: 'user', uuid: 'k1', sessionId: id, cwd: '/work/app', timestamp: '2026-11-06T10:00:00Z', message: { role: 'user', content: `This session is being continued from a previous conversation that ran out of context.\n\nIf you need details, read the full transcript at: ${dir}/${b2}.jsonl` } }),
+      line({ type: 'user', uuid: 'k2', sessionId: id, cwd: '/work/app', timestamp: '2026-11-06T10:00:01Z', message: { role: 'user', content: 'Keep going.' } })
+    ].join('\n'))
+    const store = new Store(join(home, 'db.sqlite'))
+    const sessions = new LocalSessions(store, { home, appData: join(home, 'appdata'), deviceName: 'Mac' }, () => {}, () => '')
+    sessions.scan()
+    const chats = store.list<any>('conversation').map((c) => c.id)
+    expect(chats).toEqual([`local-claude-${id}`])
+    sessions.scan()
+    expect(store.list<any>('conversation').map((c) => c.id)).toEqual([`local-claude-${id}`])
+    // A different conversation in the same folder stays its own chat.
+    writeFileSync(join(dir, 'other.jsonl'), claudeFile('other', '/work/app').replace(/"uuid":"(\w+)"/g, '"uuid":"o-$1"'))
+    sessions.scan()
+    expect(store.list<any>('conversation')).toHaveLength(2)
     store.close()
   })
   it('shows a finished background task as a step in the answer it led to, not as something typed', () => {

@@ -32,7 +32,7 @@ import { LocalSessions } from './localSessions'
 import { openInTool } from './openers'
 import { folderFiles } from './folderFiles'
 import { uninstallPlan } from './uninstall'
-import { fileUnderFolder, sortProjectKinds } from './codeProjects'
+import { fileUnderFolder, refileFolderProjects, sortProjectKinds } from './codeProjects'
 import { WebChat } from './webChat'
 import { WebImporter } from './webImport'
 import { TaskRunner } from './tasks'
@@ -1292,6 +1292,7 @@ app.whenReady().then(async () => {
   // Claude Code and Codex sessions on this computer, now and every ten minutes. Tests use their own home folder.
   const sessionHome = process.env.CHAUDECAL_E2E_HOME || (dataOverride ? '' : homedir())
   sortProjectKinds(store)
+  refileFolderProjects(store)
   if (sessionHome) {
     const localSessions = new LocalSessions(store, { home: sessionHome, appData: dataDir, deviceName: settings.deviceName }, (id, path) => engine.setWorkspace(id, path), (id) => engine.workspace(id))
     localSessions.tidy()
