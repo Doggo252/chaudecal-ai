@@ -244,6 +244,7 @@ export function ShortcutsBody({ mac }: { mac: boolean }) {
     ['Search every chat', keys(mod, 'K')],
     ['Find in this chat', keys(mod, 'F')],
     ['Copy the last answer', keys(mod, 'Shift', 'C')],
+    ['Show Chats, or Code', <>{keys(mod, '1')} {keys(mod, '2')}</>],
     ['Previous chat in the sidebar', keys(mod, 'Shift', '[')],
     ['Next chat in the sidebar', keys(mod, 'Shift', ']')],
     ['Show or hide a code chat\'s changes', keys(mod, 'Shift', 'D')],

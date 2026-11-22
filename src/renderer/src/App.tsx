@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect } from 'react'
 import { installCopyHandler } from './markdown'
-import { openChat, setState, stepChat, useUi } from './state'
+import { openChat, setState, setTab, stepChat, useUi } from './state'
 import { applyAccent, applyTextSize } from './theme'
 import { ChatView } from './components/ChatView'
 import { SearchDialog, ShortcutsBody, SwitchDialog } from './components/Dialogs'
@@ -52,6 +52,9 @@ export function App() {
       } else if (key === '/') {
         e.preventDefault()
         setState({ dialog: { kind: 'shortcuts' } })
+      } else if ((key === '1' || key === '2') && !e.shiftKey && !e.altKey) {
+        e.preventDefault()
+        setTab(key === '1' ? 'chat' : 'code')
       } else if (key === ',') {
         e.preventDefault()
         setState({ view: { kind: 'settings' }, dialog: null })

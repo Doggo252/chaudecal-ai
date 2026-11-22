@@ -210,7 +210,7 @@ export function findArtifact(artifacts: Artifact[], messageId: string, index: nu
   return undefined
 }
 
-const EXTENSIONS: Record<string, string> = {
+export const EXTENSIONS: Record<string, string> = {
   javascript: 'js',
   js: 'js',
   mjs: 'mjs',

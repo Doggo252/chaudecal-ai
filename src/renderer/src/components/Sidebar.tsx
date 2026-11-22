@@ -82,6 +82,7 @@ export function Sidebar() {
 
   // Right-click on a chat: the things done most often, without opening it.
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const [renamingId, setRenamingId] = useState('')
   const menuChat = menu && chats.find((c) => c.id === menu.id)
   useEffect(() => {
     if (!menu) return
@@ -96,7 +97,16 @@ export function Sidebar() {
     }
   }, [menu])
   const contextMenu = menu && menuChat && (
-    <div className="menu menu-fixed" role="menu" data-testid="conversation-context" style={{ left: Math.min(menu.x, window.innerWidth - 250), top: Math.min(menu.y, window.innerHeight - 140) }}>
+    <div className="menu menu-fixed" role="menu" data-testid="conversation-context" style={{ left: Math.min(menu.x, window.innerWidth - 250), top: Math.min(menu.y, window.innerHeight - 175) }}>
+      <MenuItem
+        testId="context-rename"
+        onClick={() => {
+          setRenamingId(menuChat.id)
+          setMenu(null)
+        }}
+      >
+        Rename
+      </MenuItem>
       <MenuItem
         testId="context-pin"
         onClick={() => {
@@ -132,7 +142,27 @@ export function Sidebar() {
     </div>
   )
 
-  const row = (c: Conversation, nested?: boolean) => (
+  const row = (c: Conversation, nested?: boolean) => renamingId === c.id ? (
+    <input
+      key={c.id}
+      className={`conv conv-rename ${nested ? 'conv-nested' : ''}`}
+      autoFocus
+      defaultValue={c.title}
+      aria-label="Chat name"
+      data-testid="conversation-rename"
+      onFocus={(e) => e.target.select()}
+      onBlur={(e) => {
+        const title = e.target.value.trim()
+        if (title && title !== c.title) void window.api.updateConversation(c.id, { title })
+        setRenamingId('')
+      }}
+      onKeyDown={(e) => {
+        // Escape puts the old name back, so leaving the box changes nothing.
+        if (e.key === 'Escape') e.currentTarget.value = c.title
+        if (e.key === 'Enter' || e.key === 'Escape') e.currentTarget.blur()
+      }}
+    />
+  ) : (
     <button type="button" key={c.id} className={`conv ${nested ? 'conv-nested' : ''} ${c.id === activeId ? 'active' : ''} ${unread[c.id] ? 'unread' : ''}`} data-testid={nested ? 'project-side-chat' : 'conversation'} onClick={() => openChat(c.id)} title={c.title} onContextMenu={(e) => {
       e.preventDefault()
       setMenu({ id: c.id, x: e.clientX, y: e.clientY })

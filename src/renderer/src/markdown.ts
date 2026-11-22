@@ -1,7 +1,7 @@
 import DOMPurify from 'dompurify'
 import hljs from 'highlight.js/lib/common'
 import { Marked, type Tokens } from 'marked'
-import { ARTIFACT_KIND_LABEL, artifactLabel, classifyFence, fenceClosed, parseFenceInfo } from '@shared/artifacts'
+import { ARTIFACT_KIND_LABEL, artifactLabel, classifyFence, EXTENSIONS, fenceClosed, parseFenceInfo } from '@shared/artifacts'
 import { mathExtensions } from './math'
 
 function escapeHtml(s: string): string {
@@ -20,7 +20,7 @@ export function highlightCode(text: string, lang: string | undefined): string {
 
 function codeBlock({ text, lang }: Tokens.Code): string {
   const language = (lang ?? '').trim().split(/\s+/)[0]
-  return `<div class="code-block"><div class="code-head"><span>${escapeHtml(language || 'text')}</span><button class="code-copy" type="button">Copy</button></div><pre><code class="hljs">${highlightCode(text, language)}</code></pre></div>`
+  return `<div class="code-block"><div class="code-head"><span>${escapeHtml(language || 'text')}</span><button class="code-save" type="button">Save</button><button class="code-copy" type="button">Copy</button></div><pre><code class="hljs">${highlightCode(text, language)}</code></pre></div>`
 }
 
 const ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M14 4v16"/><path d="M6.5 9h4M6.5 12.5h4M6.5 16h2.5"/></svg>'
@@ -73,6 +73,16 @@ export function renderMarkdown(text: string, { artifacts = true }: { artifacts?:
 export function installCopyHandler(): void {
   document.addEventListener('click', (e) => {
     const target = e.target as HTMLElement | null
+    if (target?.classList.contains('code-save')) {
+      const block = target.closest('.code-block')
+      const language = block?.querySelector('.code-head span')?.textContent ?? 'text'
+      void window.api.saveArtifact(`code.${EXTENSIONS[language] ?? (/^\w{1,5}$/.test(language) && language !== 'text' ? language : 'txt')}`, block?.querySelector('code')?.textContent ?? '').then((path) => {
+        if (!path) return
+        target.textContent = 'Saved'
+        setTimeout(() => (target.textContent = 'Save'), 1400)
+      })
+      return
+    }
     if (!target?.classList.contains('code-copy')) return
     const code = target.closest('.code-block')?.querySelector('code')
     if (!code) return

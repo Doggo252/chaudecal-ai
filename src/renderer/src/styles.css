@@ -1107,13 +1107,15 @@ a {
   color: var(--text-muted);
   border-bottom: 1px solid var(--border);
 }
-.code-copy {
+.code-copy,
+.code-save {
   font-size: calc(12px * var(--text-scale));
   color: var(--text-soft);
   padding: 2px 7px;
   border-radius: 6px;
 }
-.code-copy:hover {
+.code-copy:hover,
+.code-save:hover {
   background: var(--bg-hover);
 }
 .code-block pre {
@@ -4505,4 +4507,16 @@ html.quick-window #root {
 .menu-fixed {
   position: fixed;
   z-index: 60;
+}
+
+.conv-rename {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+.code-save {
+  margin-left: auto;
+  margin-right: 4px;
 }
