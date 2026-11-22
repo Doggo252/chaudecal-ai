@@ -341,6 +341,18 @@ function UserMessage({ m, focus, onEdit }: { m: Message; focus: boolean; onEdit?
       {!editing && (
         <div className="msg-actions user-actions">
           <span className="msg-time" data-testid="msg-time">{sentAt(m.createdAt)}</span>
+          <button
+            type="button"
+            className="icon-btn"
+            title="Copy"
+            data-testid="copy-question"
+            onClick={() => {
+              void navigator.clipboard.writeText(handoff ? handoff.message : m.text)
+              toast('Copied')
+            }}
+          >
+            <IconCopy size={15} />
+          </button>
           {onEdit && !handoff && (
           <button
             type="button"

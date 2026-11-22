@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import type { Conversation, Project, ProviderId } from '@shared/types'
 import { kindOf, PROVIDER_LABEL, projectKindOf } from '@shared/types'
 import { chatShown, openChat, projectShown, setShow, setState, setTab, toast, useUi, type Show } from '../state'
@@ -80,8 +80,63 @@ export function Sidebar() {
   const chatsIn = (projectId: string) => chats.filter((c) => c.projectId === projectId)
   const openProject = (projectId: string) => setState({ view: { kind: 'project', projectId }, sideOpen: false })
 
+  // Right-click on a chat: the things done most often, without opening it.
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
+  const menuChat = menu && chats.find((c) => c.id === menu.id)
+  useEffect(() => {
+    if (!menu) return
+    const shut = (e: Event) => {
+      if (e instanceof KeyboardEvent ? e.key === 'Escape' : !(e.target as Element).closest?.('.menu-fixed')) setMenu(null)
+    }
+    document.addEventListener('mousedown', shut)
+    document.addEventListener('keydown', shut)
+    return () => {
+      document.removeEventListener('mousedown', shut)
+      document.removeEventListener('keydown', shut)
+    }
+  }, [menu])
+  const contextMenu = menu && menuChat && (
+    <div className="menu menu-fixed" role="menu" data-testid="conversation-context" style={{ left: Math.min(menu.x, window.innerWidth - 250), top: Math.min(menu.y, window.innerHeight - 140) }}>
+      <MenuItem
+        testId="context-pin"
+        onClick={() => {
+          void window.api.updateConversation(menuChat.id, { pinned: !menuChat.pinned })
+          setMenu(null)
+        }}
+      >
+        {menuChat.pinned ? 'Unpin' : 'Pin to top'}
+      </MenuItem>
+      <MenuItem
+        testId="context-archive"
+        hint="Out of the sidebar, still on the Chats page"
+        onClick={() => {
+          void window.api.updateConversation(menuChat.id, { archived: true })
+          toast('Archived. It is under Archived on the Chats page.')
+          setMenu(null)
+        }}
+      >
+        Archive
+      </MenuItem>
+      <MenuItem
+        danger
+        testId="context-delete"
+        onClick={() => {
+          setMenu(null)
+          if (!confirm(`Delete "${menuChat.title}"? It will be removed from every synced device.`)) return
+          void window.api.deleteConversation(menuChat.id)
+          if (menuChat.id === activeId) openChat(undefined)
+        }}
+      >
+        Delete conversation
+      </MenuItem>
+    </div>
+  )
+
   const row = (c: Conversation, nested?: boolean) => (
-    <button type="button" key={c.id} className={`conv ${nested ? 'conv-nested' : ''} ${c.id === activeId ? 'active' : ''} ${unread[c.id] ? 'unread' : ''}`} data-testid={nested ? 'project-side-chat' : 'conversation'} onClick={() => openChat(c.id)} title={c.title}>
+    <button type="button" key={c.id} className={`conv ${nested ? 'conv-nested' : ''} ${c.id === activeId ? 'active' : ''} ${unread[c.id] ? 'unread' : ''}`} data-testid={nested ? 'project-side-chat' : 'conversation'} onClick={() => openChat(c.id)} title={c.title} onContextMenu={(e) => {
+      e.preventDefault()
+      setMenu({ id: c.id, x: e.clientX, y: e.clientY })
+    }}>
       {marks && (
         <span className="conv-mark" title={c.source ? (c.source.service === 'claude' ? 'From claude.ai' : 'From chatgpt.com') : c.provider === 'auto' ? 'Auto picks the assistant' : PROVIDER_LABEL[c.provider]}>
           <ProviderDot provider={markOf(c)} size={13} />
@@ -270,6 +325,7 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
+      {contextMenu}
       <div className="side-top drag">
         <div className="no-drag brand-row">
           <Popover

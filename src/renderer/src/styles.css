@@ -4501,3 +4501,8 @@ html.quick-window #root {
   color: var(--claude);
   font-size: calc(11px * var(--text-scale));
 }
+
+.menu-fixed {
+  position: fixed;
+  z-index: 60;
+}
