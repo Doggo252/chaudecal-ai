@@ -1507,6 +1507,67 @@ a {
 .composer-col {
   max-width: var(--col);
   margin: 0 auto;
+  position: relative;
+}
+.jump-latest {
+  position: absolute;
+  left: 50%;
+  top: -46px;
+  transform: translateX(-50%);
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  color: var(--text-soft);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  z-index: 4;
+}
+.jump-latest:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.find-wrap {
+  position: sticky;
+  top: 0;
+  height: 0;
+  z-index: 5;
+}
+.find-bar {
+  position: absolute;
+  right: 16px;
+  top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.find-bar input {
+  width: 180px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: calc(13px * var(--text-scale));
+}
+.find-count {
+  min-width: 52px;
+  text-align: right;
+  margin-right: 4px;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--text-scale));
+  font-variant-numeric: tabular-nums;
+}
+::highlight(find) {
+  background-color: rgba(250, 204, 21, 0.35);
+}
+::highlight(find-now) {
+  background-color: rgba(249, 115, 22, 0.55);
 }
 .composer {
   background: var(--bg-raised);

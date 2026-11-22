@@ -17,6 +17,7 @@ import { artifactBlocks, type ArtifactVersion } from '@shared/artifacts'
 import { artifactBlock } from '@shared/webImport'
 import { Counts } from './Messages'
 import { MenuItem, Popover, ProviderDot } from './ui'
+import { FindBar } from './FindBar'
 
 const EMPTY: Message[] = []
 const NO_PROJECTS: Project[] = []
@@ -44,13 +45,30 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
   const [renaming, setRenaming] = useState(false)
   const [changesOpen, setChangesOpen] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
+  const column = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  const [finding, setFinding] = useState(false)
+  // Far enough up a long chat that a way back to the latest message helps.
+  const [away, setAway] = useState(false)
 
   useEffect(() => {
     if (conversationId) void loadMessages(conversationId)
     stick.current = true
     setRenaming(false)
+    setFinding(false)
+    setAway(false)
   }, [conversationId])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f' || !scroller.current) return
+      e.preventDefault()
+      setFinding(true)
+      document.querySelector<HTMLInputElement>('[data-testid="find-input"]')?.select()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   const messages = useMemo(() => {
     const live = Object.values(streaming).filter((m) => m.conversationId === conversationId && !stored.some((s) => s.id === m.id))
@@ -547,9 +565,11 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
             onScroll={(e) => {
               const el = e.currentTarget
               stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+              setAway(el.scrollHeight - el.scrollTop - el.clientHeight > 600)
             }}
           >
-            <div className="column">
+            {finding && <FindBar root={column} onClose={() => setFinding(false)} />}
+            <div className="column" ref={column}>
               <MessageList messages={messages} focusId={focusMessageId} folder={folder} onRetry={retry} onSwitch={() => openSwitch()} onBranch={(id) => void branch(id)} onSecondOpinion={opinionFrom && !webChat ? secondOpinion : undefined} onEdit={busy ? undefined : editQuestion} />
               {conversation &&
                 approvals?.map((a) => (
@@ -581,6 +601,21 @@ export function ChatView({ conversationId, focusMessageId }: { conversationId?: 
           </div>
           <div className="composer-wrap" style={{ paddingBottom: 0 }}>
             <div className="composer-col">
+              {away && (
+                <button
+                  type="button"
+                  className="jump-latest"
+                  title="Go to the latest message"
+                  aria-label="Go to the latest message"
+                  data-testid="jump-latest"
+                  onClick={() => {
+                    stick.current = true
+                    scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' })
+                  }}
+                >
+                  ↓
+                </button>
+              )}
               {planMessage && planPinned(messages, planMessage) && <Plan steps={planMessage.plan!} live={busy} open testId="pinned-plan" />}
               {warning && conversation && !webChat && !dismissed[warningKey] && (
                 <div className={`banner ${warning.status === 'exhausted' ? 'exhausted' : ''}`} data-testid="limit-banner">

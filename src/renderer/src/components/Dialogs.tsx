@@ -7,7 +7,7 @@ import { formatTokens } from '@shared/tokens'
 import { headroom } from '@shared/usage'
 import { switchTarget } from '@shared/router'
 import { chatShown, openSearchHit, setState, toast, useUi } from '../state'
-import { Modal, ProviderDot, PROVIDERS, SourceTag } from './ui'
+import { Modal, ProviderDot, PROVIDERS } from './ui'
 import { whenAgo } from './ProjectView'
 
 function Snippet({ text }: { text: string }) {
@@ -93,7 +93,7 @@ export function SearchDialog() {
               <div className="hit-title">
                 {show === 'all' && c && <ProviderDot provider={c.source?.service ?? c.provider} size={14} />}
                 <span className="hit-name">{h.title}</span>
-                {h.source && <SourceTag service={h.source} />}
+                {h.source && <span className={`source-tag source-${h.source}`} title={`A chat from ${h.source === 'claude' ? 'claude.ai' : 'chatgpt.com'}`}>{h.source === 'claude' ? 'claude.ai' : 'chatgpt.com'}</span>}
                 {(h.matches ?? 0) > 1 ? <span className="hit-count">{h.matches} matches</span> : !query.trim() && <span className="hit-count">{whenAgo(h.createdAt)}</span>}
               </div>
               {h.snippet && (
@@ -242,6 +242,7 @@ export function ShortcutsBody({ mac }: { mac: boolean }) {
   const rows: [string, ReactNode][] = [
     ['New chat', keys(mod, 'N')],
     ['Search every chat', keys(mod, 'K')],
+    ['Find in this chat', keys(mod, 'F')],
     ['Previous chat in the sidebar', keys(mod, 'Shift', '[')],
     ['Next chat in the sidebar', keys(mod, 'Shift', ']')],
     ['Show or hide a code chat\'s changes', keys(mod, 'Shift', 'D')],
